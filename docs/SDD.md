@@ -152,6 +152,13 @@ rejects animation and unsupported formats, applies EXIF orientation, and re-enco
 to metadata-free JPEG (1600px maximum dimension, 5 MB input / 3 MB output limits).
 Display-name text is optional, normalized and length-limited.
 
+“Take a photo” opens `getUserMedia({video:true,audio:false})` directly instead of
+relying on the optional HTML file-input `capture` hint. Use default camera constraints,
+show an in-page preview and capture into a local JPEG. Never upload on capture. Stop
+all media tracks on capture, close, component unmount or route change. Permission
+denial, missing camera or unsupported secure context must remain visible and leave
+the image chooser/skip route available.
+
 Store objects in private `kalash-donation-photos` (asia-south1), uniform bucket-level
 access, public-access prevention, no soft-delete retention. The Cloud Run runtime
 service account has bucket-scoped objectAdmin for application reads/writes; project
@@ -175,6 +182,9 @@ API: `GET /api/photos/eligibility/:donationId`, `POST /api/photos`,
 public `GET /api/board/:templeId/photos` and same-origin image delivery at
 `GET /api/board/:templeId/photos/:id`. Public board and direct image requests do not
 use Firebase auth or GCS public access; every image request rechecks published state.
+Pilgrim entry points are confirmed-donation History, Collection → Photos and each
+temple detail’s “View community photo board” link. Post-publication links go directly
+to the relevant temple board.
 
 M3 cash controller/reconciliation, M4 fee/payout, and M5 onsite crypto remain required;
 their implementation is not implied by M1 code.

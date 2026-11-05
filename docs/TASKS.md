@@ -10,7 +10,7 @@
 - DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 - Integration, shared documents, Git and deployment owner: primary Agent.
 - Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: human selects a non-sensitive test image to verify mobile/desktop preview, explicit consent, public board and owner withdrawal. No new donation is needed.
+- Next action: deploy explicit `getUserMedia` camera capture and visible board links; then use authorized Android ADB to verify mobile connection/wallet/receive path. User has a published `temple-01` photo (size tier1, expires 2026-12-05); no image bytes or display name were logged. No new donation is needed for photo visibility.
 - Human requests: no M1 action remains. For M2, user confirmation is needed before publishing any real personal photo; paper-note attendance remains for M3.
 - Three test-process donations plus two normal MetaMask donations and mints are verified; all cash hardware outcomes remain unverified.
 
@@ -26,7 +26,7 @@
 | M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
 | M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
 | M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
-| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded; live revision `00007-dhb`, source `1bd067f`; real API7pass/0skip verifies synthetic consent/upload/replace/withdraw, GCS private bucket empty after test. Public board visually inspected: Lotus Courtyard empty state and navigation render correctly; blocked optional inline script reports CSP console warning, but no visible break. Remaining: user-chosen test image; temple/operator withdrawal auth not implemented |
+| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded; live revision `00007-dhb`, source `1bd067f`; real API7pass/0skip verifies synthetic consent/upload/replace/withdraw. Public board visually inspected and user photo verified published on temple-01. Camera file input opened chooser instead of camera; replacing with direct `getUserMedia` in-page capture and explicit stream cleanup. Remaining: deploy/retest camera on Android, mobile donation E2E, temple/operator withdrawal auth |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
 | M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
@@ -135,10 +135,16 @@
   and intact navigation. No visible UI defect; the optional inline Reown script remains
   blocked by strict CSP and reports one console error. Do not weaken CSP for telemetry.
   No open Dependabot alerts remain after the Sharp patch; `pnpm audit` reports zero.
-- Remaining: let the user choose a non-sensitive image for camera/file preview,
-  explicit consent, public display and
-  withdrawal. Temple/operator withdrawal authorization and cash-device photo intake
-  remain required parts of M2 integration; do not mark M2 complete yet.
+- User confirms photo registration. Firestore slot is `published`, size tier1, expiry
+  2026-12-05; matching private object exists and the public board lists exactly one
+  photo. No image bytes/name were read or logged.
+- Mobile device `RFGL41GKP0Z` is authorized (`device`), Samsung SM_S942Z, Android16,
+  1080x2340 and awake; foreground was Launcher. Chrome and MetaMask packages exist.
+  No wallet, camera permission, app data or payment was changed. Next: deploy camera
+  update, start Chrome via ADB, and stop at any wallet/camera permission prompt for
+  user approval. Mobile donation requires a fresh explicit wallet confirmation;
+  never replay the existing PC transaction. Temple/operator withdrawal auth and
+  cash-device photo intake remain; do not mark M2 complete.
 
 ## Submission
 

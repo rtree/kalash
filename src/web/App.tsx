@@ -1128,6 +1128,26 @@ function PhotoSharePanel({ donationId, eligibility, onUpload }: {
   const [published, setPublished] = useState<PhotoDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !cameraStream) return;
+    video.srcObject = cameraStream;
+    void video.play().catch(() => setError('Camera preview could not start. Close it or choose an image instead.'));
+    return () => {
+      video.pause();
+      video.srcObject = null;
+    };
+  }, [cameraStream]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!file) {
@@ -1138,6 +1158,63 @@ function PhotoSharePanel({ donationId, eligibility, onUpload }: {
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  const stopCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+  };
+
+  const startCamera = async () => {
+    setError('');
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setError('Camera access is unavailable in this browser. Choose an image instead.');
+      return;
+    }
+    setCameraBusy(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+    } catch (cause) {
+      const reason = cause instanceof DOMException && cause.name === 'NotAllowedError'
+        ? 'Camera permission was denied.'
+        : cause instanceof DOMException && cause.name === 'NotFoundError'
+          ? 'No camera was found.'
+          : 'Camera could not be opened.';
+      setError(`${reason} You can still choose an image from your device.`);
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const capturePhoto = async () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      setError('The camera is still starting. Try again in a moment.');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      setError('Could not prepare the camera image. Choose a file instead.');
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    if (!blob) {
+      setError('Could not capture the camera image. Try again or choose a file.');
+      return;
+    }
+    stopCamera();
+    selectImage(new File([blob], `kalash-photo-${Date.now()}.jpg`, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    }));
+  };
 
   const selectImage = (selected: File | undefined) => {
     setError('');
@@ -1181,7 +1258,7 @@ function PhotoSharePanel({ donationId, eligibility, onUpload }: {
       </div>
       {!eligibility ? <p className="field-help">Checking your verified photo size…</p> : (
         <>
-          {published && <div className="published-photo"><PhotoFrame photo={published} /><a href={published.imageUrl} target="_blank" rel="noreferrer">View public photo</a></div>}
+          {published && <div className="published-photo"><PhotoFrame photo={published} /><a className="button button-outline" href={`/board/${encodeURIComponent(published.templeId)}`}>View community board</a></div>}
           {previewUrl && <div className="photo-preview">
             <span className="field-label">Preview · only you can see this until you agree to publish</span>
             <PhotoFrame photo={{
@@ -1189,8 +1266,15 @@ function PhotoSharePanel({ donationId, eligibility, onUpload }: {
               sizeTier: eligibility.sizeTier, imageUrl: previewUrl, createdAt: '', expiresAt: '',
             }} />
           </div>}
+          {cameraStream && <div className="camera-preview-stage">
+            <video ref={videoRef} autoPlay playsInline muted aria-label="Live camera preview" />
+            <div className="camera-actions">
+              <button className="button button-primary" onClick={() => void capturePhoto()}>Take photo</button>
+              <button className="button button-outline" onClick={stopCamera}>Close camera</button>
+            </div>
+          </div>}
           <div className="photo-file-actions">
-            <label className="button button-secondary">Take a photo<input className="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => selectImage(event.currentTarget.files?.[0])} /></label>
+            {!cameraStream && <button className="button button-secondary" onClick={() => void startCamera()} disabled={cameraBusy}>{cameraBusy ? 'Opening camera…' : 'Take a photo'}</button>}
             <label className="button button-outline">Choose image<input className="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectImage(event.currentTarget.files?.[0])} /></label>
             {file && <button className="text-button" onClick={() => { setFile(null); setConsent(false); }}>Discard</button>}
           </div>
@@ -1261,6 +1345,7 @@ function CollectionPage(props: {
             <button role="tab" aria-selected={activeTab === 'stamps'} className={activeTab === 'stamps' ? 'tab-active' : ''} onClick={() => setActiveTab('stamps')}>Stamps</button>
             <button role="tab" aria-selected={activeTab === 'photos'} className={activeTab === 'photos' ? 'tab-active' : ''} onClick={() => setActiveTab('photos')}>Photos</button>
           </div>
+          {activeTab === 'photos' && <p className="photo-library-note">Your shared photos are managed here. To browse community photos, open a temple and choose “View community photo board”.</p>}
           {activeTab === 'stamps' ? (
             <>
               <StampBook title="Remote support" subtitle="A stamp for every successful online donation" temples={props.temples} counts={counts} emptyLabel="No remote stamps yet" />

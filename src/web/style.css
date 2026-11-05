@@ -206,6 +206,9 @@ h2 { color: #20342c; }
 .photo-consent { display: flex; align-items: flex-start; gap: 9px; margin: 10px 0 14px; color: #52635a; font-size: 11px; line-height: 1.5; }
 .photo-consent input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green); }
 .photo-preview, .published-photo { display: grid; justify-items: start; gap: 8px; margin: 14px 0; }
+.camera-preview-stage { display: grid; justify-items: center; gap: 10px; margin: 14px 0; }
+.camera-preview-stage video { width: min(100%, 420px); max-height: 60vh; aspect-ratio: 3 / 4; border-radius: 12px; background: #17211d; object-fit: cover; }
+.camera-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .photo-frame { position: relative; flex: 0 0 auto; max-width: 100%; margin: 0; padding: 7px; border: 2px solid #d8aa50; border-radius: 12px; background: linear-gradient(145deg, #fff8e9, #f8e6bb 50%, #fffaf0); box-shadow: 0 5px 16px rgba(89, 61, 17, .15); }
 .photo-ornament { margin: 0 0 5px; color: #9c6d18; text-align: center; font-size: 12px; letter-spacing: .12em; }
 .photo-frame img { display: block; width: 100%; aspect-ratio: 3 / 4; border-radius: 6px; background: #e7ece7; object-fit: cover; }
@@ -219,6 +222,7 @@ h2 { color: #20342c; }
 .photo-gallery-copy .button { min-height: 40px; padding: 0 11px; font-size: 11px; }
 .photo-gallery-copy .text-button { min-height: 36px; padding-left: 0; }
 .photo-board-page > h1 { margin: 8px 0; }
+.photo-library-note { max-width: 700px; margin: -8px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .board-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); align-items: start; justify-items: center; gap: 24px; margin-top: 25px; padding: 20px; border-radius: 15px; background: linear-gradient(135deg, #fff8e9, #f7f0df 45%, #fffaf2); }
 .board-photo-card { display: grid; justify-items: center; width: 100%; padding: 15px; border: 1px solid #ead8b4; border-radius: 12px; background: rgba(255,255,255,.82); box-shadow: 0 4px 13px rgba(47, 42, 28, .08); }
 .board-photo-card.size-tier-4 { padding: 10px; }
