@@ -64,7 +64,7 @@ h2 { color: #20342c; }
 .view-switch button.selected { background: white; color: var(--green); box-shadow: 0 1px 4px rgba(20, 53, 38, .12); }
 .map-frame { overflow: hidden; border: 1px solid #dfe5e1; border-radius: 14px; background: #e7ece7; }
 .map-canvas { position: relative; height: clamp(300px, 38vw, 430px); overflow: hidden; background: #e7ece7; isolation: isolate; }
-.map-tiles { position: absolute; inset: 0; z-index: -1; }
+.map-tiles { position: absolute; inset: 0; z-index: 0; }
 .map-tiles img { position: absolute; width: 256px; height: 256px; max-width: none; user-select: none; }
 .map-venue { position: absolute; z-index: 1; display: flex; align-items: center; gap: 5px; transform: translate(-50%, 14px); border-radius: 4px; padding: 3px 5px; white-space: nowrap; background: rgba(255,255,255,.92); box-shadow: 0 1px 4px rgba(0,0,0,.2); color: #37463d; font-size: 9px; pointer-events: none; }
 .map-venue span { width: 7px; height: 7px; border: 2px solid white; border-radius: 50%; background: #517e65; box-shadow: 0 0 0 1px #517e65; }

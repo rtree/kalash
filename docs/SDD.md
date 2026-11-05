@@ -111,3 +111,33 @@ verdict, policy fingerprint and SHA-256 lockfile hash. No age exclusions or hook
 
 M2 photos/consent/private storage, M3 cash controller/reconciliation, M4 fee/payout,
 M5 onsite crypto remain required. Their implementation is not implied by M1 code.
+
+## 7. Current implementation commands and client
+
+`pnpm run typecheck`, `pnpm run build`, `pnpm test` (Central must be running;
+mandatory API tests do not skip). `node scripts/bootstrap-temples.ts` registers
+ten immutable recipient records; existing mismatches fail rather than overwrite.
+Firestore client rules explicitly deny all reads/writes; only Central IAM writes.
+
+`node scripts/e2e-remote.mjs` resumes the persisted dedicated donor operation;
+`--new-donation` explicitly starts another capped .01 USDC operation. It is
+test-process signing, not a production browser signer. Central event lookup by
+donationId is tested without a transaction hash. Exact points are recomputed
+from confirmed donations in API tests, not merely checked for a positive total.
+
+React/Wagmi/AppKit client supports external injected MetaMask and WalletConnect.
+Optional Coinbase/Base/social/email/smart-wallet providers are disabled to keep
+the requested EOA route and avoid unsupported inline telemetry.
+No inline script permission is granted by CSP; required Reown API/font endpoints
+are explicitly allowed. Unknown wallet calls are never automatically reissued.
+
+Explore uses OpenStreetMap tiles with attribution and same-size demo temple pins.
+Venue coordinates19.0641916,72.8674424 verified from OSM Nominatim at16:36Z;
+temple points are fictional nearby locations, not real affiliations.
+UI uses fixed100INR/USDC; all actual ledger amounts stay integerUSDC units.
+
+Cloud image build: `cloudbuild.yaml` with explicit `_REVISION` tag; single Node26.13
+image serves all paths and loop. Runtime is one min/max instance, alwaysCPU.
+Before activating Cloud Run minter, local `MINT_ENABLED` is set false; lease still
+protects rollout overlaps. Canonical planned HTTPS origin:
+`https://kalash-central-548318651344.asia-south1.run.app`.
