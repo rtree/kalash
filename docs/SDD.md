@@ -163,6 +163,10 @@ does not authorize mainnet operations: switch to84532 before SIWE or test donati
 Human wallet consent is separate from the dedicated test-process wallet budget.
 User-triggered SIWE rejection/expiry is displayed as an explicit error, not an
 unhandled promise. Existing in-flight verification is not requested again.
+Firebase identity restoration is asynchronous: subscribe to onAuthStateChanged,
+wait through connector hydration, and match the Firebase wallet UID as well as the
+stored/current wallet. An initial missing provider must not clear a saved session.
+Reusable intents must match the selected amount in base units and be unexpired.
 Test-process E2E scripts are excluded from cloud and Docker build contexts.
 
 CLI entry detection must use `pathToFileURL(resolve(process.argv[1]))` on every
