@@ -58,11 +58,18 @@ Planned same-origin endpoints:
 - `POST /api/donations/:id/verify`: optional txHash hint, owner only; await verification.
 - `GET /api/donations/:id`, `GET /api/collection`, `GET /api/history`: owner only.
 
-Confirm canonical successful receipt, target, sender, calldata, chain and exact
-Donated event. Key chain/tx/log deterministically. Transactionally store donation,
-point increment and mint reservation once. Collection counts successful mints,
-deduplicated by donationId, grouped wallet/temple/kind; pending displayed separately.
-Event scan by donationId recovers missing hash without automatic donation resubmission.
+Confirm a canonical successful receipt on chain 84532 and the exact immutable
+DonationVault `Donated` event. For direct EOA transactions also require the expected
+sender, vault target and exact signed calldata. For delegated/account-abstraction
+transactions, the outer sender and target are not the donor or vault: require the
+receipt's exact donor/intent event plus the configured USDC contract's complete set
+of donor-originating transfers, matching the vault's on-chain fee recipient and the
+intent's fee/net destinations and amounts. Reject extra or mismatched donor transfers;
+never accept an outer sender, transaction target, event, or user-supplied hash alone.
+Key chain/tx/log deterministically. Transactionally store donation, point increment
+and mint reservation once. Collection counts successful mints, deduplicated by
+donationId, grouped wallet/temple/kind; pending displayed separately. Event scan by
+donationId recovers missing hash without automatic donation resubmission.
 
 ## 4. Contracts and persistence
 

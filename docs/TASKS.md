@@ -75,6 +75,22 @@
 - Actual public OSM map10pins and390px layout screenshot opened: artifacts/public-explore-map.png. Wallet balance screenshot was deleted after inspection; no secrets/QR credentials added to shared records.
 - Next action: deploy hydration fix, verify real authenticated reload, then execute the one explicitly authorized .01 donation and verify durable mint/Collection. Separate browser E2E must resolve only the proven never-submitted expired intent with an explicit guard before its one bounded new donation. No production signing key/public signer. M1 not complete; M2-M5 remain required.
 
+## M1 delegated receipt update
+
+- 2026-11-06T04:00+09:00: User shared Blockscout details for the already-paid
+  MetaMask transaction. Direct read-only Base Sepolia receipt verification confirms
+  outer `redeemDelegations` execution, status success, block54906036, exactly one
+  configured DonationVault `Donated` event for the existing donation ID and wallet,
+  amount10000/fee1/registered temple recipient, and exactly two donor-originating
+  configured USDC transfers (1 fee + 9999 temple). No second payment was sent.
+  Central direct-EOA assumptions were root cause. Local fix preserves strict direct
+  sender/target/calldata validation and adds delegated-path exact event + on-chain
+  fee-recipient + complete donor USDC-transfer verification before atomic idempotent
+  confirmation. Added three focused tests (3 pass, 0 skipped); typecheck passes.
+  Not yet deployed or reconciled in Firestore; next: include focused tests in image,
+  run cloud build gate, deploy and have owner verify this same tx/donation through
+  Central, then verify mint/Collection. Do not clear any records or resend.
+
 ## Submission
 
 Not complete. Commands, public addresses, evidence IDs, deployed revision and outstanding
