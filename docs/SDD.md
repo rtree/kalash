@@ -154,6 +154,10 @@ Wallet diagnostics expose at most100 sanitized entries in
 visibility/focus timestamps only, never addresses, URIs or signatures.
 Connection approval is not donation authorization, and AppKit connected is not
 silently treated as Wagmi connected.
+Mobile deep links and desktop WalletConnect QR are distinct connection routes;
+record the actual connector, scan and chain before any signing. Mainnet connection
+does not authorize mainnet operations: switch to84532 before SIWE or test donations.
+Human wallet consent is separate from the dedicated test-process wallet budget.
 
 CLI entry detection must use `pathToFileURL(resolve(process.argv[1]))` on every
 host. `tests/policy.test.mjs` verifies positive execution and a failing Node

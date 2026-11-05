@@ -6,11 +6,11 @@
 - Success: temple detail -> 0.01 test USDC -> Central durable verification -> real mint -> Collection reload.
 - Chain: Base Sepolia 84532 only; test tokens, not real-value settlement.
 - Running URL: https://kalash-central-548318651344.asia-south1.run.app/temples/temple-01
-- Cloud Run live revision `kalash-central-00002-dmb`, source `a03eb716b5799c8a4ac77017fddab469c64b4876`; local URL remains read/API-capable with MINT_ENABLED=false.
+- Cloud Run live revision `kalash-central-00003-z4g`, source `42048b56dbedafd97b88f314a1179ac7cea1135b`; local URL remains read/API-capable with MINT_ENABLED=false.
 - DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 - Integration, shared documents, Git and deployment owner: primary Agent.
 - Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: publish and browser-test provider availability fix; resolve actual MetaMask connection before calling M1 verified.
+- Next action: authorized Base Sepolia switch -> MetaMask SIWE -> exact .01 test USDC -> Collection reload. Real PC WalletConnect QR was scanned with MetaMask; both AppKit and Wagmi connected.
 - Human requests: none outstanding for initial funding/Reown/ADB; MetaMask and later paper-note attendance remain.
 - Three test-process donations and mints plus actual cloud deployment are verified; normal MetaMask donation and all cash hardware outcomes are not.
 
@@ -23,9 +23,9 @@
 | M1-wallets | M1 | Integrator: private wallet bootstrap | M1-entry | verified | New role wallets protected, public addresses/budgets provided and balances checked | 14 new wallets; actual RPC each funded role 0.1 ETH, donor/temple1 each 5 USDC. Budgets remain original .01/.003/.003/.001 ETH, donor .20 USDC despite excess balance |
 | M1-chain | M1 | Contract Agent: contracts, compile-contracts.mjs, contracts.test.mjs, contracts.abi.json | M1-entry, M1-wallets | verified | Limits, fees, authorization, duplicate defense tested; real deployment | Linux24pass including corrected policy CLI regression; actual deployment receipts and23 isolated chain assertions verified |
 | M1-api | M1 | Integrator: Central/Auth/Firestore | M1-entry | verified | Real authorization, intent, receipt, atomic persistence and mint verified locally and Cloud Run | Cloud7/local8tests0skip; 3real .01 donations/mints; exact points30000; real runtime SA signing/DB/secret and idle mint proven |
-| M1-ui | M1 | UI Agent batch complete; Integrator validates src/web/build | M1-api, M1-chain | doing | First detail/donate/Collection route reloads real results | Typecheck/build pass; 390px detail screenshot actually viewed; actual Android detail viewed; normal MetaMask browser donation pending |
-| M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | doing | Same commit HTTPS, SA, deep links, idle mint and policy verified | Builddd0c6ee9 succeeded, Linux24+2pass0skip; sourcea03eb716b579 deployed and health confirmed; live8tests0skip; provider routing fix next |
-| M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | doing | Real MetaMask path and reload; all M1 outcomes evidenced | Fresh canonical-origin AppKit connection approved after human unlock, still no Wagmi connection; injected provider bug identified; no normal MetaMask signature/payment yet |
+| M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/build validation | M1-api, M1-chain | doing | First detail/donate/Collection route reloads real results | Typecheck/build pass; actual Android canonical Connect MetaMask correctly falls back to AppKit; normal MetaMask browser donation pending |
+| M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Build19266bed succeeded, source42048b56dbed deployed/health confirmed; latest public8tests0skip; actual runtime SA/min1/max1/alwaysCPU verified |
+| M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | doing | Real MetaMask path and reload; all M1 outcomes evidenced | Human scanned PC WalletConnect QR in actual MetaMask; matching AppKit/Wagmi walletConnect connected, initially chain1. Human explicitly authorized Base84532 switch/SIWE/one .01 test USDC, exact approval .01, cumulative gas<=.001 test ETH; no mainnet transaction allowed |
 | M2 | M2 | Integrator: photos/board | M1-e2e | todo | Real save/consent/withdrawal and sizes verified | Not started |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
@@ -59,16 +59,17 @@
 
 ## Latest checkpoint
 
-- UTC2026-11-05T17:18Z, approximately83minutes. Tasks M1-deploy/M1-e2e; corrected Linux policy and sanitized diagnostics published; provider availability fix being integrated.
-- Live cloud `a03eb716b579` / revision00002-dmb, confirmed via public /api/health. Build `dd0c6ee9-b327-4f2d-8d0e-cbc28dbb20c9` succeeded; actual logs retained in artifacts/diagnostic-cloud-build.log. Linux24contract/policy tests and2production policy/money tests passed, zero skipped/failed. Public mandatory API+policy/money8tests passed, zero skipped/failed.
+- UTC2026-11-05T17:32:09Z, approximately97minutes. Tasks M1-ui/M1-e2e; actual QR wallet connection succeeded, donation still pending.
+- Live cloud `42048b56dbed` / revision00003-z4g, confirmed via public /api/health. Build `19266bed-15f3-4a51-99ca-b39a8a91b802` succeeded. Earlier corrected-gate build `dd0c6ee9-b327-4f2d-8d0e-cbc28dbb20c9` actual logs retained in artifacts/diagnostic-cloud-build.log: Linux24contract/policy and2production policy/money tests passed, zero skipped/failed. Latest public mandatory API+policy/money8tests passed, zero skipped/failed.
 - Third test-signer donation `0x9c0a6ff6bd393355d3487e448723267cc8d3059d73c992d930099a5a2feb3851`: tx `0x29a1f0634ddcc0b63f11fe8c05a212ae4f125a64c690ec34bd7942672788aded`, mint `0x61950fce41f468b4de637b0d1230540d8e537aca89021b5374309e946e8fbfb3`. Confirmed16:52:52.317; DB job mintedAt16:52:55.988; first client observation16:53:07.465. Cloud request logs show no app requests16:52:53-16:53:03. Exact total30000 point units; reload across hosts passed without resending.
 - Policy CLI used an incorrect file URL equality on Linux (`file:////...`), so direct CLI gate could be a no-op there despite explicit install restrictions. Fixed using pathToFileURL(resolve(argv1)); negative regression now passed in Linux and deployed. Current report539versions17:01:12Z.
 - Normal Chrome/WalletConnect: fresh canonical-origin connection approved after human unlock; Wagmi still disconnected. Sanitized Chrome logs identify relay WebSocket ERR_NAME_NOT_RESOLVED. OS DNS resolves both official relays; later unauthenticated Chrome WebSocket probes reached their authentication rejection (network reachable at probe time, not session success). Do not attribute this to CSP or credentials without further evidence.
-- The default Connect MetaMask button chose a registered injected connector even in Chrome without a provider, producing immediate Provider not found. Fixed selection to await actual provider presence and otherwise use configured AppKit. Local typecheck passed; same Android button must be retested after publication. No payment or SIWE has been requested.
+- The default Connect MetaMask button chose a registered injected connector even in Chrome without a provider, producing immediate Provider not found. Fixed selection to await actual provider presence and otherwise use configured AppKit. Typecheck passed; actual same Android button on source42048b5 now opens AppKit rather than failing.
+- New Android Chrome attempt4519e3d4 used metamask://wc (sanitized scheme/host only verified), but no connection request appeared after unlock; no blanket storage wipe or SDK change. PC integrated-browser QR alternative was offered, human selected it and explicitly confirmed actually scanning the QR with MetaMask. AppKit/Wagmi walletConnect connected at17:30:52Z, initially chain1; injectedMetaMask=false. QR credential itself is not photographed, logged or committed.
 - Separate MetaMask injected-browser deep link showed harmful-site warning. Honored Back to safety; no proceed-anyway or disabled protection. Static MetaMask public blacklist/allowlist hostname/suffix check returned no match; warning domain not proven from screen, so not declared a false positive. Exact browser navigation needs confirmation.
 - User added public canonical origin to Reown. Firebase already allows it. Remaining optional SDK inline analytics blocked by strict CSP, not silently allowed.
 - Actual public OSM map10pins and390px layout screenshot opened: artifacts/public-explore-map.png. Wallet balance screenshot was deleted after inspection; no secrets/QR credentials added to shared records.
-- Next action: publish provider routing fix, then bounded fresh phone connection at the canonical URL. M1 not complete; M2-M5 remain required.
+- Next action: switch only to Base Sepolia, SIWE, execute the one explicitly authorized .01 donation, verify durable mint and Collection reload. Separate test-only browser E2E is being implemented by UI Agent; no production signing key or public signer. M1 not complete; M2-M5 remain required.
 
 ## Submission
 
