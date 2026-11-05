@@ -90,6 +90,16 @@
   Not yet deployed or reconciled in Firestore; next: include focused tests in image,
   run cloud build gate, deploy and have owner verify this same tx/donation through
   Central, then verify mint/Collection. Do not clear any records or resend.
+- 2026-11-05T19:18Z: Fix `790575d` passed Cloud Build `f3e998a9-6fd2-4af7-949a-bf1dfceeca85`
+  (contract + image gates incl. donation-receipt tests) and real-Central API 6pass/0skip;
+  deployed revision `kalash-central-00005-mcx`, health sourceCommit verified.
+  Operator ran the same `verifyDonation` once for donation `0x52bf6750...99ea4` with tx
+  `0xbb22b84e...17da`: submitting -> confirmed, one mint job reserved, Cloud Run loop
+  minted tx `0xb848936a01bc7c3d25a93d60b5e8eedd95092a12d6c99bc9cdcbc68076f75b4b`
+  (block54922071, success), on-chain stamp balance 1, temple-01 points 10000 units for
+  that wallet. No data cleared, no resend. First normal MetaMask (delegated) donation
+  path is now verified end-to-end on chain/DB; remaining: human Collection/History
+  reload in browser, then a fresh MetaMask donation that Central confirms by itself.
 
 ## Submission
 
