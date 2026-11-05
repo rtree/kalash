@@ -1,0 +1,22 @@
+import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const version = '10.34.9';
+const response = await fetch('https://registry.npmjs.org/pnpm', { signal: AbortSignal.timeout(30000) });
+if (!response.ok) throw new Error(`pnpm metadata: ${response.status}`);
+const metadata = await response.json();
+const pkg = metadata.versions[version];
+if ((Date.now() - Date.parse(metadata.time[version])) / 60000 < 10080) throw new Error('pnpm too recent');
+if (!pkg?.dist?.integrity?.startsWith('sha512-')) throw new Error('Missing pnpm integrity');
+const archive = await fetch(pkg.dist.tarball, { signal: AbortSignal.timeout(60000) });
+if (!archive.ok) throw new Error(`pnpm archive: ${archive.status}`);
+const bytes = Buffer.from(await archive.arrayBuffer());
+const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+if (integrity !== pkg.dist.integrity) throw new Error('pnpm archive integrity mismatch');
+mkdirSync('.tooling/pnpm', { recursive: true });
+writeFileSync('.tooling/pnpm.tgz', bytes);
+execFileSync('tar', ['-xzf', '.tooling/pnpm.tgz', '--strip-components=1', '-C', '.tooling/pnpm']);
+symlinkSync(resolve('.tooling/pnpm/bin/pnpm.cjs'), '/usr/local/bin/pnpm');
+console.log(`Bootstrapped verified pnpm ${version} without npm or install scripts.`);

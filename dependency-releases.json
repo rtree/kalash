@@ -1,21 +1,15 @@
 {
-  "referenceUtc": "2026-11-05T16:09:32.425Z",
+  "referenceUtc": "2026-11-05T16:18:15.537Z",
   "registry": "https://registry.npmjs.org",
   "minimumAgeMinutes": 10080,
-  "lockfileSha256": "649fa39ccb6e91fd9826757621bddfabc9178be1636b21364457ccd3d5d38223",
-  "policySha256": "71169a9b834495db74abb8d831546ac7fbf5cd1c3de0ddaff822eca5c39d395d",
+  "lockfileSha256": "1a3757e32b82ff7c90a2322109d8f6bf5d883ada0e434da6f854a3179018e867",
+  "policySha256": "7fd64104b4b13a3674f192396d0cf0157c468ddc35b22a324927a98b39d21e7d",
   "passed": true,
   "packages": [
     {
       "name": "@adraffy/ens-normalize",
       "version": "1.11.1",
       "publishedUtc": "2025-09-18T19:40:31.258Z",
-      "passed": true
-    },
-    {
-      "name": "@babel/runtime",
-      "version": "7.29.10",
-      "publishedUtc": "2026-10-07T09:50:53.866Z",
       "passed": true
     },
     {
@@ -32,20 +26,8 @@
     },
     {
       "name": "@coinbase/wallet-sdk",
-      "version": "3.9.3",
-      "publishedUtc": "2024-03-12T21:17:50.074Z",
-      "passed": true
-    },
-    {
-      "name": "@coinbase/wallet-sdk",
       "version": "4.3.6",
       "publishedUtc": "2025-07-14T19:07:05.592Z",
-      "passed": true
-    },
-    {
-      "name": "@ecies/ciphers",
-      "version": "0.2.6",
-      "publishedUtc": "2026-03-31T18:16:21.279Z",
       "passed": true
     },
     {
@@ -205,30 +187,6 @@
       "passed": true
     },
     {
-      "name": "@ethereumjs/common",
-      "version": "3.2.0",
-      "publishedUtc": "2023-06-20T10:45:19.529Z",
-      "passed": true
-    },
-    {
-      "name": "@ethereumjs/rlp",
-      "version": "4.0.1",
-      "publishedUtc": "2023-02-21T08:35:14.332Z",
-      "passed": true
-    },
-    {
-      "name": "@ethereumjs/tx",
-      "version": "4.2.0",
-      "publishedUtc": "2023-06-20T11:00:50.525Z",
-      "passed": true
-    },
-    {
-      "name": "@ethereumjs/util",
-      "version": "8.1.0",
-      "publishedUtc": "2023-06-20T10:52:50.151Z",
-      "passed": true
-    },
-    {
       "name": "@fastify/busboy",
       "version": "3.2.4",
       "publishedUtc": "2026-10-22T00:17:36.568Z",
@@ -236,8 +194,8 @@
     },
     {
       "name": "@firebase/ai",
-      "version": "2.16.0",
-      "publishedUtc": "2026-09-09T19:11:10.956Z",
+      "version": "3.0.0",
+      "publishedUtc": "2026-10-07T19:20:42.649Z",
       "passed": true
     },
     {
@@ -284,8 +242,8 @@
     },
     {
       "name": "@firebase/app-compat",
-      "version": "0.5.18",
-      "publishedUtc": "2026-09-09T19:09:31.336Z",
+      "version": "0.5.20",
+      "publishedUtc": "2026-10-21T14:58:24.661Z",
       "passed": true
     },
     {
@@ -296,14 +254,14 @@
     },
     {
       "name": "@firebase/app",
-      "version": "0.16.2",
-      "publishedUtc": "2026-09-09T19:10:38.614Z",
+      "version": "0.16.4",
+      "publishedUtc": "2026-10-21T14:57:49.757Z",
       "passed": true
     },
     {
       "name": "@firebase/auth-compat",
-      "version": "0.6.11",
-      "publishedUtc": "2026-09-09T19:10:26.177Z",
+      "version": "0.6.13",
+      "publishedUtc": "2026-10-21T14:59:50.590Z",
       "passed": true
     },
     {
@@ -320,8 +278,8 @@
     },
     {
       "name": "@firebase/auth",
-      "version": "1.13.6",
-      "publishedUtc": "2026-09-09T19:13:57.412Z",
+      "version": "1.13.8",
+      "publishedUtc": "2026-10-21T14:58:11.999Z",
       "passed": true
     },
     {
@@ -356,8 +314,8 @@
     },
     {
       "name": "@firebase/firestore-compat",
-      "version": "0.4.14",
-      "publishedUtc": "2026-09-09T19:10:28.556Z",
+      "version": "0.4.16",
+      "publishedUtc": "2026-10-21T15:01:24.539Z",
       "passed": true
     },
     {
@@ -368,8 +326,8 @@
     },
     {
       "name": "@firebase/firestore",
-      "version": "4.17.2",
-      "publishedUtc": "2026-09-09T19:14:21.833Z",
+      "version": "4.19.0",
+      "publishedUtc": "2026-10-21T15:02:23.113Z",
       "passed": true
     },
     {
@@ -452,8 +410,8 @@
     },
     {
       "name": "@firebase/remote-config-compat",
-      "version": "0.2.29",
-      "publishedUtc": "2026-08-19T20:20:06.647Z",
+      "version": "0.2.30",
+      "publishedUtc": "2026-10-07T19:20:50.130Z",
       "passed": true
     },
     {
@@ -464,14 +422,14 @@
     },
     {
       "name": "@firebase/remote-config",
-      "version": "0.9.2",
-      "publishedUtc": "2026-08-19T20:20:00.821Z",
+      "version": "0.9.3",
+      "publishedUtc": "2026-10-07T19:22:30.960Z",
       "passed": true
     },
     {
       "name": "@firebase/storage-compat",
-      "version": "0.4.5",
-      "publishedUtc": "2026-08-19T20:19:44.050Z",
+      "version": "0.4.6",
+      "publishedUtc": "2026-10-07T19:22:20.055Z",
       "passed": true
     },
     {
@@ -482,8 +440,8 @@
     },
     {
       "name": "@firebase/storage",
-      "version": "0.14.5",
-      "publishedUtc": "2026-08-19T20:23:41.009Z",
+      "version": "0.14.6",
+      "publishedUtc": "2026-10-07T19:21:16.900Z",
       "passed": true
     },
     {
@@ -499,57 +457,51 @@
       "passed": true
     },
     {
-      "name": "@gemini-wallet/core",
-      "version": "0.3.2",
-      "publishedUtc": "2025-11-10T16:31:07.979Z",
+      "name": "@google-cloud/firestore-api",
+      "version": "0.2.0",
+      "publishedUtc": "2026-07-20T23:34:00.217Z",
       "passed": true
     },
     {
       "name": "@google-cloud/firestore",
-      "version": "7.11.6",
-      "publishedUtc": "2025-09-26T04:40:04.012Z",
+      "version": "9.4.0",
+      "publishedUtc": "2026-10-22T23:15:50.102Z",
       "passed": true
     },
     {
       "name": "@google-cloud/paginator",
-      "version": "5.0.2",
-      "publishedUtc": "2024-05-23T15:45:16.383Z",
+      "version": "7.2.0",
+      "publishedUtc": "2026-10-12T22:05:38.384Z",
       "passed": true
     },
     {
       "name": "@google-cloud/projectify",
-      "version": "4.0.0",
-      "publishedUtc": "2023-08-09T23:02:26.646Z",
+      "version": "6.2.1",
+      "publishedUtc": "2026-10-20T15:46:18.801Z",
       "passed": true
     },
     {
       "name": "@google-cloud/promisify",
-      "version": "4.0.0",
-      "publishedUtc": "2023-08-08T22:08:57.060Z",
+      "version": "6.2.1",
+      "publishedUtc": "2026-10-20T15:46:15.478Z",
       "passed": true
     },
     {
       "name": "@google-cloud/secret-manager",
-      "version": "6.3.0",
-      "publishedUtc": "2026-07-21T18:17:16.683Z",
+      "version": "7.2.0",
+      "publishedUtc": "2026-10-12T22:10:29.245Z",
       "passed": true
     },
     {
       "name": "@google-cloud/storage",
-      "version": "7.22.0",
-      "publishedUtc": "2026-08-11T00:34:52.979Z",
+      "version": "8.4.0",
+      "publishedUtc": "2026-10-09T00:33:42.672Z",
       "passed": true
     },
     {
       "name": "@grpc/grpc-js",
       "version": "1.14.7",
       "publishedUtc": "2026-10-29T15:19:51.944Z",
-      "passed": true
-    },
-    {
-      "name": "@grpc/grpc-js",
-      "version": "1.9.16",
-      "publishedUtc": "2026-05-20T17:23:22.050Z",
       "passed": true
     },
     {
@@ -565,9 +517,9 @@
       "passed": true
     },
     {
-      "name": "@isaacs/cliui",
-      "version": "8.0.2",
-      "publishedUtc": "2023-05-02T03:24:28.835Z",
+      "name": "@isaacs/nonrecursive-glob-match",
+      "version": "1.0.3",
+      "publishedUtc": "2026-10-28T19:50:48.349Z",
       "passed": true
     },
     {
@@ -595,132 +547,6 @@
       "passed": true
     },
     {
-      "name": "@metamask/eth-json-rpc-provider",
-      "version": "1.0.1",
-      "publishedUtc": "2023-07-24T12:27:22.241Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/json-rpc-engine",
-      "version": "7.3.3",
-      "publishedUtc": "2024-03-04T18:44:30.994Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/json-rpc-engine",
-      "version": "8.0.2",
-      "publishedUtc": "2024-05-01T13:38:37.249Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/json-rpc-middleware-stream",
-      "version": "7.0.2",
-      "publishedUtc": "2024-05-31T18:08:20.654Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/object-multiplex",
-      "version": "2.1.0",
-      "publishedUtc": "2024-10-14T20:14:54.510Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/onboarding",
-      "version": "1.0.1",
-      "publishedUtc": "2021-06-10T19:27:31.211Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/providers",
-      "version": "16.1.0",
-      "publishedUtc": "2024-05-01T17:22:37.837Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/rpc-errors",
-      "version": "6.4.0",
-      "publishedUtc": "2024-09-27T19:16:41.633Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/rpc-errors",
-      "version": "7.0.2",
-      "publishedUtc": "2024-12-16T12:28:31.908Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/safe-event-emitter",
-      "version": "2.0.0",
-      "publishedUtc": "2020-09-22T14:18:32.089Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/safe-event-emitter",
-      "version": "3.1.3",
-      "publishedUtc": "2026-08-26T10:06:54.603Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/scure-bip39",
-      "version": "2.1.1",
-      "publishedUtc": "2023-10-03T12:22:54.862Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/sdk-analytics",
-      "version": "0.0.5",
-      "publishedUtc": "2025-05-21T15:29:18.845Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/sdk-communication-layer",
-      "version": "0.33.1",
-      "publishedUtc": "2025-09-11T13:19:21.822Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/sdk-install-modal-web",
-      "version": "0.32.1",
-      "publishedUtc": "2025-03-04T21:57:41.658Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/sdk",
-      "version": "0.33.1",
-      "publishedUtc": "2025-09-11T13:19:14.322Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/superstruct",
-      "version": "3.4.1",
-      "publishedUtc": "2026-07-16T17:49:08.399Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/utils",
-      "version": "11.12.1",
-      "publishedUtc": "2026-09-03T15:01:08.452Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/utils",
-      "version": "5.0.2",
-      "publishedUtc": "2023-04-25T12:05:04.131Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/utils",
-      "version": "8.5.0",
-      "publishedUtc": "2024-06-06T17:50:32.578Z",
-      "passed": true
-    },
-    {
-      "name": "@metamask/utils",
-      "version": "9.3.0",
-      "publishedUtc": "2024-10-09T14:11:15.397Z",
-      "passed": true
-    },
-    {
       "name": "@msgpack/msgpack",
       "version": "3.1.3",
       "publishedUtc": "2025-12-26T06:55:23.115Z",
@@ -736,12 +562,6 @@
       "name": "@noble/ciphers",
       "version": "1.3.0",
       "publishedUtc": "2025-04-24T17:04:06.305Z",
-      "passed": true
-    },
-    {
-      "name": "@noble/curves",
-      "version": "1.4.2",
-      "publishedUtc": "2024-07-01T15:29:19.878Z",
       "passed": true
     },
     {
@@ -766,12 +586,6 @@
       "name": "@noble/curves",
       "version": "1.9.7",
       "publishedUtc": "2025-08-15T14:38:36.878Z",
-      "passed": true
-    },
-    {
-      "name": "@noble/hashes",
-      "version": "1.3.3",
-      "publishedUtc": "2023-12-11T23:07:42.304Z",
       "passed": true
     },
     {
@@ -817,21 +631,9 @@
       "passed": true
     },
     {
-      "name": "@paulmillr/qr",
-      "version": "0.2.1",
-      "publishedUtc": "2024-10-01T22:40:55.132Z",
-      "passed": true
-    },
-    {
       "name": "@phosphor-icons/webcomponents",
       "version": "2.1.5",
       "publishedUtc": "2024-06-29T07:13:30.476Z",
-      "passed": true
-    },
-    {
-      "name": "@pkgjs/parseargs",
-      "version": "0.11.0",
-      "publishedUtc": "2022-10-10T14:18:44.810Z",
       "passed": true
     },
     {
@@ -1022,20 +824,8 @@
     },
     {
       "name": "@scure/base",
-      "version": "1.1.9",
-      "publishedUtc": "2024-09-18T05:06:38.540Z",
-      "passed": true
-    },
-    {
-      "name": "@scure/base",
       "version": "1.2.6",
       "publishedUtc": "2025-05-29T19:44:58.974Z",
-      "passed": true
-    },
-    {
-      "name": "@scure/bip32",
-      "version": "1.4.0",
-      "publishedUtc": "2024-03-20T14:36:36.589Z",
       "passed": true
     },
     {
@@ -1052,12 +842,6 @@
     },
     {
       "name": "@scure/bip39",
-      "version": "1.3.0",
-      "publishedUtc": "2024-03-24T11:37:36.266Z",
-      "passed": true
-    },
-    {
-      "name": "@scure/bip39",
       "version": "1.5.4",
       "publishedUtc": "2025-01-18T10:22:12.557Z",
       "passed": true
@@ -1066,12 +850,6 @@
       "name": "@scure/bip39",
       "version": "1.6.0",
       "publishedUtc": "2025-04-24T15:34:55.651Z",
-      "passed": true
-    },
-    {
-      "name": "@socket.io/component-emitter",
-      "version": "3.1.2",
-      "publishedUtc": "2024-04-26T05:32:17.630Z",
       "passed": true
     },
     {
@@ -1333,12 +1111,6 @@
       "passed": true
     },
     {
-      "name": "@tootallnate/once",
-      "version": "2.0.1",
-      "publishedUtc": "2026-05-03T18:05:21.169Z",
-      "passed": true
-    },
-    {
       "name": "@trufflesuite/uws-js-unofficial",
       "version": "20.30.0-unofficial.0",
       "publishedUtc": "2023-06-29T19:34:36.253Z",
@@ -1351,33 +1123,9 @@
       "passed": true
     },
     {
-      "name": "@types/caseless",
-      "version": "0.12.5",
-      "publishedUtc": "2023-11-07T00:21:20.176Z",
-      "passed": true
-    },
-    {
-      "name": "@types/debug",
-      "version": "4.1.13",
-      "publishedUtc": "2026-03-19T06:47:23.938Z",
-      "passed": true
-    },
-    {
       "name": "@types/jsonwebtoken",
       "version": "9.0.10",
       "publishedUtc": "2025-06-16T07:36:00.187Z",
-      "passed": true
-    },
-    {
-      "name": "@types/lodash",
-      "version": "4.17.27",
-      "publishedUtc": "2026-10-21T15:41:18.542Z",
-      "passed": true
-    },
-    {
-      "name": "@types/long",
-      "version": "4.0.2",
-      "publishedUtc": "2022-04-26T19:32:18.718Z",
       "passed": true
     },
     {
@@ -1411,21 +1159,9 @@
       "passed": true
     },
     {
-      "name": "@types/request",
-      "version": "2.48.13",
-      "publishedUtc": "2025-07-28T22:02:22.810Z",
-      "passed": true
-    },
-    {
       "name": "@types/seedrandom",
       "version": "3.0.1",
       "publishedUtc": "2021-07-06T16:52:23.060Z",
-      "passed": true
-    },
-    {
-      "name": "@types/tough-cookie",
-      "version": "4.0.5",
-      "publishedUtc": "2023-11-07T20:48:15.280Z",
       "passed": true
     },
     {
@@ -1436,20 +1172,8 @@
     },
     {
       "name": "@wagmi/connectors",
-      "version": "6.2.0",
-      "publishedUtc": "2025-11-19T18:55:24.875Z",
-      "passed": true
-    },
-    {
-      "name": "@wagmi/connectors",
       "version": "8.2.2",
       "publishedUtc": "2026-10-21T02:35:17.743Z",
-      "passed": true
-    },
-    {
-      "name": "@wagmi/core",
-      "version": "2.22.1",
-      "publishedUtc": "2025-10-14T14:35:22.399Z",
       "passed": true
     },
     {
@@ -1729,21 +1453,9 @@
       "passed": true
     },
     {
-      "name": "ansi-regex",
-      "version": "6.5.0",
-      "publishedUtc": "2026-10-29T13:35:20.896Z",
-      "passed": true
-    },
-    {
       "name": "ansi-styles",
       "version": "4.3.0",
       "publishedUtc": "2020-10-04T19:18:25.986Z",
-      "passed": true
-    },
-    {
-      "name": "ansi-styles",
-      "version": "6.2.3",
-      "publishedUtc": "2025-09-08T14:52:15.705Z",
       "passed": true
     },
     {
@@ -1759,21 +1471,9 @@
       "passed": true
     },
     {
-      "name": "arrify",
-      "version": "2.0.1",
-      "publishedUtc": "2019-04-09T07:49:17.644Z",
-      "passed": true
-    },
-    {
       "name": "async-eventemitter",
       "version": "0.2.4",
       "publishedUtc": "2017-09-23T08:13:51.080Z",
-      "passed": true
-    },
-    {
-      "name": "async-mutex",
-      "version": "0.2.6",
-      "publishedUtc": "2020-11-27T23:27:53.454Z",
       "passed": true
     },
     {
@@ -1801,12 +1501,6 @@
       "passed": true
     },
     {
-      "name": "available-typed-arrays",
-      "version": "1.0.7",
-      "publishedUtc": "2024-02-19T23:54:30.736Z",
-      "passed": true
-    },
-    {
       "name": "axios-retry",
       "version": "4.5.0",
       "publishedUtc": "2024-08-02T06:52:14.405Z",
@@ -1820,8 +1514,8 @@
     },
     {
       "name": "balanced-match",
-      "version": "1.0.2",
-      "publishedUtc": "2021-04-06T12:51:09.276Z",
+      "version": "4.0.4",
+      "publishedUtc": "2026-02-22T11:38:25.951Z",
       "passed": true
     },
     {
@@ -1855,21 +1549,9 @@
       "passed": true
     },
     {
-      "name": "bn.js",
-      "version": "5.2.5",
-      "publishedUtc": "2026-07-09T04:35:21.577Z",
-      "passed": true
-    },
-    {
-      "name": "bowser",
-      "version": "2.15.0",
-      "publishedUtc": "2026-10-26T20:06:27.699Z",
-      "passed": true
-    },
-    {
       "name": "brace-expansion",
-      "version": "2.1.7",
-      "publishedUtc": "2026-09-14T22:02:58.810Z",
+      "version": "5.0.12",
+      "publishedUtc": "2026-09-14T21:59:00.288Z",
       "passed": true
     },
     {
@@ -1903,27 +1585,9 @@
       "passed": true
     },
     {
-      "name": "bufferutil",
-      "version": "4.1.0",
-      "publishedUtc": "2025-12-18T16:24:21.551Z",
-      "passed": true
-    },
-    {
       "name": "call-bind-apply-helpers",
       "version": "1.0.2",
       "publishedUtc": "2025-02-12T19:24:56.950Z",
-      "passed": true
-    },
-    {
-      "name": "call-bind",
-      "version": "1.0.9",
-      "publishedUtc": "2026-04-09T15:38:08.274Z",
-      "passed": true
-    },
-    {
-      "name": "call-bound",
-      "version": "1.0.4",
-      "publishedUtc": "2025-03-03T17:50:03.505Z",
       "passed": true
     },
     {
@@ -2017,33 +1681,9 @@
       "passed": true
     },
     {
-      "name": "core-util-is",
-      "version": "1.0.3",
-      "publishedUtc": "2021-08-31T14:35:36.995Z",
-      "passed": true
-    },
-    {
-      "name": "crc-32",
-      "version": "1.2.2",
-      "publishedUtc": "2022-04-04T23:05:52.784Z",
-      "passed": true
-    },
-    {
       "name": "cross-fetch",
       "version": "3.2.0",
       "publishedUtc": "2024-12-21T15:24:38.692Z",
-      "passed": true
-    },
-    {
-      "name": "cross-fetch",
-      "version": "4.1.0",
-      "publishedUtc": "2024-12-21T15:03:07.027Z",
-      "passed": true
-    },
-    {
-      "name": "cross-spawn",
-      "version": "7.0.6",
-      "publishedUtc": "2024-11-18T13:59:52.129Z",
       "passed": true
     },
     {
@@ -2071,21 +1711,9 @@
       "passed": true
     },
     {
-      "name": "date-fns",
-      "version": "2.30.0",
-      "publishedUtc": "2023-04-30T02:49:47.228Z",
-      "passed": true
-    },
-    {
       "name": "dayjs",
       "version": "1.11.13",
       "publishedUtc": "2024-08-20T14:59:52.917Z",
-      "passed": true
-    },
-    {
-      "name": "debug",
-      "version": "4.3.4",
-      "publishedUtc": "2022-03-17T13:38:47.641Z",
       "passed": true
     },
     {
@@ -2102,14 +1730,8 @@
     },
     {
       "name": "decode-uri-component",
-      "version": "0.2.2",
-      "publishedUtc": "2022-12-01T18:22:59.105Z",
-      "passed": true
-    },
-    {
-      "name": "define-data-property",
-      "version": "1.1.4",
-      "publishedUtc": "2024-02-13T16:56:02.666Z",
+      "version": "0.5.1",
+      "publishedUtc": "2026-10-23T12:48:46.830Z",
       "passed": true
     },
     {
@@ -2161,21 +1783,9 @@
       "passed": true
     },
     {
-      "name": "eastasianwidth",
-      "version": "0.2.0",
-      "publishedUtc": "2018-01-01T09:26:07.460Z",
-      "passed": true
-    },
-    {
       "name": "ecdsa-sig-formatter",
       "version": "1.0.11",
       "publishedUtc": "2019-01-25T21:32:13.447Z",
-      "passed": true
-    },
-    {
-      "name": "eciesjs",
-      "version": "0.4.18",
-      "publishedUtc": "2026-03-09T08:00:25.644Z",
       "passed": true
     },
     {
@@ -2191,12 +1801,6 @@
       "passed": true
     },
     {
-      "name": "emoji-regex",
-      "version": "9.2.2",
-      "publishedUtc": "2021-03-02T10:58:09.319Z",
-      "passed": true
-    },
-    {
       "name": "encode-utf8",
       "version": "1.0.3",
       "publishedUtc": "2020-03-30T17:33:30.934Z",
@@ -2206,18 +1810,6 @@
       "name": "end-of-stream",
       "version": "1.4.5",
       "publishedUtc": "2025-06-16T13:29:00.574Z",
-      "passed": true
-    },
-    {
-      "name": "engine.io-client",
-      "version": "6.6.7",
-      "publishedUtc": "2026-09-25T08:01:25.494Z",
-      "passed": true
-    },
-    {
-      "name": "engine.io-parser",
-      "version": "5.2.3",
-      "publishedUtc": "2024-07-11T11:59:23.452Z",
       "passed": true
     },
     {
@@ -2269,57 +1861,15 @@
       "passed": true
     },
     {
-      "name": "eth-block-tracker",
-      "version": "7.1.0",
-      "publishedUtc": "2023-07-12T12:53:13.180Z",
-      "passed": true
-    },
-    {
-      "name": "eth-json-rpc-filters",
-      "version": "6.0.1",
-      "publishedUtc": "2023-09-22T21:51:37.728Z",
-      "passed": true
-    },
-    {
-      "name": "eth-query",
-      "version": "2.1.2",
-      "publishedUtc": "2017-06-15T00:30:58.765Z",
-      "passed": true
-    },
-    {
-      "name": "eth-rpc-errors",
-      "version": "4.0.3",
-      "publishedUtc": "2021-03-11T05:24:29.894Z",
-      "passed": true
-    },
-    {
-      "name": "ethereum-cryptography",
-      "version": "2.2.1",
-      "publishedUtc": "2024-07-01T15:39:03.498Z",
-      "passed": true
-    },
-    {
       "name": "event-target-shim",
       "version": "5.0.1",
       "publishedUtc": "2019-02-19T06:00:52.075Z",
       "passed": true
     },
     {
-      "name": "eventemitter2",
-      "version": "6.4.9",
-      "publishedUtc": "2022-09-12T17:46:58.809Z",
-      "passed": true
-    },
-    {
       "name": "eventemitter3",
       "version": "5.0.1",
       "publishedUtc": "2023-04-30T19:49:14.500Z",
-      "passed": true
-    },
-    {
-      "name": "eventemitter3",
-      "version": "5.0.4",
-      "publishedUtc": "2026-01-19T15:08:56.257Z",
       "passed": true
     },
     {
@@ -2335,18 +1885,6 @@
       "passed": true
     },
     {
-      "name": "extension-port-stream",
-      "version": "3.0.0",
-      "publishedUtc": "2023-10-27T04:17:23.917Z",
-      "passed": true
-    },
-    {
-      "name": "farmhash-modern",
-      "version": "1.1.0",
-      "publishedUtc": "2023-06-29T15:03:44.546Z",
-      "passed": true
-    },
-    {
       "name": "fast-deep-equal",
       "version": "3.1.3",
       "publishedUtc": "2020-06-08T07:27:28.474Z",
@@ -2356,12 +1894,6 @@
       "name": "fast-redact",
       "version": "3.5.0",
       "publishedUtc": "2024-03-19T18:26:46.581Z",
-      "passed": true
-    },
-    {
-      "name": "fast-safe-stringify",
-      "version": "2.1.1",
-      "publishedUtc": "2021-09-08T07:19:16.545Z",
       "passed": true
     },
     {
@@ -2402,38 +1934,20 @@
     },
     {
       "name": "firebase-admin",
-      "version": "13.10.0",
-      "publishedUtc": "2026-05-14T20:48:47.615Z",
+      "version": "14.5.0",
+      "publishedUtc": "2026-09-23T20:46:35.212Z",
       "passed": true
     },
     {
       "name": "firebase",
-      "version": "12.19.0",
-      "publishedUtc": "2026-09-09T19:20:03.458Z",
+      "version": "13.1.0",
+      "publishedUtc": "2026-10-21T15:03:52.504Z",
       "passed": true
     },
     {
       "name": "follow-redirects",
       "version": "1.16.2",
       "publishedUtc": "2026-10-25T21:32:25.963Z",
-      "passed": true
-    },
-    {
-      "name": "for-each",
-      "version": "0.3.5",
-      "publishedUtc": "2025-02-11T06:56:03.350Z",
-      "passed": true
-    },
-    {
-      "name": "foreground-child",
-      "version": "3.3.1",
-      "publishedUtc": "2025-02-24T16:47:52.413Z",
-      "passed": true
-    },
-    {
-      "name": "form-data",
-      "version": "2.5.6",
-      "publishedUtc": "2026-06-12T17:39:55.670Z",
       "passed": true
     },
     {
@@ -2468,12 +1982,6 @@
     },
     {
       "name": "gaxios",
-      "version": "6.7.1",
-      "publishedUtc": "2024-08-13T21:48:17.716Z",
-      "passed": true
-    },
-    {
-      "name": "gaxios",
       "version": "7.1.3",
       "publishedUtc": "2025-10-30T18:50:21.801Z",
       "passed": true
@@ -2485,15 +1993,9 @@
       "passed": true
     },
     {
-      "name": "gcp-metadata",
-      "version": "6.1.1",
-      "publishedUtc": "2025-01-30T20:56:31.769Z",
-      "passed": true
-    },
-    {
-      "name": "gcp-metadata",
-      "version": "8.1.2",
-      "publishedUtc": "2025-10-30T17:03:27.815Z",
+      "name": "gaxios",
+      "version": "8.3.2",
+      "publishedUtc": "2026-10-23T17:59:48.868Z",
       "passed": true
     },
     {
@@ -2503,9 +2005,9 @@
       "passed": true
     },
     {
-      "name": "generator-function",
-      "version": "2.0.1",
-      "publishedUtc": "2025-09-30T18:23:33.207Z",
+      "name": "gcp-metadata",
+      "version": "9.2.3",
+      "publishedUtc": "2026-10-29T00:18:01.717Z",
       "passed": true
     },
     {
@@ -2528,8 +2030,8 @@
     },
     {
       "name": "glob",
-      "version": "10.5.0",
-      "publishedUtc": "2025-11-18T01:34:51.120Z",
+      "version": "14.0.3",
+      "publishedUtc": "2026-10-28T04:08:39.624Z",
       "passed": true
     },
     {
@@ -2540,20 +2042,8 @@
     },
     {
       "name": "google-auth-library",
-      "version": "10.9.1",
-      "publishedUtc": "2026-07-23T22:40:11.167Z",
-      "passed": true
-    },
-    {
-      "name": "google-auth-library",
-      "version": "9.15.1",
-      "publishedUtc": "2025-01-24T16:30:40.365Z",
-      "passed": true
-    },
-    {
-      "name": "google-gax",
-      "version": "4.6.1",
-      "publishedUtc": "2025-05-15T17:19:13.119Z",
+      "version": "11.3.2",
+      "publishedUtc": "2026-10-29T00:16:22.100Z",
       "passed": true
     },
     {
@@ -2563,9 +2053,9 @@
       "passed": true
     },
     {
-      "name": "google-logging-utils",
-      "version": "0.0.2",
-      "publishedUtc": "2024-11-22T21:31:55.635Z",
+      "name": "google-gax",
+      "version": "6.14.0",
+      "publishedUtc": "2026-10-29T00:17:30.134Z",
       "passed": true
     },
     {
@@ -2575,15 +2065,15 @@
       "passed": true
     },
     {
-      "name": "gopd",
-      "version": "1.2.0",
-      "publishedUtc": "2024-12-04T16:21:52.727Z",
+      "name": "google-logging-utils",
+      "version": "2.1.1",
+      "publishedUtc": "2026-10-29T00:20:38.211Z",
       "passed": true
     },
     {
-      "name": "gtoken",
-      "version": "7.1.0",
-      "publishedUtc": "2024-02-01T19:53:25.109Z",
+      "name": "gopd",
+      "version": "1.2.0",
+      "publishedUtc": "2024-12-04T16:21:52.727Z",
       "passed": true
     },
     {
@@ -2596,12 +2086,6 @@
       "name": "h3",
       "version": "1.15.11",
       "publishedUtc": "2026-04-01T17:06:09.317Z",
-      "passed": true
-    },
-    {
-      "name": "has-property-descriptors",
-      "version": "1.0.2",
-      "publishedUtc": "2024-02-13T05:21:47.659Z",
       "passed": true
     },
     {
@@ -2623,12 +2107,6 @@
       "passed": true
     },
     {
-      "name": "hono",
-      "version": "4.13.14",
-      "publishedUtc": "2026-10-25T07:19:30.732Z",
-      "passed": true
-    },
-    {
       "name": "html-entities",
       "version": "2.6.0",
       "publishedUtc": "2025-03-30T15:40:10.885Z",
@@ -2638,12 +2116,6 @@
       "name": "http-parser-js",
       "version": "0.5.10",
       "publishedUtc": "2025-04-08T14:12:27.703Z",
-      "passed": true
-    },
-    {
-      "name": "http-proxy-agent",
-      "version": "5.0.0",
-      "publishedUtc": "2021-09-23T00:35:50.066Z",
       "passed": true
     },
     {
@@ -2701,12 +2173,6 @@
       "passed": true
     },
     {
-      "name": "is-arguments",
-      "version": "1.2.0",
-      "publishedUtc": "2024-12-13T07:05:22.707Z",
-      "passed": true
-    },
-    {
       "name": "is-buffer",
       "version": "1.1.6",
       "publishedUtc": "2017-10-25T21:36:28.871Z",
@@ -2719,27 +2185,9 @@
       "passed": true
     },
     {
-      "name": "is-callable",
-      "version": "1.2.7",
-      "publishedUtc": "2022-09-23T22:49:39.970Z",
-      "passed": true
-    },
-    {
       "name": "is-fullwidth-code-point",
       "version": "3.0.0",
       "publishedUtc": "2019-03-18T08:09:05.035Z",
-      "passed": true
-    },
-    {
-      "name": "is-generator-function",
-      "version": "1.1.2",
-      "publishedUtc": "2025-09-30T18:41:14.522Z",
-      "passed": true
-    },
-    {
-      "name": "is-regex",
-      "version": "1.2.1",
-      "publishedUtc": "2024-12-12T05:44:07.833Z",
       "passed": true
     },
     {
@@ -2749,39 +2197,9 @@
       "passed": true
     },
     {
-      "name": "is-stream",
-      "version": "2.0.1",
-      "publishedUtc": "2021-07-26T10:51:04.495Z",
-      "passed": true
-    },
-    {
-      "name": "is-typed-array",
-      "version": "1.1.15",
-      "publishedUtc": "2024-12-18T17:20:07.320Z",
-      "passed": true
-    },
-    {
       "name": "is-unsafe",
       "version": "2.0.2",
       "publishedUtc": "2026-08-19T12:35:19.774Z",
-      "passed": true
-    },
-    {
-      "name": "isarray",
-      "version": "1.0.0",
-      "publishedUtc": "2015-12-10T10:05:07.067Z",
-      "passed": true
-    },
-    {
-      "name": "isarray",
-      "version": "2.0.5",
-      "publishedUtc": "2019-07-08T13:21:22.377Z",
-      "passed": true
-    },
-    {
-      "name": "isexe",
-      "version": "2.0.0",
-      "publishedUtc": "2017-03-23T00:53:16.356Z",
       "passed": true
     },
     {
@@ -2794,18 +2212,6 @@
       "name": "isows",
       "version": "1.0.7",
       "publishedUtc": "2025-05-13T19:37:19.715Z",
-      "passed": true
-    },
-    {
-      "name": "jackspeak",
-      "version": "3.4.3",
-      "publishedUtc": "2024-07-10T15:50:20.040Z",
-      "passed": true
-    },
-    {
-      "name": "jose",
-      "version": "4.15.9",
-      "publishedUtc": "2024-07-03T07:15:15.378Z",
       "passed": true
     },
     {
@@ -2827,18 +2233,6 @@
       "passed": true
     },
     {
-      "name": "json-rpc-engine",
-      "version": "6.1.0",
-      "publishedUtc": "2020-11-20T17:16:59.678Z",
-      "passed": true
-    },
-    {
-      "name": "json-rpc-random-id",
-      "version": "1.0.1",
-      "publishedUtc": "2017-04-04T19:40:48.826Z",
-      "passed": true
-    },
-    {
       "name": "jsonwebtoken",
       "version": "9.0.3",
       "publishedUtc": "2025-12-04T10:27:57.257Z",
@@ -2852,20 +2246,14 @@
     },
     {
       "name": "jwks-rsa",
-      "version": "3.2.2",
-      "publishedUtc": "2026-01-23T12:10:33.976Z",
+      "version": "4.1.0",
+      "publishedUtc": "2026-06-19T08:33:57.854Z",
       "passed": true
     },
     {
       "name": "jws",
       "version": "4.0.1",
       "publishedUtc": "2025-12-04T08:52:29.218Z",
-      "passed": true
-    },
-    {
-      "name": "keccak",
-      "version": "3.0.4",
-      "publishedUtc": "2023-09-20T07:49:58.718Z",
       "passed": true
     },
     {
@@ -2996,26 +2384,14 @@
     },
     {
       "name": "lru-cache",
-      "version": "10.4.3",
-      "publishedUtc": "2024-07-09T17:20:52.211Z",
-      "passed": true
-    },
-    {
-      "name": "lru-cache",
       "version": "11.5.3",
       "publishedUtc": "2026-09-18T23:46:33.023Z",
       "passed": true
     },
     {
-      "name": "lru-cache",
-      "version": "6.0.0",
-      "publishedUtc": "2020-07-11T00:59:07.352Z",
-      "passed": true
-    },
-    {
       "name": "lru-memoizer",
-      "version": "2.3.0",
-      "publishedUtc": "2024-05-15T15:27:28.731Z",
+      "version": "3.0.0",
+      "publishedUtc": "2024-10-14T13:55:35.132Z",
       "passed": true
     },
     {
@@ -3034,12 +2410,6 @@
       "name": "memorystream",
       "version": "0.3.1",
       "publishedUtc": "2015-03-04T22:29:35.936Z",
-      "passed": true
-    },
-    {
-      "name": "micro-ftch",
-      "version": "0.3.1",
-      "publishedUtc": "2021-07-08T04:10:57.976Z",
       "passed": true
     },
     {
@@ -3062,8 +2432,8 @@
     },
     {
       "name": "minimatch",
-      "version": "9.0.9",
-      "publishedUtc": "2026-02-26T19:32:47.083Z",
+      "version": "11.0.3",
+      "publishedUtc": "2026-10-28T20:00:34.713Z",
       "passed": true
     },
     {
@@ -3086,12 +2456,6 @@
     },
     {
       "name": "ms",
-      "version": "2.1.2",
-      "publishedUtc": "2019-06-06T17:31:55.859Z",
-      "passed": true
-    },
-    {
-      "name": "ms",
       "version": "2.1.3",
       "publishedUtc": "2020-12-08T13:54:35.223Z",
       "passed": true
@@ -3100,12 +2464,6 @@
       "name": "multiformats",
       "version": "9.9.0",
       "publishedUtc": "2022-09-20T04:18:34.158Z",
-      "passed": true
-    },
-    {
-      "name": "node-addon-api",
-      "version": "2.0.2",
-      "publishedUtc": "2020-07-01T14:44:17.785Z",
       "passed": true
     },
     {
@@ -3151,12 +2509,6 @@
       "passed": true
     },
     {
-      "name": "obj-multiplex",
-      "version": "1.0.0",
-      "publishedUtc": "2017-09-08T03:47:08.194Z",
-      "passed": true
-    },
-    {
       "name": "object-hash",
       "version": "3.0.0",
       "publishedUtc": "2022-02-18T15:10:47.040Z",
@@ -3187,18 +2539,6 @@
       "passed": true
     },
     {
-      "name": "openapi-fetch",
-      "version": "0.13.8",
-      "publishedUtc": "2025-05-10T16:03:59.004Z",
-      "passed": true
-    },
-    {
-      "name": "openapi-typescript-helpers",
-      "version": "0.0.15",
-      "publishedUtc": "2024-10-25T17:40:40.676Z",
-      "passed": true
-    },
-    {
       "name": "ox",
       "version": "0.14.59",
       "publishedUtc": "2026-10-26T21:54:05.053Z",
@@ -3214,12 +2554,6 @@
       "name": "ox",
       "version": "0.6.9",
       "publishedUtc": "2025-01-26T22:34:07.568Z",
-      "passed": true
-    },
-    {
-      "name": "ox",
-      "version": "0.9.17",
-      "publishedUtc": "2025-11-25T19:38:11.924Z",
       "passed": true
     },
     {
@@ -3253,12 +2587,6 @@
       "passed": true
     },
     {
-      "name": "package-json-from-dist",
-      "version": "1.0.1",
-      "publishedUtc": "2024-09-26T18:59:08.941Z",
-      "passed": true
-    },
-    {
       "name": "path-exists",
       "version": "4.0.0",
       "publishedUtc": "2019-04-04T03:29:16.887Z",
@@ -3271,33 +2599,15 @@
       "passed": true
     },
     {
-      "name": "path-key",
-      "version": "3.1.1",
-      "publishedUtc": "2019-11-22T16:47:18.153Z",
-      "passed": true
-    },
-    {
       "name": "path-scurry",
-      "version": "1.11.1",
-      "publishedUtc": "2024-05-12T02:47:20.787Z",
+      "version": "3.0.0",
+      "publishedUtc": "2026-10-27T21:14:48.842Z",
       "passed": true
     },
     {
       "name": "picomatch",
       "version": "2.3.2",
       "publishedUtc": "2026-03-23T20:39:08.118Z",
-      "passed": true
-    },
-    {
-      "name": "pify",
-      "version": "3.0.0",
-      "publishedUtc": "2017-05-28T06:25:28.083Z",
-      "passed": true
-    },
-    {
-      "name": "pify",
-      "version": "5.0.0",
-      "publishedUtc": "2020-02-14T16:26:35.672Z",
       "passed": true
     },
     {
@@ -3343,39 +2653,9 @@
       "passed": true
     },
     {
-      "name": "pony-cause",
-      "version": "2.1.11",
-      "publishedUtc": "2024-04-15T13:23:54.207Z",
-      "passed": true
-    },
-    {
-      "name": "porto",
-      "version": "0.2.35",
-      "publishedUtc": "2025-10-27T21:58:45.241Z",
-      "passed": true
-    },
-    {
-      "name": "possible-typed-array-names",
-      "version": "1.1.0",
-      "publishedUtc": "2025-02-07T05:04:15.221Z",
-      "passed": true
-    },
-    {
       "name": "preact",
       "version": "10.24.2",
       "publishedUtc": "2024-10-04T06:13:03.003Z",
-      "passed": true
-    },
-    {
-      "name": "preact",
-      "version": "10.29.8",
-      "publishedUtc": "2026-08-01T09:59:54.572Z",
-      "passed": true
-    },
-    {
-      "name": "process-nextick-args",
-      "version": "2.0.1",
-      "publishedUtc": "2019-06-19T20:34:39.252Z",
       "passed": true
     },
     {
@@ -3392,14 +2672,14 @@
     },
     {
       "name": "proto3-json-serializer",
-      "version": "2.0.2",
-      "publishedUtc": "2024-05-22T23:11:00.903Z",
+      "version": "3.0.4",
+      "publishedUtc": "2025-10-30T17:03:45.854Z",
       "passed": true
     },
     {
       "name": "proto3-json-serializer",
-      "version": "3.0.4",
-      "publishedUtc": "2025-10-30T17:03:45.854Z",
+      "version": "4.1.0",
+      "publishedUtc": "2026-10-12T22:12:32.143Z",
       "passed": true
     },
     {
@@ -3424,12 +2704,6 @@
       "name": "proxy-from-env",
       "version": "2.1.0",
       "publishedUtc": "2026-03-14T18:32:47.942Z",
-      "passed": true
-    },
-    {
-      "name": "pump",
-      "version": "3.0.4",
-      "publishedUtc": "2026-02-28T13:31:05.855Z",
       "passed": true
     },
     {
@@ -3482,12 +2756,6 @@
     },
     {
       "name": "readable-stream",
-      "version": "2.3.8",
-      "publishedUtc": "2023-02-23T10:04:06.163Z",
-      "passed": true
-    },
-    {
-      "name": "readable-stream",
       "version": "3.6.2",
       "publishedUtc": "2023-03-10T09:02:34.449Z",
       "passed": true
@@ -3524,14 +2792,14 @@
     },
     {
       "name": "retry-request",
-      "version": "7.0.2",
-      "publishedUtc": "2024-01-19T19:50:29.447Z",
+      "version": "8.0.4",
+      "publishedUtc": "2026-07-23T22:49:23.722Z",
       "passed": true
     },
     {
       "name": "retry-request",
-      "version": "8.0.4",
-      "publishedUtc": "2026-07-23T22:49:23.722Z",
+      "version": "9.1.0",
+      "publishedUtc": "2026-10-12T22:13:44.818Z",
       "passed": true
     },
     {
@@ -3548,20 +2816,8 @@
     },
     {
       "name": "safe-buffer",
-      "version": "5.1.2",
-      "publishedUtc": "2018-04-25T20:10:24.706Z",
-      "passed": true
-    },
-    {
-      "name": "safe-buffer",
       "version": "5.2.1",
       "publishedUtc": "2020-05-10T16:37:30.776Z",
-      "passed": true
-    },
-    {
-      "name": "safe-regex-test",
-      "version": "1.1.0",
-      "publishedUtc": "2024-12-12T18:49:07.155Z",
       "passed": true
     },
     {
@@ -3601,51 +2857,9 @@
       "passed": true
     },
     {
-      "name": "set-function-length",
-      "version": "1.2.2",
-      "publishedUtc": "2024-03-09T17:40:59.599Z",
-      "passed": true
-    },
-    {
-      "name": "sha.js",
-      "version": "2.4.12",
-      "publishedUtc": "2025-07-01T17:46:33.039Z",
-      "passed": true
-    },
-    {
-      "name": "shebang-command",
-      "version": "2.0.0",
-      "publishedUtc": "2019-09-06T14:53:25.901Z",
-      "passed": true
-    },
-    {
-      "name": "shebang-regex",
-      "version": "3.0.0",
-      "publishedUtc": "2019-04-27T10:46:19.256Z",
-      "passed": true
-    },
-    {
-      "name": "signal-exit",
-      "version": "4.1.0",
-      "publishedUtc": "2023-07-29T05:44:56.721Z",
-      "passed": true
-    },
-    {
       "name": "slow-redact",
       "version": "0.3.2",
       "publishedUtc": "2025-10-11T12:33:19.288Z",
-      "passed": true
-    },
-    {
-      "name": "socket.io-client",
-      "version": "4.8.4",
-      "publishedUtc": "2026-09-25T08:35:02.910Z",
-      "passed": true
-    },
-    {
-      "name": "socket.io-parser",
-      "version": "4.2.7",
-      "publishedUtc": "2026-07-15T14:44:52.617Z",
       "passed": true
     },
     {
@@ -3698,12 +2912,6 @@
     },
     {
       "name": "string_decoder",
-      "version": "1.1.1",
-      "publishedUtc": "2018-03-30T08:14:15.043Z",
-      "passed": true
-    },
-    {
-      "name": "string_decoder",
       "version": "1.3.0",
       "publishedUtc": "2019-08-07T09:20:36.634Z",
       "passed": true
@@ -3715,21 +2923,9 @@
       "passed": true
     },
     {
-      "name": "string-width",
-      "version": "5.1.2",
-      "publishedUtc": "2022-02-28T08:22:05.036Z",
-      "passed": true
-    },
-    {
       "name": "strip-ansi",
       "version": "6.0.1",
       "publishedUtc": "2021-09-23T16:34:41.798Z",
-      "passed": true
-    },
-    {
-      "name": "strip-ansi",
-      "version": "7.2.0",
-      "publishedUtc": "2026-02-26T13:51:11.099Z",
       "passed": true
     },
     {
@@ -3745,12 +2941,6 @@
       "passed": true
     },
     {
-      "name": "superstruct",
-      "version": "1.0.4",
-      "publishedUtc": "2024-03-11T12:20:14.982Z",
-      "passed": true
-    },
-    {
       "name": "teeny-request",
       "version": "10.1.4",
       "publishedUtc": "2026-07-23T22:50:12.235Z",
@@ -3758,8 +2948,8 @@
     },
     {
       "name": "teeny-request",
-      "version": "9.0.0",
-      "publishedUtc": "2023-07-20T17:55:22.856Z",
+      "version": "11.1.1",
+      "publishedUtc": "2026-10-15T21:58:13.458Z",
       "passed": true
     },
     {
@@ -3776,14 +2966,8 @@
     },
     {
       "name": "tmp",
-      "version": "0.2.6",
-      "publishedUtc": "2026-05-26T19:33:14.659Z",
-      "passed": true
-    },
-    {
-      "name": "to-buffer",
-      "version": "1.2.2",
-      "publishedUtc": "2025-09-24T23:13:41.914Z",
+      "version": "0.2.7",
+      "publishedUtc": "2026-05-27T15:47:18.009Z",
       "passed": true
     },
     {
@@ -3802,12 +2986,6 @@
       "name": "tslib",
       "version": "2.8.1",
       "publishedUtc": "2024-10-31T22:42:48.624Z",
-      "passed": true
-    },
-    {
-      "name": "typed-array-buffer",
-      "version": "1.0.3",
-      "publishedUtc": "2024-12-18T16:26:28.980Z",
       "passed": true
     },
     {
@@ -3872,12 +3050,6 @@
     },
     {
       "name": "utf-8-validate",
-      "version": "5.0.10",
-      "publishedUtc": "2022-10-18T13:53:46.390Z",
-      "passed": true
-    },
-    {
-      "name": "utf-8-validate",
       "version": "5.0.7",
       "publishedUtc": "2021-10-13T17:05:59.360Z",
       "passed": true
@@ -3892,24 +3064,6 @@
       "name": "util-deprecate",
       "version": "1.0.2",
       "publishedUtc": "2015-10-07T18:37:40.665Z",
-      "passed": true
-    },
-    {
-      "name": "util",
-      "version": "0.12.5",
-      "publishedUtc": "2022-10-16T20:26:27.691Z",
-      "passed": true
-    },
-    {
-      "name": "uuid",
-      "version": "8.3.2",
-      "publishedUtc": "2020-12-08T20:38:36.233Z",
-      "passed": true
-    },
-    {
-      "name": "uuid",
-      "version": "9.0.1",
-      "publishedUtc": "2023-09-12T08:56:35.205Z",
       "passed": true
     },
     {
@@ -3938,8 +3092,8 @@
     },
     {
       "name": "wagmi",
-      "version": "2.19.5",
-      "publishedUtc": "2025-11-19T18:55:25.827Z",
+      "version": "3.7.9",
+      "publishedUtc": "2026-10-21T02:36:24.585Z",
       "passed": true
     },
     {
@@ -3952,12 +3106,6 @@
       "name": "web-vitals",
       "version": "4.2.4",
       "publishedUtc": "2024-10-22T22:05:08.374Z",
-      "passed": true
-    },
-    {
-      "name": "webextension-polyfill",
-      "version": "0.10.0",
-      "publishedUtc": "2022-08-12T19:42:49.271Z",
       "passed": true
     },
     {
@@ -3991,18 +3139,6 @@
       "passed": true
     },
     {
-      "name": "which-typed-array",
-      "version": "1.1.24",
-      "publishedUtc": "2026-09-18T21:52:31.799Z",
-      "passed": true
-    },
-    {
-      "name": "which",
-      "version": "2.0.2",
-      "publishedUtc": "2019-11-18T22:26:15.325Z",
-      "passed": true
-    },
-    {
       "name": "wrap-ansi",
       "version": "6.2.0",
       "publishedUtc": "2019-11-11T16:08:17.322Z",
@@ -4012,12 +3148,6 @@
       "name": "wrap-ansi",
       "version": "7.0.0",
       "publishedUtc": "2020-04-22T16:53:23.889Z",
-      "passed": true
-    },
-    {
-      "name": "wrap-ansi",
-      "version": "8.1.0",
-      "publishedUtc": "2023-01-23T10:13:24.890Z",
       "passed": true
     },
     {
@@ -4034,26 +3164,8 @@
     },
     {
       "name": "ws",
-      "version": "8.13.0",
-      "publishedUtc": "2023-03-10T17:57:25.728Z",
-      "passed": true
-    },
-    {
-      "name": "ws",
-      "version": "8.18.0",
-      "publishedUtc": "2024-07-03T16:45:31.280Z",
-      "passed": true
-    },
-    {
-      "name": "ws",
       "version": "8.21.0",
       "publishedUtc": "2026-05-22T17:59:59.453Z",
-      "passed": true
-    },
-    {
-      "name": "ws",
-      "version": "8.21.3",
-      "publishedUtc": "2026-08-07T14:10:25.816Z",
       "passed": true
     },
     {
@@ -4069,18 +3181,6 @@
       "passed": true
     },
     {
-      "name": "xmlhttprequest-ssl",
-      "version": "2.1.2",
-      "publishedUtc": "2024-10-23T19:56:52.430Z",
-      "passed": true
-    },
-    {
-      "name": "xtend",
-      "version": "4.0.2",
-      "publishedUtc": "2019-07-08T13:35:45.491Z",
-      "passed": true
-    },
-    {
       "name": "y18n",
       "version": "4.0.3",
       "publishedUtc": "2021-04-07T18:05:24.075Z",
@@ -4090,12 +3190,6 @@
       "name": "y18n",
       "version": "5.0.8",
       "publishedUtc": "2021-04-07T18:57:33.969Z",
-      "passed": true
-    },
-    {
-      "name": "yallist",
-      "version": "4.0.0",
-      "publishedUtc": "2019-09-30T20:08:08.970Z",
       "passed": true
     },
     {
@@ -4141,21 +3235,9 @@
       "passed": true
     },
     {
-      "name": "zod",
-      "version": "4.6.7",
-      "publishedUtc": "2026-10-12T16:29:37.778Z",
-      "passed": true
-    },
-    {
       "name": "zustand",
       "version": "5.0.0",
       "publishedUtc": "2024-10-14T14:18:31.071Z",
-      "passed": true
-    },
-    {
-      "name": "zustand",
-      "version": "5.0.16",
-      "publishedUtc": "2026-10-22T04:32:02.337Z",
       "passed": true
     },
     {

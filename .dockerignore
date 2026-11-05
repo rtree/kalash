@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+.local
+.tooling
+_do_not_redistribute_
+_
+.env
+.env.*
+artifacts
+*.log

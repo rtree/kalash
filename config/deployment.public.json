@@ -1,0 +1,10 @@
+{
+  "chainId": 84532,
+  "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  "vault": "0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073",
+  "stamp": "0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb",
+  "vaultTxHash": "0x7377f2b6b10fe35f9baf3680f1a827829cab609b6e6c1af83790d1f930a968ec",
+  "stampTxHash": "0x02b3d8f17b64dd27c296799f7bd22d2f96c33adcfbad473f9064b0ec3041eb96",
+  "startBlock": "54871753",
+  "compiler": "solc 0.8.38 / shanghai"
+}

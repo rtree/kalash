@@ -12,7 +12,7 @@ This document defines intended contracts; TASKS records verification, not this f
 | Contract compile / isolated chain tests | Windows solc compile; Cloud Build Linux for chain tests | Ganache native leveldown incompatible with Windows ARM64; browser fallback also failed; no further Windows framework retries |
 | Cloud build / production | GCP Cloud Build / Cloud Run | `kalash-donation`, `asia-south1`; HTTPS URL not yet assigned |
 | Controller / ITL | Current Windows ARM64, .NET 10 | ITL loopback `http://localhost:5000`; no device operations authorized yet |
-| Android | Current Windows host, user reports USB-connected Samsung | ADB absent from Agent PATH; need exact executable path; localhost is not a remote-host URL |
+| Android | Current Windows host, USB-connected authorized Samsung | ADB37.0.1 at `%LOCALAPPDATA%\KALASH\tools\platform-tools-37.0.1\platform-tools\adb.exe`; use exact serial. Phone URL will use reverse only for this host |
 
 User confirms nested virtualization is unavailable; use Cloud Build rather than Docker/WSL.
 Central is one process serving React, API and a durable mint loop.
@@ -69,13 +69,34 @@ Intent authorization must bind sender/temple/amount/kind/expiry/chain/vault.
 `Donated(bytes32 donationId, address donor, bytes32 templeId, uint8 kind,
 uint256 amount, uint256 fee, address recipient)`.
 Stamp consumes donationId once; metadata exposes temple, kind and date only.
-Contract address/ABI/deployment receipts are not yet available; never use placeholders
-as deployed contracts. Full signatures and runtime config follow implementation.
+Actual ABI/bytecode: `config/contracts.abi.json`; deployments and receipt hashes:
+`config/deployment.public.json`. Compiled Solidity0.8.38, Shanghai. Cloud Build Linux
+23 isolated chain assertions passed (build ID in TASKS); Windows compiles using JS.
+DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`,
+KalashStamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
+
+EIP712 domain `KALASH Donation`, version `1`, chainId84532, verifyingContract=vault.
+`Donation(bytes32 donationId,address donor,bytes32 templeId,uint8 kind,uint256 amount,uint256 deadline)`.
+Temple key is keccak256(UTF8 templeId); remote kind0, onsite kind1.
+`donate(bytes32,bytes32,uint8,uint256,uint256,bytes)` consumes server-signed intent.
+Stamp `mint(bytes32,address,bytes32,uint8,uint256)` uses UTC epoch day; tokenId is
+uint256(donationId), amount1. `StampMinted(bytes32 indexed donationId,address indexed
+recipient,uint256 indexed tokenId,bytes32 templeId,uint8 kind,uint256 day)` plus TransferSingle.
 
 Firestore deterministic records: challenges, donations, chainEvents,
 walletTempleTotals, mintJobs, processLeases, temples.
 Mint loop approximately 1s, one nonce owner via database lease; no independent worker.
 Do not run local and cloud loops concurrently against the same minter/DB.
+Minter key is read from Secret Manager `kalash-minter-key` using ADC. Reown project ID
+is read from `kalash-reown-project-id` (client-visible by design, not an auth secret).
+Runtime SA `kalash-central@kalash-donation.iam.gserviceaccount.com` has Firestore user,
+Firebase Auth admin, quota use, per-secret accessor and self custom-token signing.
+Local ADC and CLI identity differed; scoped runtime signBlob access was explicitly
+granted to ADC principal and verified by actual Firebase createCustomToken.
+Firestore point increments and mint reservation share one transaction.
+Prepared mint stores raw signed transaction/hash/nonce BEFORE broadcast.
+Original cumulative gas budget .003 ETH, mint count20, persisted transactionally;
+excess wallet balance does not expand budget. Deployment budget .01 ETH likewise persists.
 
 ## 5. Dependency and validation entry
 

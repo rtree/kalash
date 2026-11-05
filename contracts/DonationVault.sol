@@ -4,10 +4,9 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract DonationVault is EIP712, ReentrancyGuard {
+contract DonationVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable token;
@@ -18,6 +17,9 @@ contract DonationVault is EIP712, ReentrancyGuard {
 
     bytes32 private constant DONATION_TYPEHASH = keccak256(
         "Donation(bytes32 donationId,address donor,bytes32 templeId,uint8 kind,uint256 amount,uint256 deadline)"
+    );
+    bytes32 private constant DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
 
     error InvalidConfiguration();
@@ -44,7 +46,7 @@ contract DonationVault is EIP712, ReentrancyGuard {
         address feeRecipient_,
         bytes32[] memory templeIds,
         address[] memory recipients_
-    ) EIP712("KALASH Donation", "1") {
+    ) {
         if (
             token_ == address(0) || token_.code.length == 0 ||
             authorizer_ == address(0) || feeRecipient_ == address(0) ||
@@ -76,9 +78,13 @@ contract DonationVault is EIP712, ReentrancyGuard {
         address recipient = recipients[templeId];
         if (recipient == address(0)) revert UnknownTemple();
         if (consumed[donationId]) revert AlreadyConsumed();
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+        bytes32 domainSeparator = keccak256(abi.encode(
+            DOMAIN_TYPEHASH, keccak256("KALASH Donation"), keccak256("1"), block.chainid, address(this)
+        ));
+        bytes32 structHash = keccak256(abi.encode(
             DONATION_TYPEHASH, donationId, msg.sender, templeId, kind, amount, deadline
-        )));
+        ));
+        bytes32 digest = keccak256(abi.encodePacked(hex"1901", domainSeparator, structHash));
         if (ECDSA.recover(digest, signature) != authorizer) revert Unauthorized();
 
         consumed[donationId] = true;

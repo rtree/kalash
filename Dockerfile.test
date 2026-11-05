@@ -1,0 +1,11 @@
+FROM node:26.13.0-bookworm-slim
+WORKDIR /app
+COPY scripts/bootstrap-pnpm.mjs scripts/bootstrap-pnpm.mjs
+RUN node scripts/bootstrap-pnpm.mjs
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .node-version dependency-releases.json ./
+COPY scripts/check-policy.mjs scripts/check-policy.mjs
+RUN node scripts/check-policy.mjs && pnpm install --frozen-lockfile --ignore-scripts
+COPY contracts contracts
+COPY scripts/compile-contracts.mjs scripts/compile-contracts.mjs
+COPY tests/contracts.test.mjs tests/contracts.test.mjs
+RUN node scripts/check-policy.mjs && node scripts/compile-contracts.mjs && node --test tests/contracts.test.mjs
