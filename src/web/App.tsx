@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getIdToken,
+  onAuthStateChanged,
   signInWithCustomToken,
   signOut,
 } from 'firebase/auth';
@@ -188,7 +189,7 @@ function Illustration({ motif, className = '' }: { motif: string; className?: st
 
 export function App({ runtime }: { runtime: Runtime }) {
   const { config, auth, temples } = runtime;
-  const { address, chainId, isConnected, connector } = useAccount();
+  const { address, chainId, isConnected, connector, status: walletStatus } = useAccount();
   const { connectors, connectAsync, isPending: connecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: walletClient } = useWalletClient();
@@ -198,6 +199,7 @@ export function App({ runtime }: { runtime: Runtime }) {
 
   const [path, setPath] = useState(window.location.pathname);
   const [authenticatedWallet, setAuthenticatedWallet] = useState<string | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
   const [connectingAuth, setConnectingAuth] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -250,13 +252,20 @@ export function App({ runtime }: { runtime: Runtime }) {
   }, []);
 
   useEffect(() => {
-    let active = true;
+    return onAuthStateChanged(auth, setFirebaseUser, (cause) => setError(cause.message));
+  }, [auth]);
+
+  useEffect(() => {
+    if (walletStatus === 'connecting' || walletStatus === 'reconnecting') return;
     const wallet = address?.toLowerCase() ?? null;
     const previous = previousAddress.current;
     previousAddress.current = wallet;
     const storedWallet = localStorage.getItem(AUTH_WALLET)?.toLowerCase() ?? null;
-    if ((previous && previous !== wallet) || (auth.currentUser && storedWallet !== wallet)) {
-      void signOut(auth);
+    if ((previous && previous !== wallet) || (firebaseUser && wallet
+      && (storedWallet !== wallet || firebaseUser.uid !== `wallet_${wallet}`))) {
+      void signOut(auth).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : 'Could not clear the previous wallet session.');
+      });
       localStorage.removeItem(AUTH_WALLET);
       localStorage.removeItem(CURRENT_DONATION);
       localStorage.removeItem(PENDING_OPERATION);
@@ -266,14 +275,12 @@ export function App({ runtime }: { runtime: Runtime }) {
       setPendingOperation(null);
       setCollection(null);
       setHistory([]);
-    } else if (auth.currentUser && wallet && storedWallet === wallet) {
+    } else if (firebaseUser && wallet && storedWallet === wallet && firebaseUser.uid === `wallet_${wallet}`) {
       setAuthenticatedWallet(wallet);
-    } else if (!wallet && previous) {
+    } else {
       setAuthenticatedWallet(null);
     }
-    if (!active) return;
-    return () => { active = false; };
-  }, [address, auth]);
+  }, [address, auth, firebaseUser, walletStatus]);
 
   useEffect(() => {
     if (!currentDonationId || !authenticatedWallet) return;
@@ -534,7 +541,9 @@ export function App({ runtime }: { runtime: Runtime }) {
       const reuseIntent = donation?.id === currentDonationId
         && donation.status === 'intent'
         && !pendingOperation
-        && donation.templeId === selectedTemple.id;
+        && donation.templeId === selectedTemple.id
+        && donation.amount === amountUnits.toString()
+        && donation.deadline > Math.floor(Date.now() / 1000);
       const intent = reuseIntent ? donation : await api<Donation>('/api/donations', {
         method: 'POST',
         body: JSON.stringify({ templeId: selectedTemple.id, amount: chosenAmount }),
