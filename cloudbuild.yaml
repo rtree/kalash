@@ -1,5 +1,7 @@
 steps:
   - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'Dockerfile.test', '-t', 'kalash-verified-contracts', '.']
+  - name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
