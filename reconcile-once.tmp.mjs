@@ -1,0 +1,10 @@
+import { db } from './src/server/config.ts';
+import { verifyDonation } from './src/server/donations.ts';
+const id = '0x52bf6750e96b03b6a48c76c6e67fb7fbd0024b430f42ec444d259de8d9b99ea4';
+const hash = '0xbb22b84e88ee2ec7c3d6b4d8e59bb38c4846011cb39ac481650dde29f9e517da';
+const before = (await db.collection('donations').doc(id).get()).data();
+console.log('before', JSON.stringify({ status: before.status, mintStatus: before.mintStatus ?? null, txHash: before.txHash ?? null, attempt: Boolean(before.donateAttemptId) }));
+const after = await verifyDonation(id, before.ownerWallet, hash);
+const job = (await db.collection('mintJobs').doc(id).get()).data();
+console.log('after', JSON.stringify({ status: after.status, mintStatus: after.mintStatus ?? null, txHash: after.txHash, error: after.error ?? null, job: job?.status ?? null }));
+process.exit(0);
