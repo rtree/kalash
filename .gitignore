@@ -1,1 +1,9 @@
 _do_not_redistribute_
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.local/
+artifacts/
+*.log
