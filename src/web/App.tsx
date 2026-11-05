@@ -260,9 +260,8 @@ export function App({ runtime }: { runtime: Runtime }) {
     const wallet = address?.toLowerCase() ?? null;
     const previous = previousAddress.current;
     previousAddress.current = wallet;
-    const storedWallet = localStorage.getItem(AUTH_WALLET)?.toLowerCase() ?? null;
     if ((previous && previous !== wallet) || (firebaseUser && wallet
-      && (storedWallet !== wallet || firebaseUser.uid !== `wallet_${wallet}`))) {
+      && firebaseUser.uid !== `wallet_${wallet}`)) {
       void signOut(auth).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : 'Could not clear the previous wallet session.');
       });
@@ -275,7 +274,8 @@ export function App({ runtime }: { runtime: Runtime }) {
       setPendingOperation(null);
       setCollection(null);
       setHistory([]);
-    } else if (firebaseUser && wallet && storedWallet === wallet && firebaseUser.uid === `wallet_${wallet}`) {
+    } else if (firebaseUser && wallet && firebaseUser.uid === `wallet_${wallet}`) {
+      localStorage.setItem(AUTH_WALLET, wallet);
       setAuthenticatedWallet(wallet);
     } else {
       setAuthenticatedWallet(null);

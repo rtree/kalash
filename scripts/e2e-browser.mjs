@@ -14,11 +14,24 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
 import { parseSiweMessage } from 'viem/siwe';
+import { applicationDefault, initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const ORIGIN = 'https://kalash-central-548318651344.asia-south1.run.app';
 const CHAIN_ID = 84532;
 const DONATION_UNITS = 10000n;
+const EXPIRED_INTENT_ID = '0x43e1d2543eb68ded2043b124781455eb16def77d9cd6753fae50fb066b4f54b1';
+const EXPIRED_INTENT_DEADLINE = 1793900791;
 const MAX_TX_GAS = { approve: 200000n, donate: 400000n };
+const resolveExpiredMode = process.argv.includes('--resolve-expired-intent');
+const expectedSourceArgument = process.argv.indexOf('--expected-source-commit');
+const expectedSourceCommit = expectedSourceArgument >= 0 ? process.argv[expectedSourceArgument + 1] : null;
+assert.ok(process.argv.every((argument, index) =>
+  !argument.startsWith('--') || argument === '--resolve-expired-intent'
+  || (argument === '--expected-source-commit' && index === expectedSourceArgument)),
+'Unsupported browser E2E argument.');
+assert.ok(resolveExpiredMode || expectedSourceCommit === null, '--expected-source-commit requires --resolve-expired-intent.');
+if (expectedSourceCommit !== null) assert.match(expectedSourceCommit, /^[0-9a-f]{40}$/i, 'Expected source commit must be a full Git SHA.');
 const donateAbi = parseAbi([
   'function donate(bytes32 donationId,bytes32 templeId,uint8 kind,uint256 amount,uint256 deadline,bytes signature)',
 ]);
@@ -36,6 +49,11 @@ const donor = privateKeyToAccount(accounts.donor.privateKey);
 const transport = http('https://sepolia.base.org', { timeout: 15000, retryCount: 0 });
 const chain = createPublicClient({ chain: baseSepolia, transport });
 const signer = createWalletClient({ chain: baseSepolia, account: donor, transport });
+const firestoreApp = initializeApp({
+  credential: applicationDefault(),
+  projectId: process.env.GOOGLE_CLOUD_PROJECT ?? 'kalash-donation',
+}, `kalash-e2e-expiry-${randomUUID()}`);
+const firestore = getFirestore(firestoreApp);
 
 assert.equal(ORIGIN, 'https://kalash-central-548318651344.asia-south1.run.app');
 assert.equal(await chain.getChainId(), CHAIN_ID, 'The test signer only runs on Base Sepolia.');
@@ -55,6 +73,12 @@ assert.equal(progress.owner.toLowerCase(), donor.address.toLowerCase());
 assert.ok(progress.donations.length < publicWallets.budgets.donor.maxTransactions);
 assert.ok(BigInt(progress.reservedGasWei) <= parseEther('0.003'));
 const lastProgressItem = progress.donations.at(-1);
+const expiredIntentCandidate = resolveExpiredMode
+  && lastProgressItem?.id === EXPIRED_INTENT_ID
+  && !lastProgressItem.completed
+  && ['intent', 'expired-unsubmitted'].includes(lastProgressItem.status)
+  ? lastProgressItem
+  : null;
 const resumableItem = lastProgressItem && !lastProgressItem.completed
   && lastProgressItem.origin === ORIGIN
   && lastProgressItem.status === 'intent'
@@ -64,7 +88,25 @@ const resumableItem = lastProgressItem && !lastProgressItem.completed
   && BigInt(lastProgressItem.intent.deadline) > BigInt(Math.floor(Date.now() / 1000))
   ? lastProgressItem
   : null;
-assert.ok(lastProgressItem?.completed || resumableItem, 'An unresolved donation already exists; refusing to create another.');
+if (resolveExpiredMode) {
+  assert.ok(expiredIntentCandidate, 'Expired-intent mode only applies to the known unsubmitted donation.');
+  assert.equal(expiredIntentCandidate.intent?.id, EXPIRED_INTENT_ID);
+  assert.equal(Number(expiredIntentCandidate.intent?.deadline), EXPIRED_INTENT_DEADLINE);
+  assert.equal(expiredIntentCandidate.intent?.templeId, 'temple-01');
+  assert.equal(expiredIntentCandidate.intent?.amount, DONATION_UNITS.toString());
+  assert.equal(expiredIntentCandidate.intent?.kind, 0);
+  assert.equal(expiredIntentCandidate.intent?.fee, '1');
+  assert.equal(expiredIntentCandidate.intent?.net, '9999');
+  assert.equal(normalizedAddress(expiredIntentCandidate.intent?.ownerWallet, 'expired intent owner'), donor.address.toLowerCase());
+  assert.equal(normalizedAddress(expiredIntentCandidate.intent?.recipient, 'expired intent recipient'), publicWallets.wallets['temple-01'].toLowerCase());
+  assert.equal(expiredIntentCandidate.intent?.templeKey, keccak256(toHex('temple-01')));
+  assert.deepEqual(expiredIntentCandidate.operations ?? {}, {}, 'Refusing expiry resolution after any wallet operation was recorded.');
+  assert.ok(expiredIntentCandidate.donationTxHash === undefined || expiredIntentCandidate.donationTxHash === null);
+  assert.ok(expiredIntentCandidate.mintTxHash === undefined || expiredIntentCandidate.mintTxHash === null);
+  assert.notEqual(expiredIntentCandidate.completed, true);
+} else {
+  assert.ok(lastProgressItem?.completed || resumableItem, 'An unresolved donation already exists; refusing to create another.');
+}
 assert.ok(BigInt(progress.totalUsdcUnits) + (resumableItem ? 0n : DONATION_UNITS) <= 200000n);
 if (resumableItem) {
   assert.equal(resumableItem.intent.kind, 0);
@@ -138,6 +180,147 @@ const expectedApprovalRequired = await chain.readContract({
   functionName: 'allowance',
   args: [donor.address, config.vault],
 }) < DONATION_UNITS;
+
+let expiryProofStage = 'local-progress checks';
+async function proveAndRecordExpiredIntent(vaultAddress) {
+  const saved = expiredIntentCandidate;
+  assert.ok(saved, 'No eligible expired intent is available for resolution.');
+  assert.deepEqual(saved.operations ?? {}, {}, 'Refusing expiry resolution after any wallet operation was recorded.');
+  for (const hashKey of ['hash', 'txHash', 'donationTxHash', 'mintTxHash']) {
+    assert.ok(saved[hashKey] === undefined || saved[hashKey] === null, `Refusing expiry resolution because ${hashKey} is present.`);
+  }
+  for (const operation of Object.values(saved.operations ?? {})) {
+    assert.ok(operation?.hash === undefined || operation?.hash === null, 'Refusing expiry resolution with a wallet transaction hash.');
+    assert.ok(operation?.rawTransaction === undefined || operation?.rawTransaction === null, 'Refusing expiry resolution with signed transaction bytes.');
+  }
+
+  const firestoreId = saved.id.toLowerCase();
+  expiryProofStage = 'ADC Firestore donation read';
+  const doc = await firestore.collection('donations').doc(firestoreId).get();
+  assert.ok(doc.exists, 'ADC Firestore proof failed: donation record is missing.');
+  const record = doc.data();
+  assert.ok(record, 'ADC Firestore proof failed: donation data is missing.');
+  assert.equal(doc.id, firestoreId);
+  assert.equal(record.id?.toLowerCase(), firestoreId, 'Firestore donation ID mismatch.');
+  assert.equal(normalizedAddress(record.ownerWallet, 'Firestore donation owner'), donor.address.toLowerCase());
+  if (record.chainId !== undefined && record.chainId !== null) {
+    assert.equal(Number(record.chainId), CHAIN_ID, 'Firestore donation chain ID mismatch.');
+  }
+  assert.equal(String(record.amount), DONATION_UNITS.toString(), 'Firestore donation amount mismatch.');
+  assert.equal(Number(record.deadline), EXPIRED_INTENT_DEADLINE, 'Firestore donation deadline mismatch.');
+  assert.equal(record.status, 'intent', 'Firestore donation is not still an unsubmitted intent.');
+  for (const key of ['donateAttemptId', 'txHash', 'mintTxHash']) {
+    assert.ok(record[key] === undefined || record[key] === null, `Firestore donation has ${key}; refusing expiry resolution.`);
+  }
+  expiryProofStage = 'ADC Firestore operations read';
+  const operationsSnapshot = await doc.ref.collection('operations').get();
+  assert.equal(operationsSnapshot.size, 0, 'Firestore operations subcollection is not empty.');
+  assert.match(String(record.startBlock), /^\d+$/, 'Firestore startBlock is missing or invalid.');
+
+  assert.equal(config.chainId, CHAIN_ID, 'Central public config chain mismatch.');
+  assert.equal(config.vault.toLowerCase(), deployed.vault.toLowerCase());
+  expiryProofStage = 'Base Sepolia chain and block timestamp';
+  assert.equal(await chain.getChainId(), CHAIN_ID, 'Expiry scan RPC is not Base Sepolia.');
+  const latestBlock = await chain.getBlock({ blockTag: 'latest' });
+  assert.ok(latestBlock.timestamp > BigInt(EXPIRED_INTENT_DEADLINE), 'Latest Base Sepolia block timestamp has not passed the intent deadline.');
+  const startBlock = BigInt(record.startBlock);
+  assert.ok(startBlock > 0n && startBlock <= latestBlock.number, 'Firestore startBlock is outside the canonical chain range.');
+  expiryProofStage = 'Base Sepolia saved startBlock lookup';
+  const recordedStartBlock = await chain.getBlock({ blockNumber: startBlock });
+  const donatedEvent = parseAbi([
+    'event Donated(bytes32 indexed donationId,address indexed donor,bytes32 indexed templeId,uint8 kind,uint256 amount,uint256 fee,address recipient)',
+  ])[0];
+  expiryProofStage = 'Base Sepolia Donated-event scan';
+  let scannedThroughBlock = startBlock - 1n;
+  let scanRangeCount = 0;
+  for (let fromBlock = startBlock; fromBlock <= latestBlock.number; fromBlock += 200n) {
+    const toBlock = fromBlock + 199n < latestBlock.number ? fromBlock + 199n : latestBlock.number;
+    const matchingEvents = await chain.getLogs({
+      address: vaultAddress,
+      event: donatedEvent,
+      args: { donationId: EXPIRED_INTENT_ID },
+      fromBlock,
+      toBlock,
+    });
+    scanRangeCount += 1;
+    scannedThroughBlock = toBlock;
+    assert.equal(matchingEvents.length, 0, 'A matching vault Donated event exists; refusing to label this intent unsubmitted.');
+  }
+  assert.equal(scannedThroughBlock, latestBlock.number, 'Donated-event scan did not reach the latest Base Sepolia block.');
+
+  expiryProofStage = 'Central health/source verification';
+  const healthResponse = await fetch(`${ORIGIN}/api/health`, { signal: AbortSignal.timeout(15000) });
+  assert.equal(healthResponse.status, 200, 'Could not verify the live Central revision.');
+  const health = await healthResponse.json();
+  assert.equal(health.chainId, CHAIN_ID);
+  assert.equal(health.status, 'ready');
+  assert.equal(health.contractsDeployed, true);
+  if (expectedSourceCommit) {
+    assert.equal(health.sourceCommit, expectedSourceCommit, 'Live Central source does not match the explicitly approved UI build.');
+  }
+
+  const verifiedAt = new Date().toISOString();
+  const proof = {
+    verifiedAt,
+    firestoreProjectId: process.env.GOOGLE_CLOUD_PROJECT ?? 'kalash-donation',
+    firestoreDonationId: firestoreId,
+    firestoreUpdateTime: doc.updateTime?.toDate().toISOString() ?? null,
+    firestoreOwnerMatchesDedicatedDonor: true,
+    firestoreChainId: record.chainId ?? null,
+    firestoreChainEvidence: record.chainId === undefined || record.chainId === null
+      ? 'Central is single-chain; public config and health confirm Base Sepolia, and the Firestore startBlock exists on the Base Sepolia RPC.'
+      : 'Firestore record chainId is explicit and matches Base Sepolia.',
+    firestoreAmount: String(record.amount),
+    firestoreStatus: record.status,
+    firestoreDonateAttemptIdPresent: false,
+    firestoreTransactionHashesPresent: false,
+    firestoreOperationsCount: operationsSnapshot.size,
+    chainId: CHAIN_ID,
+    deadline: EXPIRED_INTENT_DEADLINE,
+    latestBlockNumber: latestBlock.number.toString(),
+    latestBlockTimestamp: latestBlock.timestamp.toString(),
+    startBlock: startBlock.toString(),
+    startBlockHash: recordedStartBlock.hash,
+    scannedThroughBlock: scannedThroughBlock.toString(),
+    scanRangeCount,
+    matchingDonatedEventCount: 0,
+    sourceCommit: health.sourceCommit,
+  };
+  saved.status = 'expired-unsubmitted';
+  saved.resolvedWithoutSubmission = true;
+  saved.expiryResolvedAt = verifiedAt;
+  saved.expiryProof = proof;
+  saved.completed = false;
+  persist();
+  return proof;
+}
+
+let expiryProof = null;
+if (resolveExpiredMode) {
+  try {
+    expiryProof = await proveAndRecordExpiredIntent(config.vault);
+  } catch (error) {
+    const reason = error?.name === 'AssertionError'
+      ? error.message
+      : `${expiryProofStage} failed (${error?.name ?? 'UnknownError'}).`;
+    await firestore.terminate();
+    await firestoreApp.delete();
+    throw new Error(`Expired-intent proof failed (${reason}); no progress was marked resolved and no new donation was created.`);
+  }
+  await firestore.terminate();
+  await firestoreApp.delete();
+  if (!expectedSourceCommit) {
+    console.log(JSON.stringify({
+      result: 'expired_unsubmitted_intent_proven_and_recorded',
+      donationId: EXPIRED_INTENT_ID,
+      deadline: EXPIRED_INTENT_DEADLINE,
+      proof: expiryProof,
+      newDonationStarted: false,
+      nextStep: 'Wait for the parent-provided live auth-fix source commit, then rerun with --resolve-expired-intent --expected-source-commit <full-sha>.',
+    }, null, 2));
+    process.exit(0);
+  }
+}
 
 const indexResponse = await fetch(ORIGIN, { signal: AbortSignal.timeout(15000) });
 assert.equal(indexResponse.status, 200);

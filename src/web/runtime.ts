@@ -36,6 +36,9 @@ export async function createRuntime(): Promise<Runtime> {
   }
 
   const auth = getAuth(initializeApp(config.firebase));
+  const transports = {
+    [baseSepolia.id]: http('https://sepolia.base.org', { timeout: 10000, retryCount: 0 }),
+  };
   installWalletLifecycleTrace();
   let wagmiConfig: Config;
   let openWalletConnect = () => undefined;
@@ -46,6 +49,7 @@ export async function createRuntime(): Promise<Runtime> {
       projectId: config.reownProjectId,
       networks: [baseSepolia],
       ssr: false,
+      transports,
     });
     appKit = createAppKit({
       adapters: [adapter],
@@ -145,7 +149,7 @@ export async function createRuntime(): Promise<Runtime> {
     wagmiConfig = createConfig({
       chains: [baseSepolia],
       connectors: [injected({ shimDisconnect: true })],
-      transports: { [baseSepolia.id]: http() },
+      transports,
     });
   }
 
