@@ -6,12 +6,12 @@
 - Success: camera/file selection -> local preview -> explicit consent -> private validated storage -> public consented board DTO -> owner/temple withdrawal -> immediate public removal and object deletion; verify point-based image sizing.
 - Chain: Base Sepolia 84532 only; test tokens, not real-value settlement.
 - Running URL: https://kalash-central-548318651344.asia-south1.run.app/temples/temple-01
-- Cloud Run live revision `kalash-central-00007-dhb`, source `1bd067f75a67fe53d868c099a43179ebe6421a7f`; local URL remains read/API-capable with MINT_ENABLED=false.
+- Cloud Run live revision `kalash-central-00009-hgk`, source `65cf51cee9a7c908c516d7aac7e4448b940d358e`; local URL remains read/API-capable with MINT_ENABLED=false.
 - DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 - Integration, shared documents, Git and deployment owner: primary Agent.
 - Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: deploy explicit `getUserMedia` camera capture and visible board links; then use authorized Android ADB to verify mobile connection/wallet path. The device is on mobile Chrome at the temple detail with a Base Sepolia switch sheet. Two newer wallet donations are already confirmed/minted, so avoid another payment until the mobile evidence is reconciled.
-- Human requests: no M1 action remains. For M2, user confirmation is needed before publishing any real personal photo; paper-note attendance remains for M3.
+- Next action: user taps Allow on the Android camera prompt; verify live preview then capture locally and discard, with no upload. In MetaMask's in-app browser the app loads authenticated History and the photo controls; mobile Chrome/WC's VerifyWallet fails on unsupported `personal_sign`. Two newer wallet donations are already confirmed/minted; do not make a duplicate payment.
+- Human requests: no M1 action remains. User selected one-time camera permission; still waiting for the physical Android Allow tap. User has one consented/published photo; any additional personal image requires separate consent. Paper-note attendance remains for M3.
 - Three test-process donations plus two normal MetaMask donations and mints are verified; all cash hardware outcomes remain unverified.
 
 ## Goals and assignments
@@ -26,7 +26,7 @@
 | M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
 | M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
 | M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
-| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded; live revision `00007-dhb`, source `1bd067f`; real API7pass/0skip verifies synthetic consent/upload/replace/withdraw. Public board visually inspected and user's photo is published on temple-01. Camera file input opened chooser instead of camera; direct `getUserMedia` capture is implemented locally. Remaining: deploy/retest camera on Android, mobile wallet flow, temple/operator withdrawal auth |
+| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Photo API7pass/0skip; user photo published on temple-01. Camera now uses direct `getUserMedia`, deployed revision `00009-hgk`, Cloud Build `30b9c882-5915-44ac-b0ac-e625951feedc`; tapping Take a photo opens Android camera permission prompt. Waiting user Allow before checking preview. MetaMask in-app browser shows verified History/photo controls; mobile Chrome/WC failed VerifyWallet with unsupported `personal_sign`. No payment sent by agent. Two recent owner donations are confirmed/minted. Temple/operator withdrawal auth remains |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
 | M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
@@ -40,7 +40,7 @@
 | M1 wallet | Actual balances exceed requested budgets; no automatic budget increase | Persist/respect original budgets before every transaction | Funding no longer blocks M1 |
 | M1 Android | User requested install; Google archive platform-tools_r37.0.1-win.zip SHA1 matched repository metadata; `adb devices -l` shows Samsung SM_S942Z device | Screenshot/inspect then one operation and API evidence | Real camera QR/MetaMask verification still pending |
 | M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; protected GetAllCashDevices returns HTTP401 before authentication (expected protection, not invalid credentials) | Obtain safe credential source and authenticate later | Safe local credential path and hardware attendance later; not an M1 blocker |
-| M2 Storage | `kalash-donation-photos` in asia-south1; uniform access, public access prevention enforced, soft-delete 0; runtime SA objectAdmin only application grant; real synthetic-image API test passed and bucket is empty | Human UI check of preview/consent/board/withdraw on their chosen non-sensitive test image | Do not upload a personal photo without explicit user consent |
+| M2 Storage | `kalash-donation-photos` in asia-south1; uniform access, public access prevention enforced, soft-delete 0; runtime SA objectAdmin application grant. Synthetic API photo was removed; user's consented temple-01 image remains published | Verify direct camera preview on Android and user can find Collection → Photos / temple board | No second image upload without explicit consent |
 
 ## Evidence retained
 
@@ -118,15 +118,17 @@
   EXIF orientation, metadata-free 1600px JPEG output, and four integer-point tiers.
 - Private bucket `kalash-donation-photos` is in asia-south1 with uniform access,
   public access prevention and zero-second soft delete; Cloud Run runtime SA is
-  granted objectAdmin on this bucket. No photos have been uploaded.
+  granted objectAdmin on this bucket. The synthetic API test object was cleaned up;
+  the user later published one photo to temple-01.
 - Implemented confirmed-donation eligibility, explicit-versioned-consent upload,
   one latest wallet/temple slot, 30-day expiry, same-origin private-object board
   delivery, owner withdrawal, and durable object cleanup/expiry queues. Public DTO
   excludes wallet, donation, points and storage object path. Pilgrim donation,
   History, Collection Photos and public temple-board UI wired.
-- Local policy, typecheck, production build and 9 focused tests pass. Cloud Build
-  `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded. Live revision `kalash-central-00007-dhb`
-  source `1bd067f75a67fe53d868c099a43179ebe6421a7f`, `PHOTO_BUCKET` verified.
+- Local policy, typecheck, production build and 9 focused tests pass. API Cloud Build
+  `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded. Camera Cloud Build
+  `30b9c882-5915-44ac-b0ac-e625951feedc` succeeded. Live revision `kalash-central-00009-hgk`
+  source `65cf51cee9a7c908c516d7aac7e4448b940d358e`, `PHOTO_BUCKET` verified.
   Mandatory live API tests 7pass/0skip include synthetic portrait, consent rejection,
   private proxy delivery, replacement/old-image 404, cross-wallet withdrawal denial,
   owner withdrawal and post-withdrawal 404. GCS bucket has no remaining test objects;
@@ -140,13 +142,18 @@
   photo. No image bytes/name were read or logged.
 - Mobile device `RFGL41GKP0Z` is authorized (`device`), Samsung SM_S942Z, Android16,
   1080x2340 and awake; foreground was Launcher. Chrome and MetaMask packages exist.
-  ADB opened mobile Chrome on `/temples/temple-01`; the app shows a Base Sepolia
-  network switch sheet. Firestore shows two recent owner donations (21:40Z, 21:43Z)
+  ADB opened mobile Chrome on `/temples/temple-01`; Connect succeeded, the address
+  appeared, and VerifyWallet failed with `personal_sign` unavailable (`viem@2.57.13`).
+  No signature or payment was approved. The documented MetaMask DApp deeplink opened
+  the in-app browser; it shows the KALASH page with History/Collection controls and
+  no VerifyWallet button. History exposes Share a photo / Take a photo / Choose image.
+  Tapping Take a photo called getUserMedia and raised Android's Allow permission prompt.
+  User chose `allow_once` in chat, but the phone-side Allow tap/preview is not yet confirmed.
+  Firestore shows two recent owner donations (21:40Z, 21:43Z)
   already `confirmed` and `minted`; neither was initiated by this agent. No third
-  transaction will be sent. Camera permission and wallet prompts have not been
-  approved. Next: deploy camera update, verify camera preview on device, and stop
-  at any signature/payment prompt until explicit user action. Temple/operator
-  withdrawal auth and cash-device photo intake remain; do not mark M2 complete.
+  transaction will be sent. Next: verify camera preview after the user grants permission;
+  stop at any further signature/payment prompt until explicit user action.
+  Temple/operator withdrawal auth and cash-device photo intake remain; do not mark M2 complete.
 
 ## Submission
 

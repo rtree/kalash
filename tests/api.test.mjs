@@ -148,6 +148,8 @@ test('real photo consent, private storage delivery, board listing and withdrawal
   const collection = await (await request('/api/collection', { bearer: token })).json();
   const donation = collection.donations.find((entry) => entry.status === 'confirmed');
   assert.ok(donation, 'photo sharing requires an existing confirmed donation');
+  const initialBoard = await (await request(`/api/board/${donation.templeId}/photos`)).json();
+  const priorPhotoIds = initialBoard.photos.map((photo) => photo.id).sort();
   const portrait = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200">
     <rect width="160" height="200" fill="#e8d9b8"/><circle cx="80" cy="68" r="36" fill="#b87953"/>
     <path d="M25 200c4-48 24-72 55-72s51 24 55 72" fill="#17604c"/>
@@ -185,7 +187,7 @@ test('real photo consent, private storage delivery, board listing and withdrawal
     }
 
     const board = await (await request(`/api/board/${donation.templeId}/photos`)).json();
-    assert.equal(board.photos.filter((item) => item.id === photo.id).length, 1);
+    assert.deepEqual(board.photos.map((item) => item.id).sort(), [...priorPhotoIds, photo.id].sort());
     const imageResponse = await fetch(`${origin}${photo.imageUrl}`);
     assert.equal(imageResponse.status, 200);
     assert.equal(imageResponse.headers.get('content-type'), 'image/jpeg');
@@ -200,7 +202,7 @@ test('real photo consent, private storage delivery, board listing and withdrawal
     photoId = replacementPhoto.id;
     assert.equal((await fetch(`${origin}${photo.imageUrl}`)).status, 404);
     const replacedBoard = await (await request(`/api/board/${donation.templeId}/photos`)).json();
-    assert.deepEqual(replacedBoard.photos.map((item) => item.id), [replacementPhoto.id]);
+    assert.deepEqual(replacedBoard.photos.map((item) => item.id).sort(), [...priorPhotoIds, replacementPhoto.id].sort());
 
     const foreignWithdraw = await request(`/api/photos/${replacementPhoto.id}/withdraw`, {
       method: 'POST', bearer: otherToken, body: {},
@@ -213,6 +215,8 @@ test('real photo consent, private storage delivery, board listing and withdrawal
       });
       assert.equal(withdrawn.status, 200);
       assert.equal((await fetch(`${origin}/api/board/${donation.templeId}/photos/${photoId}`)).status, 404);
+      const restoredBoard = await (await request(`/api/board/${donation.templeId}/photos`)).json();
+      assert.deepEqual(restoredBoard.photos.map((item) => item.id).sort(), priorPhotoIds);
       const ownPhotos = await (await request('/api/photos/mine', { bearer: token })).json();
       assert.equal(ownPhotos.photos.some((photo) => photo.id === photoId), false);
     }
