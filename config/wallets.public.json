@@ -1,0 +1,44 @@
+{
+  "chainId": 84532,
+  "generatedUtc": "2026-11-05T16:13:22.412Z",
+  "wallets": {
+    "deployer": "0x6D8B12ac79682377009988B1284dC0821639a91E",
+    "minter": "0x366C878c9484b82EF14b7f8fD2d5e49F735442c5",
+    "donor": "0x0160bD3CA0F556Ada6e09e0F0008166199078590",
+    "temple-01": "0x67b4cAd86d334834B37379F7660D65B46CD466b3",
+    "temple-02": "0x1a66138424B0c0567f53b9A62Ba9B341bc139075",
+    "temple-03": "0x73c5c46E475077F8EF5aDbc7Ea331f95D771139d",
+    "temple-04": "0xee34eE490E8FCBE706aAD0EC7e314a9fE7596836",
+    "temple-05": "0xabFf277f6eA54076Aeb26A411fF57696180Bf2A8",
+    "temple-06": "0x19C6EfF392f3Cc6973FE9BFF05258C7E40C36E87",
+    "temple-07": "0x6E98C64AA0f65a462b9de1CD59C95C53a2DdD4E3",
+    "temple-08": "0x0e4fc95eb46730D8a94446321d0A73340f6E50b6",
+    "temple-09": "0xbbCa3402891da9bb955ab082a8048fCf3be57294",
+    "temple-10": "0xD7cE6DC2283469fB1F54f6C88F0E7872c1E3f35C",
+    "fee-recipient": "0x78A1FA298C3d91D92fAe8F469bc7D386f75e5285"
+  },
+  "budgets": {
+    "deployer": {
+      "eth": "0.01",
+      "maxGasEth": "0.01"
+    },
+    "minter": {
+      "eth": "0.003",
+      "maxGasEth": "0.003",
+      "maxTransactions": 20
+    },
+    "donor": {
+      "eth": "0.003",
+      "usdc": "0.20",
+      "maxGasEth": "0.003",
+      "maxTransactions": 20,
+      "maxPerDonationUsdc": "0.01",
+      "maxTotalUsdc": "0.20"
+    },
+    "temple-01": {
+      "eth": "0.001",
+      "usdc": "0.01",
+      "maxGasEth": "0.001"
+    }
+  }
+}

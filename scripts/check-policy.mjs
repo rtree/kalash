@@ -23,18 +23,17 @@ export function checkPolicy({ allowUnverifiedLock = false } = {}) {
     if (existsSync(file)) fail(`forbidden lockfile ${file}`);
   }
   const expected = {
-    minimumReleaseAge: 10080,
-    minimumReleaseAgeExclude: [],
-    ignoreScripts: true,
-    ignorePnpmfile: true,
+    'minimum-release-age': 10080,
+    'minimum-release-age-exclude': [],
+    'ignore-scripts': true,
+    'ignore-pnpmfile': true,
     'save-exact': true,
     'enable-pre-post-scripts': false,
   };
+  const effective = JSON.parse(pnpm('config', 'list', '--json'));
   for (const [key, value] of Object.entries(expected)) {
-    const actual = pnpm('config', 'get', key, '--json');
-    let parsed;
-    try { parsed = JSON.parse(actual); } catch { fail(`${key} is unknown: ${actual}`); }
-    if (JSON.stringify(parsed) !== JSON.stringify(value)) fail(`${key} effective value ${actual}`);
+    const actual = effective[key];
+    if (JSON.stringify(actual) !== JSON.stringify(value)) fail(`${key} effective value ${JSON.stringify(actual)}`);
   }
   const workspace = read('pnpm-workspace.yaml');
   if (!/^minimumReleaseAge: 10080$/m.test(workspace)
@@ -58,7 +57,11 @@ export function checkPolicy({ allowUnverifiedLock = false } = {}) {
           || report.policySha256 !== policyFingerprint()
           || report.minimumAgeMinutes !== 10080 || report.passed !== true
           || !Array.isArray(report.packages) || report.packages.length === 0
-          || report.packages.some((entry) => entry.passed !== true)) fail('stale or invalid release evidence');
+          || report.packages.some((entry) => entry.passed !== true
+            || !Number.isFinite(Date.parse(entry.publishedUtc))
+            || (Date.parse(report.referenceUtc) - Date.parse(entry.publishedUtc)) / 60000 < 10080)) {
+        fail('stale or invalid release evidence');
+      }
     }
     console.log(allowUnverifiedLock ? 'Policy settings passed; lockfile requires release verification.' : 'Policy and release evidence passed.');
   } else {

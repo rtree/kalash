@@ -9,11 +9,12 @@ This document defines intended contracts; TASKS records verification, not this f
 | Responsibility | Host | Address / status |
 |---|---|---|
 | Web/API development | Current Windows ARM64, Node 26.13.0 | `http://localhost:3000` (not started) |
-| Contract compile / isolated chain tests | Prefer Linux; none assigned | Pure-JS compatibility probe first; no native Hardhat assumption |
-| Cloud build / production | GCP Cloud Run | Project and HTTPS URL not assigned |
+| Contract compile / isolated chain tests | Windows solc compile; Cloud Build Linux for chain tests | Ganache native leveldown incompatible with Windows ARM64; browser fallback also failed; no further Windows framework retries |
+| Cloud build / production | GCP Cloud Build / Cloud Run | `kalash-donation`, `asia-south1`; HTTPS URL not yet assigned |
 | Controller / ITL | Current Windows ARM64, .NET 10 | ITL loopback `http://localhost:5000`; no device operations authorized yet |
-| Android | USB-attached host not assigned | ADB absent from PATH; localhost is not a remote-host URL |
+| Android | Current Windows host, user reports USB-connected Samsung | ADB absent from Agent PATH; need exact executable path; localhost is not a remote-host URL |
 
+User confirms nested virtualization is unavailable; use Cloud Build rather than Docker/WSL.
 Central is one process serving React, API and a durable mint loop.
 Firebase Auth verifies identity, Firestore is the only application writer's store,
 Secret Manager supplies minter key, private Storage is reserved for M2.
