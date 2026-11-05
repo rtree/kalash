@@ -5,4 +5,3 @@ KALASHっていう寺院を巡りながら旅のスタンプを集めるアプ�
 アクセス用のRESTAPIサーバはここで起動してもいいけどこれはメーカーのPriprietaryだからGithubには公開できないよ。
 でもダウンロードサイトはここ
 https://www.innovative-technology.com/
-
