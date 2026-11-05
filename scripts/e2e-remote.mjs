@@ -149,6 +149,10 @@ if (item?.completed && !process.argv.includes('--new-donation')) {
   assert.equal(first.status, 'confirmed');
   item.confirmedAt = new Date().toISOString();
   persist();
+  if (process.argv.includes('--idle-mint')) {
+    // No KALASH requests during this interval: the always-CPU process must mint independently.
+    await new Promise((resolve) => setTimeout(resolve, 12000));
+  }
   const deadline = Date.now() + 120000;
   let final = first;
   while (Date.now() < deadline && final.mintStatus !== 'minted') {

@@ -8,4 +8,5 @@ RUN node scripts/check-policy.mjs && pnpm install --frozen-lockfile --ignore-scr
 COPY contracts contracts
 COPY scripts/compile-contracts.mjs scripts/compile-contracts.mjs
 COPY tests/contracts.test.mjs tests/contracts.test.mjs
-RUN node scripts/check-policy.mjs && node scripts/compile-contracts.mjs && node --test tests/contracts.test.mjs
+COPY tests/policy.test.mjs tests/policy.test.mjs
+RUN node scripts/check-policy.mjs && node scripts/compile-contracts.mjs && node --test tests/contracts.test.mjs tests/policy.test.mjs

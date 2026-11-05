@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const fail = (message) => { throw new Error(`Dependency policy: ${message}`); };
 const read = (file) => readFileSync(file, 'utf8');
@@ -15,7 +17,7 @@ function pnpm(...args) {
 
 export function checkPolicy({ allowUnverifiedLock = false } = {}) {
   const pkg = JSON.parse(read('package.json'));
-  if (pkg.packageManager !== 'pnpm@10.34.9') fail('packageManager must pin pnpm@10.34.9');
+  if (pkg.packageManager !== 'pnpm@10.34.9' || pkg.engines.pnpm !== '10.34.9') fail('packageManager and engines must pin pnpm@10.34.9');
   if (pnpm('--version') !== '10.34.9') fail('actual pnpm version differs');
   if (process.version !== 'v26.13.0' || read('.node-version').trim() !== '26.13.0'
       || pkg.engines.node !== '26.13.0') fail('Node version differs');
@@ -69,6 +71,6 @@ export function checkPolicy({ allowUnverifiedLock = false } = {}) {
   }
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replaceAll('\\', '/')}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   checkPolicy();
 }

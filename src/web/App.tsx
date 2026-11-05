@@ -8,6 +8,7 @@ import { parseAbi, type Address, type Hex } from 'viem';
 import { useAccount, useConnect, useDisconnect, usePublicClient, useSwitchChain, useWalletClient, useWriteContract } from 'wagmi';
 import { CHAIN_ID, formatUsdc, parseAmount, stampAbi, vaultAbi, type CollectionResponse, type Donation, type DonationStatus, type Temple } from '../shared.ts';
 import type { Runtime } from './runtime.ts';
+import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
 
 const erc20Abi = parseAbi([
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -187,7 +188,7 @@ function Illustration({ motif, className = '' }: { motif: string; className?: st
 
 export function App({ runtime }: { runtime: Runtime }) {
   const { config, auth, temples } = runtime;
-  const { address, chainId, isConnected } = useAccount();
+  const { address, chainId, isConnected, connector } = useAccount();
   const { connectors, connectAsync, isPending: connecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: walletClient } = useWalletClient();
@@ -352,18 +353,37 @@ export function App({ runtime }: { runtime: Runtime }) {
   const matchingTemples = temples.filter((temple) => `${temple.name} ${temple.description}`.toLowerCase().includes(query.toLowerCase()));
   const walletReady = Boolean(address && isConnected && authenticatedWallet === address.toLowerCase());
 
+  useEffect(() => {
+    recordWalletTrace('wagmi-account', {
+      connector: connector?.id,
+      chainId,
+      connected: isConnected,
+      addressPresent: Boolean(address),
+    });
+  }, [address, chainId, connector?.id, isConnected]);
+
   const connectWallet = async () => {
     setError('');
-    try {
-      const injected = connectors.find((connector) => connector.id === 'injected' || /metamask/i.test(connector.name));
-      if (injected) {
-        await connectAsync({ connector: injected });
-      } else {
-        runtime.openWalletConnect();
-        if (!config.reownProjectId) setNotice('MetaMask was not detected. WalletConnect is not configured for this deployment.');
+    const injectedConnector = connectors.find((item) => item.id === 'injected' || /metamask/i.test(item.name));
+    if (injectedConnector) {
+      const attemptId = startWalletAttempt(injectedConnector.id);
+      recordWalletTrace('provider-start', { connector: injectedConnector.id }, attemptId);
+      try {
+        const result = await connectAsync({ connector: injectedConnector });
+        recordWalletTrace('provider-resolve', {
+          connector: injectedConnector.id,
+          chainId: result.chainId,
+          connected: true,
+          addressPresent: result.accounts.length > 0,
+        }, attemptId);
+      } catch (cause) {
+        recordWalletTrace('provider-reject', { connector: injectedConnector.id }, attemptId);
+        setError(cause instanceof Error ? cause.message : 'Wallet connection was not completed.');
       }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Wallet connection was not completed.');
+    } else if (config.reownProjectId) {
+      runtime.openWalletConnect();
+    } else {
+      setNotice('No injected wallet was detected and WalletConnect is not configured for this deployment.');
     }
   };
 

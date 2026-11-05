@@ -1,9 +1,9 @@
 {
-  "referenceUtc": "2026-11-05T16:33:12.186Z",
+  "referenceUtc": "2026-11-05T17:01:12.082Z",
   "registry": "https://registry.npmjs.org",
   "minimumAgeMinutes": 10080,
   "lockfileSha256": "d85b7ef79a5bb76a498c31510a5d963fe409e3add2492ce406b04b3150798291",
-  "policySha256": "693a9690fc533a5052f09e2297dcf6b6d686b2eed1b4c81d992dea6eaec45700",
+  "policySha256": "58b45bcb87601687207061fcbe0ea634240d1c475f507e0af8037946f79732d9",
   "passed": true,
   "packages": [
     {

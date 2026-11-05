@@ -5,6 +5,8 @@ import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { baseSepolia } from 'viem/chains';
 import { createConfig, http, injected, type Config } from 'wagmi';
 import type { PublicConfig, Temple } from '../shared.ts';
+import { installWalletLifecycleTrace, recordWalletTrace, sanitizeConnector, startWalletAttempt } from './walletTrace.ts';
+import type { AppKit } from '@reown/appkit';
 
 export interface Runtime {
   config: PublicConfig;
@@ -12,6 +14,7 @@ export interface Runtime {
   temples: Temple[];
   wagmiConfig: Config;
   openWalletConnect: () => void;
+  appKit?: AppKit;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -33,8 +36,10 @@ export async function createRuntime(): Promise<Runtime> {
   }
 
   const auth = getAuth(initializeApp(config.firebase));
+  installWalletLifecycleTrace();
   let wagmiConfig: Config;
   let openWalletConnect = () => undefined;
+  let appKit: AppKit | undefined;
 
   if (config.reownProjectId) {
     const adapter = new WagmiAdapter({
@@ -42,7 +47,7 @@ export async function createRuntime(): Promise<Runtime> {
       networks: [baseSepolia],
       ssr: false,
     });
-    const appKit = createAppKit({
+    appKit = createAppKit({
       adapters: [adapter],
       networks: [baseSepolia],
       projectId: config.reownProjectId,
@@ -67,8 +72,74 @@ export async function createRuntime(): Promise<Runtime> {
       },
     });
     wagmiConfig = adapter.wagmiConfig;
+    const appKitClient = appKit;
+    appKitClient.subscribeAccount((account) => {
+      recordWalletTrace('appkit-account', {
+        connector: appKitClient.getWalletProviderType(),
+        chainId: appKitClient.getChainId(),
+        connected: account.isConnected,
+        addressPresent: Boolean(account.address),
+      });
+    });
+    appKitClient.subscribeNetwork((network) => {
+      recordWalletTrace('appkit-network', {
+        connector: appKitClient.getWalletProviderType(),
+        chainId: network.chainId,
+        connected: appKitClient.getIsConnectedState(),
+        addressPresent: Boolean(appKitClient.getAddress()),
+      });
+    });
+    appKitClient.subscribeState((state) => {
+      if (state.connectingWallet) {
+        recordWalletTrace('provider-start', {
+          connector: state.connectingWallet.name,
+          chainId: appKitClient.getChainId(),
+          connected: appKitClient.getIsConnectedState(),
+          addressPresent: Boolean(appKitClient.getAddress()),
+        });
+      }
+    });
+    appKitClient.subscribeEvents((state) => {
+      const current = {
+        connector: appKitClient.getWalletProviderType(),
+        chainId: appKitClient.getChainId(),
+        connected: appKitClient.getIsConnectedState(),
+        addressPresent: Boolean(appKitClient.getAddress()),
+      };
+      switch (state.data.event) {
+        case 'SELECT_WALLET':
+          recordWalletTrace('provider-start', {
+            ...current,
+            connector: sanitizeConnector(state.data.properties.name),
+          });
+          break;
+        case 'CONNECT_SUCCESS':
+          recordWalletTrace('provider-resolve', current);
+          break;
+        case 'USER_REJECTED':
+        case 'CONNECT_ERROR':
+          recordWalletTrace('provider-reject', current);
+          break;
+      }
+    });
     openWalletConnect = () => {
-      void appKit.open({ view: 'Connect' });
+      startWalletAttempt('walletConnect');
+      recordWalletTrace('appkit-open-start', { connector: 'walletConnect' });
+      void appKitClient.open({ view: 'Connect' }).then(() => {
+        recordWalletTrace('appkit-open-resolve', {
+          connector: appKitClient.getWalletProviderType(),
+          chainId: appKitClient.getChainId(),
+          connected: appKitClient.getIsConnectedState(),
+          addressPresent: Boolean(appKitClient.getAddress()),
+        });
+      }).catch(() => {
+        recordWalletTrace('appkit-open-reject', {
+          connector: appKitClient.getWalletProviderType(),
+          chainId: appKitClient.getChainId(),
+          connected: appKitClient.getIsConnectedState(),
+          addressPresent: Boolean(appKitClient.getAddress()),
+        });
+      });
     };
   } else {
     wagmiConfig = createConfig({
@@ -78,5 +149,5 @@ export async function createRuntime(): Promise<Runtime> {
     });
   }
 
-  return { config, auth, temples: templeResponse.temples, wagmiConfig, openWalletConnect };
+  return { config, auth, temples: templeResponse.temples, wagmiConfig, openWalletConnect, appKit };
 }
