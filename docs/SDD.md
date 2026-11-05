@@ -117,10 +117,33 @@ and lock hash before executing dependency code. Thereafter frozen lockfile only.
 Release verification report includes UTC reference, all locked versions/timestamps,
 verdict, policy fingerprint and SHA-256 lockfile hash. No age exclusions or hooks.
 
-## 6. Reserved later goals
+## 6. M2 photos and public boards
 
-M2 photos/consent/private storage, M3 cash controller/reconciliation, M4 fee/payout,
-M5 onsite crypto remain required. Their implementation is not implied by M1 code.
+Photos are never uploaded automatically after donation. An authenticated owner must
+select a confirmed donation, preview a JPEG/PNG/WebP locally, and explicitly consent
+before Central accepts the upload. Central decodes the bytes with a 20 MP pixel limit,
+rejects animation and unsupported formats, applies EXIF orientation, and re-encodes
+to metadata-free JPEG (1600px maximum dimension, 5 MB input / 3 MB output limits).
+Display-name text is optional, normalized and length-limited.
+
+Store objects in private `kalash-donation-photos` (asia-south1), uniform bucket-level
+access, public-access prevention, no soft-delete retention. Only the Cloud Run runtime
+service account gets object access. Never return storage paths or signed GCS URLs.
+The public board API exposes only photo ID, temple, optional display name, size tier,
+creation/expiry and a same-origin image route. That route rechecks the published photo
+and current owner/temple slot on every request and returns `no-store`; replacing,
+withdrawing or expiring a photo blocks public delivery before attempting object
+deletion. Failed deletions are queued durably for retry.
+
+One latest photo per verified wallet/temple slot; each published image expires after
+30 days. Firestore records keep donation/owner/consent/points private. Public DTOs must
+never include those fields. `photoSizeTier` uses integer point units and shared
+thresholds: 1–499, 500–1,999, 2,000–4,999 and 5,000+ points; zero is ineligible.
+An expiry queue and cleanup queue are processed by the existing Central process.
+The owner may withdraw; operator/temple withdrawal authorization remains to be added.
+
+M3 cash controller/reconciliation, M4 fee/payout, and M5 onsite crypto remain required;
+their implementation is not implied by M1 code.
 
 ## 7. Current implementation commands and client
 

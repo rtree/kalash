@@ -192,10 +192,36 @@ h2 { color: #20342c; }
 .collection-page, .history-page { max-width: 930px; margin: auto; }
 .collection-page .page-heading-row { margin-bottom: 22px; }
 .collection-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--line); margin: 25px 0 23px; color: #77817b; }
-.collection-tabs > span { position: relative; padding: 0 0 13px; font-size: 13px; font-weight: 600; }
+.collection-tabs > button { position: relative; padding: 0 0 13px; border: 0; background: transparent; color: inherit; font-size: 13px; font-weight: 600; }
 .collection-tabs .tab-active { color: var(--green); }
 .collection-tabs .tab-active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--gold); }
-.collection-tabs .tab-disabled small { margin-left: 5px; color: #8b7960; font-size: 9px; }
+.photo-share { margin-top: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fcfdfc; }
+.photo-share .section-title-row h3 { margin: 0 0 4px; color: #20342c; font: 700 17px 'Playfair Display', Georgia, serif; }
+.photo-share .section-title-row p { margin: 0; color: var(--muted); font-size: 11px; }
+.photo-tier-label { border-radius: 99px; padding: 6px 9px; color: #70572c; background: var(--cream); font-size: 10px; white-space: nowrap; }
+.photo-file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 13px 0; }
+.photo-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
+.photo-file-actions label { position: relative; display: inline-flex; align-items: center; }
+.photo-name-input { width: 100%; min-height: 46px; margin: 6px 0 12px; padding: 0 12px; border: 1px solid #dce3df; border-radius: 8px; color: #202522; background: white; }
+.photo-consent { display: flex; align-items: flex-start; gap: 9px; margin: 10px 0 14px; color: #52635a; font-size: 11px; line-height: 1.5; }
+.photo-consent input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green); }
+.photo-preview, .published-photo { display: grid; justify-items: start; gap: 8px; margin: 14px 0; }
+.photo-frame { position: relative; flex: 0 0 auto; max-width: 100%; margin: 0; padding: 7px; border: 2px solid #d8aa50; border-radius: 12px; background: linear-gradient(145deg, #fff8e9, #f8e6bb 50%, #fffaf0); box-shadow: 0 5px 16px rgba(89, 61, 17, .15); }
+.photo-ornament { margin: 0 0 5px; color: #9c6d18; text-align: center; font-size: 12px; letter-spacing: .12em; }
+.photo-frame img { display: block; width: 100%; aspect-ratio: 3 / 4; border-radius: 6px; background: #e7ece7; object-fit: cover; }
+.photo-frame figcaption { overflow: hidden; margin-top: 6px; color: #573f18; font: 700 11px 'Playfair Display', Georgia, serif; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.published-photo a { color: var(--green); font-size: 11px; }
+.photo-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.photo-gallery-card { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.photo-gallery-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; }
+.photo-gallery-copy strong { color: var(--green); font-size: 13px; }
+.photo-gallery-copy > span { color: var(--muted); font-size: 10px; }
+.photo-gallery-copy .button { min-height: 40px; padding: 0 11px; font-size: 11px; }
+.photo-gallery-copy .text-button { min-height: 36px; padding-left: 0; }
+.photo-board-page > h1 { margin: 8px 0; }
+.board-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); align-items: start; justify-items: center; gap: 24px; margin-top: 25px; padding: 20px; border-radius: 15px; background: linear-gradient(135deg, #fff8e9, #f7f0df 45%, #fffaf2); }
+.board-photo-card { display: grid; justify-items: center; width: 100%; padding: 15px; border: 1px solid #ead8b4; border-radius: 12px; background: rgba(255,255,255,.82); box-shadow: 0 4px 13px rgba(47, 42, 28, .08); }
+.board-photo-card.size-tier-4 { padding: 10px; }
 .stamp-book { margin: 23px 0 35px; }
 .section-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 17px; }
 .section-title-row h2 { margin: 0 0 4px; font: 700 21px 'Playfair Display', Georgia, serif; }
@@ -239,6 +265,8 @@ h2 { color: #20342c; }
 .history-details { display: flex; flex-direction: column; flex: 1; gap: 4px; min-width: 0; }
 .history-details > strong { color: #31443a; font-size: 13px; }
 .history-details > span:not(.status-pill) { color: #76817a; font-size: 10px; }
+.history-photo-action { width: 100%; max-width: 480px; }
+.history-photo-action .photo-share { margin-top: 8px; padding: 10px; }
 .history-amount { white-space: nowrap; color: #35473d; font-size: 13px; }
 .history-amount small { display: block; text-align: right; color: #78817b; font-size: 9px; font-weight: 500; }
 .startup-loading, .startup-error { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
@@ -295,6 +323,11 @@ h2 { color: #20342c; }
   .stamp-slot > strong { font-size: 10px; }
   .stamp-slot > span { font-size: 9px; }
   .collection-footer-actions { flex-direction: column; }
+  .photo-gallery { grid-template-columns: 1fr; }
+  .board-photo-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 12px; }
+  .board-photo-card { padding: 8px; }
+  .photo-file-actions { align-items: stretch; }
+  .photo-file-actions label { flex: 1 1 120px; justify-content: center; padding: 0 10px; font-size: 12px; }
   .history-item { gap: 10px; }
   .history-details > span:not(.status-pill) { line-height: 1.4; }
 }

@@ -7,7 +7,11 @@ import {
 } from 'firebase/auth';
 import { parseAbi, type Address, type Hex } from 'viem';
 import { useAccount, useConnect, useDisconnect, usePublicClient, useSwitchChain, useWalletClient, useWriteContract } from 'wagmi';
-import { CHAIN_ID, formatUsdc, parseAmount, parseDonationUnits, stampAbi, vaultAbi, type CollectionResponse, type Donation, type DonationStatus, type Temple } from '../shared.ts';
+import {
+  CHAIN_ID, formatUsdc, parseAmount, parseDonationUnits, PHOTO_CONSENT_VERSION,
+  PHOTO_SIZE_TIERS, stampAbi, vaultAbi, type CollectionResponse, type Donation,
+  type DonationStatus, type PhotoDto, type Temple,
+} from '../shared.ts';
 import type { Runtime } from './runtime.ts';
 import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
 
@@ -28,6 +32,37 @@ interface PendingOperation {
   operation: 'approve' | 'donate';
   attemptId: string;
   txHash?: Hex;
+}
+
+interface PhotoEligibility {
+  templeId: string;
+  points: string;
+  sizeTier: 1 | 2 | 3 | 4;
+}
+
+interface PhotoUploadResponse {
+  photo: PhotoDto;
+  cleanupPending: boolean;
+}
+
+async function fileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the selected image.'));
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Could not read the selected image.'));
+        return;
+      }
+      const separator = reader.result.indexOf(',');
+      if (separator < 0) {
+        reject(new Error('Could not encode the selected image.'));
+        return;
+      }
+      resolve(reader.result.slice(separator + 1));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatInr(amountUnits: bigint): string {
@@ -212,11 +247,16 @@ export function App({ runtime }: { runtime: Runtime }) {
   const [donation, setDonation] = useState<Donation | null>(null);
   const [collection, setCollection] = useState<CollectionResponse | null>(null);
   const [history, setHistory] = useState<Donation[]>([]);
+  const [photoEligibility, setPhotoEligibility] = useState<PhotoEligibility | null>(null);
+  const [boardPhotos, setBoardPhotos] = useState<PhotoDto[]>([]);
+  const [boardError, setBoardError] = useState('');
+  const [boardLoading, setBoardLoading] = useState(false);
   const [pendingOperation, setPendingOperation] = useState<PendingOperation | null>(() => readStorage(PENDING_OPERATION));
   const [refreshVersion, setRefreshVersion] = useState(0);
   const previousAddress = useRef<string | null>(null);
   const currentTempleId = path.match(/^\/temples\/([^/]+)\/?$/)?.[1];
   const currentTemple = temples.find((temple) => temple.id === currentTempleId);
+  const boardTempleId = path.match(/^\/board\/([^/]+)\/?$/)?.[1];
 
   const api = useCallback(async <T,>(url: string, init: RequestInit = {}, privateRequest = false): Promise<T> => {
     const headers = new Headers(init.headers);
@@ -230,10 +270,14 @@ export function App({ runtime }: { runtime: Runtime }) {
     const response = await fetch(url, { ...init, headers });
     const body = await response.json().catch(() => ({})) as T & ApiError;
     if (!response.ok) {
-      throw new Error(body.error ?? body.message ?? `Request failed (${response.status}).`);
+      throw new Error(body.message ?? body.error ?? `Request failed (${response.status}).`);
     }
     return body;
   }, [auth]);
+  const getPhotoEligibility = useCallback(
+    (donationId: Hex) => api<PhotoEligibility>(`/api/photos/eligibility/${encodeURIComponent(donationId)}`, {}, true),
+    [api],
+  );
 
   const navigate = useCallback((nextPath: string) => {
     window.history.pushState({}, '', nextPath);
@@ -308,6 +352,36 @@ export function App({ runtime }: { runtime: Runtime }) {
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Could not load your history.'); });
     return () => { active = false; };
   }, [api, authenticatedWallet, path, refreshVersion]);
+
+  useEffect(() => {
+    setPhotoEligibility(null);
+    if (!donation || donation.status !== 'confirmed' || !authenticatedWallet) return;
+    let active = true;
+    void getPhotoEligibility(donation.id)
+      .then((result) => { if (active) setPhotoEligibility(result); })
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'Could not load photo-sharing eligibility.');
+      });
+    return () => { active = false; };
+  }, [authenticatedWallet, donation?.id, donation?.status, getPhotoEligibility]);
+
+  useEffect(() => {
+    if (!boardTempleId) {
+      setBoardPhotos([]);
+      setBoardError('');
+      return;
+    }
+    let active = true;
+    setBoardLoading(true);
+    setBoardError('');
+    void api<{ photos: PhotoDto[] }>(`/api/board/${encodeURIComponent(boardTempleId)}/photos`)
+      .then((result) => { if (active) setBoardPhotos(result.photos); })
+      .catch((cause: unknown) => {
+        if (active) setBoardError(cause instanceof Error ? cause.message : 'Could not load this temple board.');
+      })
+      .finally(() => { if (active) setBoardLoading(false); });
+    return () => { active = false; };
+  }, [api, boardTempleId, refreshVersion]);
 
   useEffect(() => {
     if (!donation || !authenticatedWallet || !['submitting', 'unknown', 'submitted', 'confirmed'].includes(donation.status) || donation.mintStatus === 'minted') return;
@@ -642,6 +716,42 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
   };
 
+  const publishPhoto = async (donationId: Hex, file: File, displayName: string) => {
+    const imageBase64 = await fileAsBase64(file);
+    const result = await api<PhotoUploadResponse>('/api/photos', {
+      method: 'POST',
+      body: JSON.stringify({
+        donationId,
+        imageBase64,
+        contentType: file.type,
+        displayName,
+        consent: true,
+        consentVersion: PHOTO_CONSENT_VERSION,
+      }),
+    }, true);
+    setNotice(result.cleanupPending
+      ? 'Your new photo is public. Replaced image cleanup is queued and will retry.'
+      : 'Your photo is now on the public temple board.');
+    setRefreshVersion((version) => version + 1);
+    return result;
+  };
+
+  const withdrawPhoto = async (photoId: string) => {
+    try {
+      const result = await api<{ cleanupPending: boolean }>(
+        `/api/photos/${encodeURIComponent(photoId)}/withdraw`,
+        { method: 'POST', body: '{}' },
+        true,
+      );
+      setNotice(result.cleanupPending
+        ? 'Your photo is no longer public. Image deletion is queued and will retry.'
+        : 'Your photo was withdrawn and deleted.');
+      setRefreshVersion((version) => version + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not withdraw this photo.');
+    }
+  };
+
   const signOutWallet = async () => {
     await signOut(auth);
     disconnect();
@@ -716,8 +826,11 @@ export function App({ runtime }: { runtime: Runtime }) {
             onRestore={() => void restoreDonation()}
             onCollection={() => { setRefreshVersion((version) => version + 1); navigate('/collection'); }}
             onExplore={() => navigate('/temples')}
+            onBoard={() => navigate(`/board/${currentTemple.id}`)}
             openWalletConnect={runtime.openWalletConnect}
             hasWalletConnect={Boolean(config.reownProjectId)}
+            photoEligibility={photoEligibility}
+            onUploadPhoto={publishPhoto}
           />
         ) : path === '/collection' ? (
           <CollectionPage
@@ -725,15 +838,35 @@ export function App({ runtime }: { runtime: Runtime }) {
             collection={collection}
             authenticated={walletReady}
             donations={collection?.donations ?? []}
+            photos={collection?.photos ?? []}
             onConnect={() => void connectWallet()}
             onSignIn={signInWallet}
             onExplore={() => navigate('/temples')}
             onRefresh={() => setRefreshVersion((version) => version + 1)}
             onHistory={() => navigate('/history')}
             onResume={() => donation?.templeId && navigate(`/temples/${donation.templeId}`)}
+            onWithdrawPhoto={withdrawPhoto}
+            onBoard={(templeId) => navigate(`/board/${templeId}`)}
+          />
+        ) : boardTempleId ? (
+          <PhotoBoardPage
+            temple={temples.find((item) => item.id === decodeURIComponent(boardTempleId))}
+            photos={boardPhotos}
+            loading={boardLoading}
+            error={boardError}
+            onExplore={() => navigate('/temples')}
           />
         ) : path === '/history' ? (
-          <HistoryPage temples={temples} donations={history} authenticated={walletReady} onConnect={() => void connectWallet()} onSignIn={signInWallet} onExplore={() => navigate('/temples')} />
+          <HistoryPage
+            temples={temples}
+            donations={history}
+            authenticated={walletReady}
+            onConnect={() => void connectWallet()}
+            onSignIn={signInWallet}
+            onExplore={() => navigate('/temples')}
+            onPhotoEligibility={getPhotoEligibility}
+            onUploadPhoto={publishPhoto}
+          />
         ) : (
           <ExplorePage temples={matchingTemples} query={query} setQuery={setQuery} view={exploreView} setView={setExploreView} onTemple={(temple) => navigate(`/temples/${temple.id}`)} />
         )}
@@ -824,8 +957,11 @@ function TempleDetail(props: {
   onRestore: () => void;
   onCollection: () => void;
   onExplore: () => void;
+  onBoard: () => void;
   openWalletConnect: () => void;
   hasWalletConnect: boolean;
+  photoEligibility: PhotoEligibility | null;
+  onUploadPhoto: (donationId: Hex, file: File, displayName: string) => Promise<PhotoUploadResponse>;
 }) {
   const { temple, config } = props;
   const ready = Boolean(config.vault && config.stamp);
@@ -851,6 +987,7 @@ function TempleDetail(props: {
           <div className="support-note">
             <span aria-hidden="true">✦</span><div><strong>Make your support count</strong><p>A successful remote donation can earn a real on-chain KALASH stamp after Central verifies it.</p></div>
           </div>
+          <button className="text-button board-link" onClick={props.onBoard}>View community photo board</button>
         </div>
         <aside className="donation-card">
           <div className="donation-card-heading"><span className="eyebrow">REMOTE SUPPORT</span><h2>Send a small offering</h2><p>Choose an amount in test USDC.</p></div>
@@ -911,6 +1048,8 @@ function TempleDetail(props: {
               onCheck={props.onCheck}
               onRestore={props.onRestore}
               onCollection={props.onCollection}
+              photoEligibility={props.photoEligibility}
+              onUploadPhoto={props.onUploadPhoto}
             />
           )}
         </aside>
@@ -919,13 +1058,15 @@ function TempleDetail(props: {
   );
 }
 
-function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore, onCollection }: {
+function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore, onCollection, photoEligibility, onUploadPhoto }: {
   donation: Donation;
   pendingOperation: PendingOperation | null;
   busy: boolean;
   onCheck: () => void;
   onRestore: () => void;
   onCollection: () => void;
+  photoEligibility: PhotoEligibility | null;
+  onUploadPhoto: (donationId: Hex, file: File, displayName: string) => Promise<PhotoUploadResponse>;
 }) {
   const minted = donation.mintStatus === 'minted';
   const unknown = donation.status === 'unknown' || donation.status === 'submitting' || (pendingOperation?.donationId === donation.id && !pendingOperation.txHash);
@@ -943,12 +1084,20 @@ function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore
           {busy ? 'Checking…' : 'Check with Central'}
         </button>
       )}
+      {donation.status === 'confirmed' && (
+        <PhotoSharePanel
+          key={donation.id}
+          donationId={donation.id}
+          eligibility={photoEligibility}
+          onUpload={onUploadPhoto}
+        />
+      )}
       {donation.status === 'intent' && !pendingOperation && (
         <button className="button button-secondary button-wide" onClick={onRestore} disabled={busy}>Restore donation status</button>
       )}
       {minted && (
         <div className="minted-next">
-          <p>Photo sharing is a later release and is not available here.</p>
+          <p>Sharing a photo is optional and does not affect your stamp.</p>
           <button className="button button-primary button-wide" onClick={onCollection}>Skip photo · View collection</button>
         </div>
       )}
@@ -956,10 +1105,118 @@ function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore
   );
 }
 
+function PhotoFrame({ photo }: { photo: PhotoDto }) {
+  const width = PHOTO_SIZE_TIERS.find((entry) => entry.tier === photo.sizeTier)?.displayWidth ?? 88;
+  return (
+    <figure className="photo-frame" style={{ width }}>
+      <div className="photo-ornament" aria-hidden="true">✿ ✦ ✿</div>
+      <img src={photo.imageUrl} alt="Pilgrim photo shared with consent" loading="lazy" />
+      <figcaption>{photo.displayName || 'A fellow pilgrim'}</figcaption>
+    </figure>
+  );
+}
+
+function PhotoSharePanel({ donationId, eligibility, onUpload }: {
+  donationId: Hex;
+  eligibility: PhotoEligibility | null;
+  onUpload: (donationId: Hex, file: File, displayName: string) => Promise<PhotoUploadResponse>;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [published, setPublished] = useState<PhotoDto | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const selectImage = (selected: File | undefined) => {
+    setError('');
+    setPublished(null);
+    setConsent(false);
+    if (!selected) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(selected.type)) {
+      setFile(null);
+      setError('Choose a JPEG, PNG or WebP image.');
+      return;
+    }
+    if (selected.size > 5 * 1024 * 1024) {
+      setFile(null);
+      setError('Image must be no larger than 5 MB.');
+      return;
+    }
+    setFile(selected);
+  };
+
+  const share = async () => {
+    if (!file || !consent || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await onUpload(donationId, file, displayName);
+      setPublished(result.photo);
+      setFile(null);
+      setConsent(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Photo upload failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="photo-share">
+      <div className="section-title-row">
+        <div><h3>Share a photo</h3><p>Optional · based on your verified support</p></div>
+        {eligibility && <span className="photo-tier-label">Size {eligibility.sizeTier} of 4</span>}
+      </div>
+      {!eligibility ? <p className="field-help">Checking your verified photo size…</p> : (
+        <>
+          {published && <div className="published-photo"><PhotoFrame photo={published} /><a href={published.imageUrl} target="_blank" rel="noreferrer">View public photo</a></div>}
+          {previewUrl && <div className="photo-preview">
+            <span className="field-label">Preview · only you can see this until you agree to publish</span>
+            <PhotoFrame photo={{
+              id: 'preview', templeId: eligibility.templeId, displayName: displayName.trim() || null,
+              sizeTier: eligibility.sizeTier, imageUrl: previewUrl, createdAt: '', expiresAt: '',
+            }} />
+          </div>}
+          <div className="photo-file-actions">
+            <label className="button button-secondary">Take a photo<input className="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => selectImage(event.currentTarget.files?.[0])} /></label>
+            <label className="button button-outline">Choose image<input className="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectImage(event.currentTarget.files?.[0])} /></label>
+            {file && <button className="text-button" onClick={() => { setFile(null); setConsent(false); }}>Discard</button>}
+          </div>
+          {file && (
+            <>
+              <label className="field-label" htmlFor="photo-display-name">Display name (optional)</label>
+              <input id="photo-display-name" className="photo-name-input" maxLength={32} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="How should we name you?" />
+              <label className="photo-consent">
+                <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+                <span>I agree to publish this photo and optional name on the public temple board for up to 30 days. Others may save copies. I can withdraw it later.</span>
+              </label>
+              <button className="button button-primary button-wide" onClick={() => void share()} disabled={!consent || busy}>{busy ? 'Preparing and publishing…' : 'Publish photo'}</button>
+            </>
+          )}
+        </>
+      )}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 function CollectionPage(props: {
   temples: Temple[];
   collection: CollectionResponse | null;
   donations: Donation[];
+  photos: PhotoDto[];
   authenticated: boolean;
   onConnect: () => void;
   onSignIn: () => void;
@@ -967,7 +1224,10 @@ function CollectionPage(props: {
   onRefresh: () => void;
   onHistory: () => void;
   onResume: () => void;
+  onWithdrawPhoto: (id: string) => Promise<void>;
+  onBoard: (templeId: string) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<'stamps' | 'photos'>('stamps');
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     const counted = new Set<string>();
@@ -997,18 +1257,70 @@ function CollectionPage(props: {
         </div>
       ) : (
         <>
-          <div className="collection-tabs"><span className="tab-active">Stamps</span><span className="tab-disabled">Photos <small>Later release</small></span></div>
-          <StampBook title="Remote support" subtitle="A stamp for every successful online donation" temples={props.temples} counts={counts} emptyLabel="No remote stamps yet" />
-          <StampBook title="On-site visits" subtitle="Earned during an in-person visit" temples={props.temples} counts={new Map()} onsiteOnly emptyLabel="On-site stamps will appear after a verified visit" />
-          {pending.length > 0 && (
-            <section className="pending-section">
-              <div className="section-title-row"><div><h2>Still in progress</h2><p>These are not counted as stamps.</p></div><button className="text-button" onClick={props.onResume}>Resume current donation</button></div>
-              <div className="pending-list">{pending.map((item) => <PendingDonation key={item.id} donation={item} temples={props.temples} />)}</div>
-            </section>
+          <div className="collection-tabs" role="tablist" aria-label="Collection">
+            <button role="tab" aria-selected={activeTab === 'stamps'} className={activeTab === 'stamps' ? 'tab-active' : ''} onClick={() => setActiveTab('stamps')}>Stamps</button>
+            <button role="tab" aria-selected={activeTab === 'photos'} className={activeTab === 'photos' ? 'tab-active' : ''} onClick={() => setActiveTab('photos')}>Photos</button>
+          </div>
+          {activeTab === 'stamps' ? (
+            <>
+              <StampBook title="Remote support" subtitle="A stamp for every successful online donation" temples={props.temples} counts={counts} emptyLabel="No remote stamps yet" />
+              <StampBook title="On-site visits" subtitle="Earned during an in-person visit" temples={props.temples} counts={new Map()} onsiteOnly emptyLabel="On-site stamps will appear after a verified visit" />
+              {pending.length > 0 && (
+                <section className="pending-section">
+                  <div className="section-title-row"><div><h2>Still in progress</h2><p>These are not counted as stamps.</p></div><button className="text-button" onClick={props.onResume}>Resume current donation</button></div>
+                  <div className="pending-list">{pending.map((item) => <PendingDonation key={item.id} donation={item} temples={props.temples} />)}</div>
+                </section>
+              )}
+            </>
+          ) : props.photos.length ? (
+            <div className="photo-gallery">
+              {props.photos.map((photo) => (
+                <article className="photo-gallery-card" key={photo.id}>
+                  <PhotoFrame photo={photo} />
+                  <div className="photo-gallery-copy">
+                    <strong>{props.temples.find((item) => item.id === photo.templeId)?.name ?? 'Temple board'}</strong>
+                    <span>Public until {new Date(photo.expiresAt).toLocaleDateString()}</span>
+                    <button className="button button-outline" onClick={() => void props.onWithdrawPhoto(photo.id)}>Withdraw photo</button>
+                    <button className="text-button" onClick={() => props.onBoard(photo.templeId)}>View temple board</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state"><span className="empty-icon">✿</span><h2>No shared photos</h2><p>After a confirmed donation, you can preview a photo, consent to share it, and withdraw it here.</p></div>
           )}
           <div className="collection-footer-actions"><button className="button button-secondary" onClick={props.onExplore}>Explore temples</button><button className="button button-outline" onClick={props.onHistory}>View donation history</button></div>
         </>
       )}
+    </section>
+  );
+}
+
+function PhotoBoardPage({ temple, photos, loading, error, onExplore }: {
+  temple: Temple | undefined;
+  photos: PhotoDto[];
+  loading: boolean;
+  error: string;
+  onExplore: () => void;
+}) {
+  return (
+    <section className="page photo-board-page">
+      <button className="back-link" onClick={onExplore}><span aria-hidden="true">←</span> All temples</button>
+      <div className="eyebrow">COMMUNITY PHOTO BOARD</div>
+      <h1>{temple?.name ?? 'Temple board'}</h1>
+      <p className="lede">Photos shared with consent by pilgrims. Images are removed after 30 days or sooner if withdrawn.</p>
+      {error && <div className="notice notice-danger" role="alert">{error}</div>}
+      {loading ? <p className="field-help">Loading the photo board…</p> : photos.length ? (
+        <div className="board-photo-grid">
+          {photos.map((photo) => (
+            <article className={`board-photo-card size-tier-${photo.sizeTier}`} key={photo.id}>
+              <PhotoFrame photo={photo} />
+            </article>
+          ))}
+        </div>
+      ) : !error ? (
+        <div className="empty-state"><span className="empty-icon">✿</span><h2>No shared photos yet</h2><p>When pilgrims choose to share, their photos will appear here.</p></div>
+      ) : null}
     </section>
   );
 }
@@ -1060,7 +1372,16 @@ function PendingDonation({ donation, temples }: { donation: Donation; temples: T
   );
 }
 
-function HistoryPage(props: { temples: Temple[]; donations: Donation[]; authenticated: boolean; onConnect: () => void; onSignIn: () => void; onExplore: () => void }) {
+function HistoryPage(props: {
+  temples: Temple[];
+  donations: Donation[];
+  authenticated: boolean;
+  onConnect: () => void;
+  onSignIn: () => void;
+  onExplore: () => void;
+  onPhotoEligibility: (donationId: Hex) => Promise<PhotoEligibility>;
+  onUploadPhoto: (donationId: Hex, file: File, displayName: string) => Promise<PhotoUploadResponse>;
+}) {
   const templeNames = useMemo(() => new Map(props.temples.map((temple) => [temple.id, temple.name])), [props.temples]);
   const byMonth = useMemo(() => {
     const groups = new Map<string, Donation[]>();
@@ -1080,9 +1401,56 @@ function HistoryPage(props: { temples: Temple[]; donations: Donation[]; authenti
         <div className="empty-state"><span className="empty-icon">◷</span><h2>No donations yet</h2><p>Your real transaction history will show here.</p><button className="button button-secondary" onClick={props.onExplore}>Explore temples</button></div>
       ) : (
         <div className="history-timeline">
-          {byMonth.map(([month, items]) => <section key={month} className="history-month"><h2>{month}</h2><div className="history-items">{items.map((item) => <article className="history-item" key={item.id}><span className="history-dot" /><div className="history-details"><strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong><span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span><span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span></div><strong className="history-amount">{formatUsdc(item.amount)}<small>USDC</small></strong></article>)}</div></section>)}
+          {byMonth.map(([month, items]) => (
+            <section key={month} className="history-month">
+              <h2>{month}</h2>
+              <div className="history-items">
+                {items.map((item) => (
+                  <article className="history-item" key={item.id}>
+                    <span className="history-dot" />
+                    <div className="history-details">
+                      <strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong>
+                      <span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span>
+                      <span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span>
+                      {item.status === 'confirmed' && (
+                        <HistoryPhotoShare
+                          donationId={item.id}
+                          onPhotoEligibility={props.onPhotoEligibility}
+                          onUploadPhoto={props.onUploadPhoto}
+                        />
+                      )}
+                    </div>
+                    <strong className="history-amount">{formatUsdc(item.amount)}<small>USDC</small></strong>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </section>
+  );
+}
+
+function HistoryPhotoShare({ donationId, onPhotoEligibility, onUploadPhoto }: {
+  donationId: Hex;
+  onPhotoEligibility: (donationId: Hex) => Promise<PhotoEligibility>;
+  onUploadPhoto: (donationId: Hex, file: File, displayName: string) => Promise<PhotoUploadResponse>;
+}) {
+  const [eligibility, setEligibility] = useState<PhotoEligibility | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    void onPhotoEligibility(donationId)
+      .then((result) => { if (active) setEligibility(result); })
+      .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Photo sharing is unavailable.'); });
+    return () => { active = false; };
+  }, [donationId, onPhotoEligibility]);
+  return (
+    <div className="history-photo-action">
+      {error ? <span className="field-help">{error}</span> : eligibility && (
+        <PhotoSharePanel donationId={donationId} eligibility={eligibility} onUpload={onUploadPhoto} />
+      )}
+    </div>
   );
 }

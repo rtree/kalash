@@ -14,7 +14,7 @@
     "build": "node scripts/check-policy.mjs && node scripts/build.mjs",
     "dev": "node scripts/check-policy.mjs && node src/server/main.ts",
     "typecheck": "node scripts/check-policy.mjs && tsc --noEmit",
-    "test": "node scripts/check-policy.mjs && node --test tests/shared.test.ts tests/donation-receipt.test.ts tests/policy.test.mjs tests/api.test.mjs",
+    "test": "node scripts/check-policy.mjs && node --test tests/shared.test.ts tests/donation-receipt.test.ts tests/photo-image.test.ts tests/policy.test.mjs tests/api.test.mjs",
     "test:api": "node scripts/check-policy.mjs && node --test tests/api.test.mjs",
     "test:contracts": "node scripts/check-policy.mjs && node --test tests/contracts.test.mjs",
     "deploy:contracts": "node scripts/deploy-contracts.mjs",

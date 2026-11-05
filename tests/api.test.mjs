@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
+import sharp from 'sharp';
+import { PHOTO_CONSENT_VERSION } from '../src/shared.ts';
 
 const origin = process.env.KALASH_TEST_ORIGIN ?? 'http://localhost:3000';
 const walletPath = join(process.env.LOCALAPPDATA, 'KALASH', 'secrets', 'wallets.json');
@@ -140,4 +142,68 @@ test('real Collection points equal exactly confirmed gross donations, excluding 
   }
   for (const [templeId, points] of Object.entries(collection.points)) assert.equal(BigInt(points), expected[templeId] ?? 0n);
   for (const [templeId, points] of Object.entries(expected)) assert.equal(BigInt(collection.points[templeId]), points);
+});
+
+test('real photo consent, private storage delivery, board listing and withdrawal are enforced', async () => {
+  const collection = await (await request('/api/collection', { bearer: token })).json();
+  const donation = collection.donations.find((entry) => entry.status === 'confirmed');
+  assert.ok(donation, 'photo sharing requires an existing confirmed donation');
+  const portrait = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200">
+    <rect width="160" height="200" fill="#e8d9b8"/><circle cx="80" cy="68" r="36" fill="#b87953"/>
+    <path d="M25 200c4-48 24-72 55-72s51 24 55 72" fill="#17604c"/>
+    <circle cx="67" cy="66" r="3" fill="#282421"/><circle cx="93" cy="66" r="3" fill="#282421"/>
+    <path d="M68 85q12 10 24 0" fill="none" stroke="#542f25" stroke-width="3"/>
+  </svg>`);
+  const image = await sharp(portrait).png().toBuffer();
+  const base = {
+    donationId: donation.id,
+    imageBase64: image.toString('base64'),
+    contentType: 'image/png',
+    displayName: 'E2E pilgrim',
+    consentVersion: PHOTO_CONSENT_VERSION,
+  };
+  const noConsent = await request('/api/photos', {
+    method: 'POST', bearer: token, body: { ...base, consent: false },
+  });
+  assert.equal(noConsent.status, 400);
+
+  let photoId;
+  try {
+    const upload = await request('/api/photos', {
+      method: 'POST', bearer: token, body: { ...base, consent: true },
+    });
+    assert.equal(upload.status, 201, JSON.stringify(await upload.clone().json()));
+    const result = await upload.json();
+    const { photo } = result;
+    photoId = photo.id;
+    assert.equal(photo.templeId, donation.templeId);
+    assert.equal(photo.displayName, 'E2E pilgrim');
+    assert.ok([1, 2, 3, 4].includes(photo.sizeTier));
+    assert.ok(photo.imageUrl.startsWith('/api/board/'));
+    for (const privateField of ['ownerWallet', 'donationId', 'pointsAtPublish', 'objectName']) {
+      assert.equal(Object.hasOwn(photo, privateField), false);
+    }
+
+    const board = await (await request(`/api/board/${donation.templeId}/photos`)).json();
+    assert.equal(board.photos.filter((item) => item.id === photo.id).length, 1);
+    const imageResponse = await fetch(`${origin}${photo.imageUrl}`);
+    assert.equal(imageResponse.status, 200);
+    assert.equal(imageResponse.headers.get('content-type'), 'image/jpeg');
+    assert.match(imageResponse.headers.get('cache-control') ?? '', /no-store/);
+
+    const foreignWithdraw = await request(`/api/photos/${photo.id}/withdraw`, {
+      method: 'POST', bearer: otherToken, body: {},
+    });
+    assert.equal(foreignWithdraw.status, 404);
+  } finally {
+    if (photoId) {
+      const withdrawn = await request(`/api/photos/${photoId}/withdraw`, {
+        method: 'POST', bearer: token, body: {},
+      });
+      assert.equal(withdrawn.status, 200);
+      assert.equal((await fetch(`${origin}/api/board/${donation.templeId}/photos/${photoId}`)).status, 404);
+      const ownPhotos = await (await request('/api/photos/mine', { bearer: token })).json();
+      assert.equal(ownPhotos.photos.some((photo) => photo.id === photoId), false);
+    }
+  }
 });
