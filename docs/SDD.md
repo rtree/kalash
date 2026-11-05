@@ -14,6 +14,32 @@ This document defines intended contracts; TASKS records verification, not this f
 | Controller / ITL | Current Windows ARM64, .NET 10 | ITL loopback `http://localhost:5000`; no device operations authorized yet |
 | Android | Current Windows host, USB-connected authorized Samsung | ADB37.0.1 at `%LOCALAPPDATA%\KALASH\tools\platform-tools-37.0.1\platform-tools\adb.exe`; use exact serial. Use canonical public URL; reverse3000 is only for local diagnosis |
 
+### ADB on Windows
+
+In PowerShell, invoke the pinned `adb.exe` directly; `&` is PowerShell's call operator:
+
+```powershell
+$adb = Join-Path $env:LOCALAPPDATA 'KALASH\tools\platform-tools-37.0.1\platform-tools\adb.exe'
+Test-Path $adb
+& $adb version
+& $adb devices -l
+```
+
+Copy the serial from the first column of `devices -l` and confirm its state is `device`. Always target it with `-s`; if the device is `unauthorized`, `offline`, or unclear, stop and resolve USB debugging approval/connection on the phone rather than trying commands against another device.
+
+```powershell
+$serial = '<serial shown by devices -l>'
+& $adb -s $serial shell screencap -p /sdcard/kalash-check.png
+& $adb -s $serial pull /sdcard/kalash-check.png "$env:TEMP\kalash-check.png"
+Start-Process "$env:TEMP\kalash-check.png"
+```
+
+Actually inspect the image, then remove the temporary device image. Never capture secrets or biometric prompts, or share/commit images containing QR credentials or personal data.
+
+```powershell
+& $adb -s $serial shell rm /sdcard/kalash-check.png
+```
+
 User confirms nested virtualization is unavailable; use Cloud Build rather than Docker/WSL.
 Central is one process serving React, API and a durable mint loop.
 Firebase Auth verifies identity, Firestore is the only application writer's store,
