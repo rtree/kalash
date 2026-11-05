@@ -1,9 +1,9 @@
 {
-  "referenceUtc": "2026-11-05T18:47:46.803Z",
+  "referenceUtc": "2026-11-05T19:45:47.266Z",
   "registry": "https://registry.npmjs.org",
   "minimumAgeMinutes": 10080,
-  "lockfileSha256": "d85b7ef79a5bb76a498c31510a5d963fe409e3add2492ce406b04b3150798291",
-  "policySha256": "784170d48a1ef0dccca22b5ef3199b2420e233244c8082a2ef56c3eba45b8e98",
+  "lockfileSha256": "df89c7486fe24898e972ab6b167a3a4d0a1338bb6419837e6158fc2056842e37",
+  "policySha256": "d1be0c451c9c275d1d420ebbebf4cb591521150e33b819041011ad40ad07fa70",
   "passed": true,
   "packages": [
     {
@@ -28,6 +28,12 @@
       "name": "@coinbase/wallet-sdk",
       "version": "4.3.6",
       "publishedUtc": "2025-07-14T19:07:05.592Z",
+      "passed": true
+    },
+    {
+      "name": "@emnapi/runtime",
+      "version": "1.11.3",
+      "publishedUtc": "2026-07-25T07:00:08.497Z",
       "passed": true
     },
     {
@@ -514,6 +520,156 @@
       "name": "@grpc/proto-loader",
       "version": "0.8.1",
       "publishedUtc": "2026-05-07T22:16:48.216Z",
+      "passed": true
+    },
+    {
+      "name": "@img/colour",
+      "version": "1.1.0",
+      "publishedUtc": "2026-03-01T10:42:44.217Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-darwin-arm64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:18:48.456Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-darwin-x64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:18:51.868Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-darwin-arm64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:06.267Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-darwin-x64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:01.255Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linux-arm",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:10.329Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linux-arm64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:15.004Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linux-ppc64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:30.760Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linux-riscv64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:35.999Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linux-s390x",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:41.660Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linux-x64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:47.380Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linuxmusl-arm64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:20.619Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-libvips-linuxmusl-x64",
+      "version": "1.2.4",
+      "publishedUtc": "2025-11-01T11:15:25.944Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linux-arm",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:18:54.743Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linux-arm64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:18:57.606Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linux-ppc64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:01.007Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linux-riscv64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:04.320Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linux-s390x",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:07.365Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linux-x64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:10.357Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linuxmusl-arm64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:13.518Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-linuxmusl-x64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:16.256Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-wasm32",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:20.335Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-win32-arm64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:25.773Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-win32-ia32",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:30.825Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-win32-x64",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:36.428Z",
       "passed": true
     },
     {
@@ -1765,6 +1921,12 @@
       "passed": true
     },
     {
+      "name": "detect-libc",
+      "version": "2.1.2",
+      "publishedUtc": "2025-10-05T12:46:33.077Z",
+      "passed": true
+    },
+    {
       "name": "dijkstrajs",
       "version": "1.0.3",
       "publishedUtc": "2023-04-15T19:44:22.705Z",
@@ -2854,6 +3016,12 @@
       "name": "set-blocking",
       "version": "2.0.0",
       "publishedUtc": "2016-05-17T22:59:27.619Z",
+      "passed": true
+    },
+    {
+      "name": "sharp",
+      "version": "0.34.5",
+      "publishedUtc": "2025-11-06T14:19:40.989Z",
       "passed": true
     },
     {

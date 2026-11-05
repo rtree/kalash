@@ -10,6 +10,10 @@ import { temples } from './catalog.ts';
 import { createDonation, ownedDonation, recordOperation, verifyDonation } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
+import {
+  cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
+  uploadPhoto, withdrawPhoto,
+} from './photos.ts';
 
 const rates = new Map<string, { started: number; count: number }>();
 function rateLimit(request: IncomingMessage, key: string, maximum = 60) {
@@ -21,14 +25,14 @@ function rateLimit(request: IncomingMessage, key: string, maximum = 60) {
   }
   requireValue(++current.count <= maximum, 429, 'RATE_LIMITED', 'Too many requests. Wait a minute before retrying.');
 }
-async function jsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function jsonBody(request: IncomingMessage, maximumBytes = 16384): Promise<Record<string, unknown>> {
   requireValue(request.headers['content-type']?.split(';')[0] === 'application/json',
     415, 'JSON_REQUIRED', 'Send application/json.');
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     size += chunk.length;
-    requireValue(size <= 16384, 413, 'BODY_TOO_LARGE', 'Request body is too large.');
+    requireValue(size <= maximumBytes, 413, 'BODY_TOO_LARGE', 'Request body is too large.');
     chunks.push(chunk);
   }
   let parsed: unknown;
@@ -97,6 +101,21 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   });
   if (request.method === 'GET' && path === '/api/config') return send(response, publicConfig);
   if (request.method === 'GET' && path === '/api/temples') return send(response, { temples });
+  const boardMatch = path.match(/^\/api\/board\/([a-z0-9-]+)\/photos(?:\/([0-9a-f-]{36}))?$/i);
+  if (request.method === 'GET' && boardMatch) {
+    const templeId = boardMatch[1]!;
+    if (!boardMatch[2]) return send(response, { photos: await listBoardPhotos(templeId) });
+    const { data } = await getBoardPhoto(templeId, boardMatch[2]);
+    response.writeHead(200, {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': data.length,
+      'Cache-Control': 'no-store, max-age=0',
+      'X-Content-Type-Options': 'nosniff',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+    });
+    response.end(data);
+    return;
+  }
   if (request.method === 'POST' && path === '/api/auth/challenge') {
     const body = await jsonBody(request);
     return send(response, await challenge(body.wallet));
@@ -107,6 +126,22 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   }
   const owner = await identity(request.headers.authorization);
   rateLimit(request, owner.toLowerCase(), 100);
+  const eligibilityMatch = path.match(/^\/api\/photos\/eligibility\/(0x[0-9a-f]{64})$/i);
+  if (request.method === 'GET' && eligibilityMatch) {
+    return send(response, await getPhotoEligibility(eligibilityMatch[1]!, owner));
+  }
+  if (request.method === 'GET' && path === '/api/photos/mine') {
+    return send(response, { photos: await listOwnedPhotos(owner) });
+  }
+  if (request.method === 'POST' && path === '/api/photos') {
+    const body = await jsonBody(request, 8_000_000);
+    return send(response, await uploadPhoto(owner, body), 201);
+  }
+  const withdrawalMatch = path.match(/^\/api\/photos\/([0-9a-f-]{36})\/withdraw$/i);
+  if (request.method === 'POST' && withdrawalMatch) {
+    await jsonBody(request);
+    return send(response, await withdrawPhoto(owner, withdrawalMatch[1]!));
+  }
   if (request.method === 'POST' && path === '/api/donations') {
     const body = await jsonBody(request);
     requireValue(Object.keys(body).every((key) => ['templeId', 'amount'].includes(key)), 400, 'UNKNOWN_FIELD', 'Only templeId and amount may be specified.');
@@ -139,6 +174,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     const totals = await db.collection('walletTempleTotals').where('wallet', '==', owner.toLowerCase()).get();
     return send(response, {
       donations, points: Object.fromEntries(totals.docs.map((doc) => [doc.get('templeId'), doc.get('points')])),
+      photos: await listOwnedPhotos(owner),
     });
   }
   throw new HttpError(404, 'NOT_FOUND', 'API route not found.');
@@ -164,6 +200,14 @@ server.listen(Number(process.env.PORT ?? 3000), '0.0.0.0', () => {
   console.log(JSON.stringify({ event: 'central_listening', origin, project, chainId: 84532 }));
 });
 const timer = setInterval(() => { void mintTick(); }, 1000);
+const photoTimer = setInterval(() => {
+  void cleanupPhotoLifecycle().catch((error: unknown) => {
+    console.error(JSON.stringify({
+      event: 'photo_lifecycle_cleanup_failed',
+      error: error instanceof Error ? error.name : 'UnknownError',
+    }));
+  });
+}, 60000);
 const cleanup = setInterval(() => {
   for (const [key, value] of rates) if (Date.now() - value.started > 60000) rates.delete(key);
 }, 60000);
@@ -172,6 +216,7 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
+  clearInterval(photoTimer);
   clearInterval(cleanup);
   server.close();
 }

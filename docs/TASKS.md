@@ -2,17 +2,17 @@
 
 ## Current goal
 
-- Goal: M1, first real remote donation vertical slice, then full M1.
-- Success: temple detail -> 0.01 test USDC -> Central durable verification -> real mint -> Collection reload.
+- Goal: M2, consent-based photo sharing and public temple boards.
+- Success: camera/file selection -> local preview -> explicit consent -> private validated storage -> public consented board DTO -> owner/temple withdrawal -> immediate public removal and object deletion; verify point-based image sizing.
 - Chain: Base Sepolia 84532 only; test tokens, not real-value settlement.
 - Running URL: https://kalash-central-548318651344.asia-south1.run.app/temples/temple-01
-- Cloud Run live revision `kalash-central-00004-jdg`, source `7f1d89aa10553336be8c6c1f04f94966edaf9561`; local URL remains read/API-capable with MINT_ENABLED=false.
+- Cloud Run live revision `kalash-central-00005-mcx`, source `790575d4bf141f643532b2024ba94709547a2000`; local URL remains read/API-capable with MINT_ENABLED=false.
 - DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 - Integration, shared documents, Git and deployment owner: primary Agent.
 - Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: publish Firebase/WalletConnect hydration fix, reverify real authenticated reload, then exact .01 test USDC -> Collection reload. Real PC QR, Base Sepolia switch and normal MetaMask SIWE/Firebase succeeded; old UI lost authenticated rendering on reload.
+- Next action: implement M2 private image pipeline and consent lifecycle. Firebase project config names `kalash-donation.firebasestorage.app`, but no photo bucket exists yet. Do not send another donation for this.
 - Human requests: none outstanding for initial funding/Reown/ADB; MetaMask and later paper-note attendance remain.
-- Three test-process donations and mints plus actual cloud deployment are verified; normal MetaMask donation and all cash hardware outcomes are not.
+- Three test-process donations plus two normal MetaMask donations and mints are verified; all cash hardware outcomes remain unverified.
 
 ## Goals and assignments
 
@@ -23,10 +23,10 @@
 | M1-wallets | M1 | Integrator: private wallet bootstrap | M1-entry | verified | New role wallets protected, public addresses/budgets provided and balances checked | 14 new wallets; actual RPC each funded role 0.1 ETH, donor/temple1 each 5 USDC. Budgets remain original .01/.003/.003/.001 ETH, donor .20 USDC despite excess balance |
 | M1-chain | M1 | Contract Agent: contracts, compile-contracts.mjs, contracts.test.mjs, contracts.abi.json | M1-entry, M1-wallets | verified | Limits, fees, authorization, duplicate defense tested; real deployment | Linux24pass including corrected policy CLI regression; actual deployment receipts and23 isolated chain assertions verified |
 | M1-api | M1 | Integrator: Central/Auth/Firestore | M1-entry | verified | Real authorization, intent, receipt, atomic persistence and mint verified locally and Cloud Run | Cloud7/local8tests0skip; 3real .01 donations/mints; exact points30000; real runtime SA signing/DB/secret and idle mint proven |
-| M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | doing | First detail/donate/Collection route reloads real results | Base-unit4surface fix deployed. Actual reload exposed nonreactive Firebase restoration; observer/provider-hydration/UID fix locally typechecked and built, production reload validation next |
-| M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | doing | Same commit HTTPS, SA, deep links, idle mint and policy verified | Builde5326fa8 succeeded, source7f1d89a deployed; base-unit/visible-error fix live. Auth restoration fix not yet deployed |
-| M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | doing | Real MetaMask path and reload; all M1 outcomes evidenced | Human scanned actual PC QR, AppKit/Wagmi walletConnect connected; Base84532 switch and real MetaMask SIWE/Firebase login verified17:40Z. Authorized one .01 test USDC, exact approval .01, cumulative gas<=.001 test ETH; no mainnet transaction allowed |
-| M2 | M2 | Integrator: photos/board | M1-e2e | todo | Real save/consent/withdrawal and sizes verified | Not started |
+| M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
+| M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
+| M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
+| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | No photo/board code found. Firebase Storage bucket absent; provision a private regional bucket, then implement validated image pipeline and consent lifecycle |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
 | M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
@@ -40,6 +40,7 @@
 | M1 wallet | Actual balances exceed requested budgets; no automatic budget increase | Persist/respect original budgets before every transaction | Funding no longer blocks M1 |
 | M1 Android | User requested install; Google archive platform-tools_r37.0.1-win.zip SHA1 matched repository metadata; `adb devices -l` shows Samsung SM_S942Z device | Screenshot/inspect then one operation and API evidence | Real camera QR/MetaMask verification still pending |
 | M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; protected GetAllCashDevices returns HTTP401 before authentication (expected protection, not invalid credentials) | Obtain safe credential source and authenticate later | Safe local credential path and hardware attendance later; not an M1 blocker |
+| M2 Storage | Firebase project config names `kalash-donation.firebasestorage.app`, but GCP bucket listing currently contains only the Cloud Build bucket | Confirm private bucket region, uniform access and public access prevention before provisioning | No user photo upload until server-side validation/re-encoding and consent-aware delivery are live |
 
 ## Evidence retained
 

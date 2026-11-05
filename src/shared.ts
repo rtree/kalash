@@ -9,6 +9,13 @@ export const vaultAbi = parseAbi([
 export const vaultFeeRecipientAbi = parseAbi([
   'function feeRecipient() view returns (address)',
 ]);
+export const PHOTO_CONSENT_VERSION = 'photo-board-v1';
+export const PHOTO_SIZE_TIERS = [
+  { tier: 1, minimumUnits: 1n, displayWidth: 88 },
+  { tier: 2, minimumUnits: 5_000_000n, displayWidth: 120 },
+  { tier: 3, minimumUnits: 20_000_000n, displayWidth: 156 },
+  { tier: 4, minimumUnits: 50_000_000n, displayWidth: 192 },
+] as const;
 export const stampAbi = parseAbi([
   'function mint(bytes32 donationId,address recipient,bytes32 templeId,uint8 kind,uint256 day)',
   'event StampMinted(bytes32 indexed donationId,address indexed recipient,uint256 indexed tokenId,bytes32 templeId,uint8 kind,uint256 day)',
@@ -60,18 +67,36 @@ export interface Donation {
   startBlock: string;
   donateAttemptId?: string;
 }
+export interface PhotoDto {
+  id: string;
+  templeId: string;
+  displayName: string | null;
+  sizeTier: 1 | 2 | 3 | 4;
+  imageUrl: string;
+  createdAt: string;
+  expiresAt: string;
+}
 export interface PublicConfig {
   chainId: 84532;
   usdc: Address;
   vault: Address | null;
   stamp: Address | null;
   reownProjectId: string | null;
-  firebase: { apiKey: string; authDomain: string; projectId: string; appId: string };
+  firebase: { apiKey: string; authDomain: string; projectId: string; appId: string; storageBucket: string };
   origin: string;
 }
 export interface CollectionResponse {
   donations: Donation[];
   points: Record<string, string>;
+  photos: PhotoDto[];
+}
+export function photoSizeTier(pointUnits: string | bigint): 1 | 2 | 3 | 4 | null {
+  const units = BigInt(pointUnits);
+  if (units <= 0n) return null;
+  if (units >= PHOTO_SIZE_TIERS[3].minimumUnits) return 4;
+  if (units >= PHOTO_SIZE_TIERS[2].minimumUnits) return 3;
+  if (units >= PHOTO_SIZE_TIERS[1].minimumUnits) return 2;
+  return 1;
 }
 export function parseAmount(input: unknown): bigint {
   if (typeof input !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(input)) {
