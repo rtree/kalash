@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type Metadata, type OutputInfo, type Sharp } from 'sharp';
 import { HttpError, requireValue } from './errors.ts';
 
 export const MAX_PHOTO_INPUT_BYTES = 5 * 1024 * 1024;
@@ -17,8 +17,8 @@ export async function processPhotoImage(input: Buffer, contentType: unknown) {
   requireValue(input.length > 0 && input.length <= MAX_PHOTO_INPUT_BYTES,
     413, 'PHOTO_SIZE', 'Image must be no larger than 5 MB.');
 
-  let pipeline: sharp.Sharp;
-  let metadata: sharp.Metadata;
+  let pipeline: Sharp;
+  let metadata: Metadata;
   try {
     pipeline = sharp(input, { failOn: 'warning', limitInputPixels: MAX_PHOTO_PIXELS });
     metadata = await pipeline.metadata();
@@ -30,7 +30,7 @@ export async function processPhotoImage(input: Buffer, contentType: unknown) {
     && (metadata.pages ?? 1) === 1,
   400, 'PHOTO_INVALID', 'Image format, dimensions or animation are not supported.');
 
-  let result: { data: Buffer; info: sharp.OutputInfo };
+  let result: { data: Buffer; info: OutputInfo };
   try {
     result = await pipeline.rotate()
       .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })

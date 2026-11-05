@@ -110,9 +110,11 @@
 
 ## M2 implementation checkpoint
 
-- 2026-11-06T05:41+09:00: sharp 0.34.5 was published more than 168 hours earlier;
-  added with pnpm install scripts disabled, then verified all 567 lockfile releases
-  and lock hash. Photo processor enforces JPEG/PNG/WebP input, byte/pixel/page bounds,
+- 2026-11-06T05:41+09:00: sharp 0.34.5 initially exposed three new high advisories.
+  Stopped deployment; upgraded to patched sharp 0.35.5 (published 2026-09-27, >168h)
+  with pnpm install scripts disabled. The lockfile changes are limited to Sharp and
+  its platform binaries; all 569 releases and lock hash verified; `pnpm audit` now
+  reports zero known vulnerabilities. Photo processor enforces JPEG/PNG/WebP input, byte/pixel/page bounds,
   EXIF orientation, metadata-free 1600px JPEG output, and four integer-point tiers.
 - Private bucket `kalash-donation-photos` is in asia-south1 with uniform access,
   public access prevention and zero-second soft delete; Cloud Run runtime SA is

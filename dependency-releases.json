@@ -1,9 +1,9 @@
 {
-  "referenceUtc": "2026-11-05T19:50:04.595Z",
+  "referenceUtc": "2026-11-05T20:59:57.371Z",
   "registry": "https://registry.npmjs.org",
   "minimumAgeMinutes": 10080,
-  "lockfileSha256": "df89c7486fe24898e972ab6b167a3a4d0a1338bb6419837e6158fc2056842e37",
-  "policySha256": "f2246ccbec0880a24a215211ced9dae9fe7a95cf4b7080d47af2a8cca06538ba",
+  "lockfileSha256": "ac0d339b269b4d7d34c649df7e40260a712b1621294912c999c984cd625d5992",
+  "policySha256": "29ec1df8176e454391151f2ed5ce1dbc3438a893ddd4c2c892baf557211e5df2",
   "passed": true,
   "packages": [
     {
@@ -530,146 +530,158 @@
     },
     {
       "name": "@img/sharp-darwin-arm64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:18:48.456Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:21.388Z",
       "passed": true
     },
     {
       "name": "@img/sharp-darwin-x64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:18:51.868Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:47:07.861Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-freebsd-wasm32",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:49.555Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-darwin-arm64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:06.267Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:10:42.328Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-darwin-x64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:01.255Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:10:37.715Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linux-arm",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:10.329Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:10:47.428Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linux-arm64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:15.004Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:10:53.588Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linux-ppc64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:30.760Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:11:07.582Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linux-riscv64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:35.999Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:11:13.523Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linux-s390x",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:41.660Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:11:18.421Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linux-x64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:47.380Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:11:24.775Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-arm64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:20.619Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:10:57.585Z",
       "passed": true
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-x64",
-      "version": "1.2.4",
-      "publishedUtc": "2025-11-01T11:15:25.944Z",
+      "version": "1.3.4",
+      "publishedUtc": "2026-09-27T12:11:03.153Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linux-arm",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:18:54.743Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:47:45.455Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linux-arm64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:18:57.606Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:56.196Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linux-ppc64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:01.007Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:59.613Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linux-riscv64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:04.320Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:42.118Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linux-s390x",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:07.365Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:46:05.751Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linux-x64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:10.357Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:49.001Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linuxmusl-arm64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:13.518Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:47:04.679Z",
       "passed": true
     },
     {
       "name": "@img/sharp-linuxmusl-x64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:16.256Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:46:37.431Z",
       "passed": true
     },
     {
       "name": "@img/sharp-wasm32",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:20.335Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:46:20.726Z",
+      "passed": true
+    },
+    {
+      "name": "@img/sharp-webcontainers-wasm32",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:45:43.110Z",
       "passed": true
     },
     {
       "name": "@img/sharp-win32-arm64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:25.773Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:46:30.234Z",
       "passed": true
     },
     {
       "name": "@img/sharp-win32-ia32",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:30.825Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:46:35.530Z",
       "passed": true
     },
     {
       "name": "@img/sharp-win32-x64",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:36.428Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:47:32.335Z",
       "passed": true
     },
     {
@@ -3020,8 +3032,8 @@
     },
     {
       "name": "sharp",
-      "version": "0.34.5",
-      "publishedUtc": "2025-11-06T14:19:40.989Z",
+      "version": "0.35.5",
+      "publishedUtc": "2026-09-27T13:46:24.509Z",
       "passed": true
     },
     {
