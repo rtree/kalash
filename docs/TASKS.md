@@ -26,7 +26,7 @@
 | M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
 | M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
 | M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
-| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded; live revision `00007-dhb`, source `1bd067f`; real API7pass/0skip verifies synthetic consent/upload/replace/withdraw, GCS private bucket empty after test. Remaining: visual UI and user-chosen test image; temple/operator withdrawal auth not implemented |
+| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded; live revision `00007-dhb`, source `1bd067f`; real API7pass/0skip verifies synthetic consent/upload/replace/withdraw, GCS private bucket empty after test. Public board visually inspected: Lotus Courtyard empty state and navigation render correctly; blocked optional inline script reports CSP console warning, but no visible break. Remaining: user-chosen test image; temple/operator withdrawal auth not implemented |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
 | M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
@@ -131,11 +131,12 @@
   private proxy delivery, replacement/old-image 404, cross-wallet withdrawal denial,
   owner withdrawal and post-withdrawal 404. GCS bucket has no remaining test objects;
   public board returns an empty list. No personal photo uploaded.
-- `/board/temple-01` returns HTTP200 and the KALASH app shell; browser rendering/screenshot
-  could not be inspected because no browser client was connected. No open Dependabot
-  alerts remain after the Sharp patch; `pnpm audit` reports zero.
-- Remaining: visually inspect board/history upload UI and let the user choose a
-  non-sensitive image for camera/file preview, explicit consent, public display and
+- Browser inspection of `/board/temple-01` shows Lotus Courtyard, the empty-board state
+  and intact navigation. No visible UI defect; the optional inline Reown script remains
+  blocked by strict CSP and reports one console error. Do not weaken CSP for telemetry.
+  No open Dependabot alerts remain after the Sharp patch; `pnpm audit` reports zero.
+- Remaining: let the user choose a non-sensitive image for camera/file preview,
+  explicit consent, public display and
   withdrawal. Temple/operator withdrawal authorization and cash-device photo intake
   remain required parts of M2 integration; do not mark M2 complete yet.
 
