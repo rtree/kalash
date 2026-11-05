@@ -1,0 +1,16 @@
+{
+  "name": "kalash",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": "26.13.0",
+    "pnpm": "10.34.9"
+  },
+  "scripts": {
+    "policy": "node scripts/check-policy.mjs",
+    "releases": "node scripts/verify-releases.mjs",
+    "test": "node scripts/check-policy.mjs && node --test"
+  }
+}

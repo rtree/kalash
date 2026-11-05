@@ -1,0 +1,4 @@
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude: []
+ignoreScripts: true
+ignorePnpmfile: true
