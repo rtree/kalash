@@ -141,3 +141,18 @@ image serves all paths and loop. Runtime is one min/max instance, alwaysCPU.
 Before activating Cloud Run minter, local `MINT_ENABLED` is set false; lease still
 protects rollout overlaps. Canonical planned HTTPS origin:
 `https://kalash-central-548318651344.asia-south1.run.app`.
+
+The canonical regional URL is used for Firebase/Reown/metadata/API origin checks.
+Cloud Run's generated status.url alias is not a second application origin.
+Actual runtime SA/custom-token signing, private DB writes and idle mint have been
+verified on the deployed image; source commit is returned by `/api/health`.
+Wallet diagnostics expose at most100 sanitized entries in
+`window.__KALASH_WALLET_TRACE__`: attempt IDs, provider/AppKit/Wagmi state and
+visibility/focus timestamps only, never addresses, URIs or signatures.
+Connection approval is not donation authorization, and AppKit connected is not
+silently treated as Wagmi connected.
+
+CLI entry detection must use `pathToFileURL(resolve(process.argv[1]))` on every
+host. `tests/policy.test.mjs` verifies positive execution and a failing Node
+version, preventing a successful no-op gate. The revised Linux image is not
+verified merely by earlier contract tests.
