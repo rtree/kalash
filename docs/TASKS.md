@@ -6,11 +6,11 @@
 - Success: camera/file selection -> local preview -> explicit consent -> private validated storage -> public consented board DTO -> owner/temple withdrawal -> immediate public removal and object deletion; verify point-based image sizing.
 - Chain: Base Sepolia 84532 only; test tokens, not real-value settlement.
 - Running URL: https://kalash-central-548318651344.asia-south1.run.app/temples/temple-01
-- Cloud Run live revision `kalash-central-00005-mcx`, source `790575d4bf141f643532b2024ba94709547a2000`; local URL remains read/API-capable with MINT_ENABLED=false.
+- Cloud Run live revision `kalash-central-00007-dhb`, source `1bd067f75a67fe53d868c099a43179ebe6421a7f`; local URL remains read/API-capable with MINT_ENABLED=false.
 - DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 - Integration, shared documents, Git and deployment owner: primary Agent.
 - Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: validate the new photo/board APIs against Cloud Run, deploy, then have the user choose a non-sensitive test image to inspect preview, explicit consent, public board and withdrawal. No new donation is needed.
+- Next action: human selects a non-sensitive test image to verify mobile/desktop preview, explicit consent, public board and owner withdrawal. No new donation is needed.
 - Human requests: no M1 action remains. For M2, user confirmation is needed before publishing any real personal photo; paper-note attendance remains for M3.
 - Three test-process donations plus two normal MetaMask donations and mints are verified; all cash hardware outcomes remain unverified.
 
@@ -18,7 +18,7 @@
 
 | ID | Goal | Owner / edit scope | Dependencies | State | Completion condition | Evidence / next step |
 |---|---|---|---|---|---|---|
-| M1-entry | M1 | Integrator: AGENTS, docs, package policy | none | verified | Input saved, entry commit pushed, preflight passes | Initial59a0f48 and checkpointdf6d6a7 published; remote df6d6a7 confirmed16:32Z; current lock report539 packages, audit0 |
+| M1-entry | M1 | Integrator: AGENTS, docs, package policy | none | verified | Input saved, entry commit pushed, preflight passes | Initial59a0f48 and checkpointdf6d6a7 published; remote df6d6a7 confirmed16:32Z; initial lock report539 packages, audit0 |
 | M1-hosts | M1 | Integrator: host/config diagnosis | none | verified | Actual hosts, access and URLs recorded | Windows NodeWeb/Controller/ADB; Linux Cloud Build tests23pass; actual cloud auth verified; tools/agent/user-wait/async all exercised |
 | M1-wallets | M1 | Integrator: private wallet bootstrap | M1-entry | verified | New role wallets protected, public addresses/budgets provided and balances checked | 14 new wallets; actual RPC each funded role 0.1 ETH, donor/temple1 each 5 USDC. Budgets remain original .01/.003/.003/.001 ETH, donor .20 USDC despite excess balance |
 | M1-chain | M1 | Contract Agent: contracts, compile-contracts.mjs, contracts.test.mjs, contracts.abi.json | M1-entry, M1-wallets | verified | Limits, fees, authorization, duplicate defense tested; real deployment | Linux24pass including corrected policy CLI regression; actual deployment receipts and23 isolated chain assertions verified |
@@ -26,7 +26,7 @@
 | M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
 | M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
 | M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
-| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Server photo API, same-origin board, owner UI and re-encoding tests implemented locally; private bucket exists in asia-south1; Cloud Build, deployment, live API regression and user-selected image/withdrawal verification remain |
+| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded; live revision `00007-dhb`, source `1bd067f`; real API7pass/0skip verifies synthetic consent/upload/replace/withdraw, GCS private bucket empty after test. Remaining: visual UI and user-chosen test image; temple/operator withdrawal auth not implemented |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
 | M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
@@ -40,12 +40,12 @@
 | M1 wallet | Actual balances exceed requested budgets; no automatic budget increase | Persist/respect original budgets before every transaction | Funding no longer blocks M1 |
 | M1 Android | User requested install; Google archive platform-tools_r37.0.1-win.zip SHA1 matched repository metadata; `adb devices -l` shows Samsung SM_S942Z device | Screenshot/inspect then one operation and API evidence | Real camera QR/MetaMask verification still pending |
 | M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; protected GetAllCashDevices returns HTTP401 before authentication (expected protection, not invalid credentials) | Obtain safe credential source and authenticate later | Safe local credential path and hardware attendance later; not an M1 blocker |
-| M2 Storage | `kalash-donation-photos` created in asia-south1; uniform bucket-level access, public access prevention enforced, soft-delete duration 0; Cloud Run runtime SA has bucket objectAdmin | Deploy with `PHOTO_BUCKET=kalash-donation-photos`, run real consent/upload/withdraw API test; verify bucket remains non-public | Do not upload a personal photo without explicit user consent |
+| M2 Storage | `kalash-donation-photos` in asia-south1; uniform access, public access prevention enforced, soft-delete 0; runtime SA objectAdmin only application grant; real synthetic-image API test passed and bucket is empty | Human UI check of preview/consent/board/withdraw on their chosen non-sensitive test image | Do not upload a personal photo without explicit user consent |
 
 ## Evidence retained
 
 - Checkpoints `df6d6a7` and public-build source `eb7599e` published; remote hashes checked. External WIP checkpoints are preserved, not reset or amended.
-- Audit zero vulnerabilities all severities after exact aged overrides. Optional wallet SDK peer warnings remain; normal MetaMask PC donation and stamp flow verified.
+- Latest `pnpm audit`: zero known vulnerabilities; six stale GitHub Dependabot alerts are closed/fixed after Sharp upgrade. Optional wallet SDK peer warnings remain; normal MetaMask PC donation and stamp flow verified.
 - Actual Cloud Build `a8edc91e-655f-4fd3-9213-24ed913ba4b6`: SUCCESS, isolated chain 23 tests passed, zero skipped/failed. Evidence `artifacts/contracts-cloud-build.log` and cloud logs. This is not testnet donation evidence.
 - Real deployments succeeded: vault tx `0x7377f2b6b10fe35f9baf3680f1a827829cab609b6e6c1af83790d1f930a968ec`, block54871753; stamp tx `0x02b3d8f17b64dd27c296799f7bd22d2f96c33adcfbad473f9064b0ec3041eb96`, block54871769. See config/deployment.public.json.
 - First real donation `0xa0335880c2902420bf92daf1b3ed8429697571bd67d0cf8361f2a3b89cfd5003`: tx `0xb2d660ff5b2c528550ec84a1942d69c8da1e7202ebfced60bfeb1c5368f49e5c`, mint `0x81aff92eac9df043a05557968ae0f27b09cc4b747b25c5d3ed6ca9e9ccaa20b5`;16:35:34.818 intent ->16:35:43.463 confirmed ->16:35:49.193 minted.
@@ -56,9 +56,9 @@
 - Visual evidence actually opened: artifacts/pilgrim-first-detail.png and artifacts/android-first-detail.png. Old screenshot precedes INR/map update. Android authorized Chrome CDP reached wallet chooser; no biometric screens captured.
 - Observed: Node 26.13.0 published 2026-10-28, pnpm 10.34.9 published 2026-10-25T17:54:00.645Z; both older than 168h.
 - Agent execution: diagnostic and contract Agents executed. Long command completed asynchronously and output was retrieved. Structured user-wait returned project/region and host decisions.
-- Untested: normal MetaMask/browser donation+Collection, Google/email E2E roles, temple-detail camera QR, all cash/payout/photos/onsite flows. Actual WalletConnect QR scan is confirmed separately. No normal MetaMask transfer has been sent.
+- Remaining untested: Google/email E2E roles, Android in-app MetaMask/camera QR, cash/payout/onsite flows, real user-selected photo and temple/operator withdrawal authorization. Both PC MetaMask donations and Collection/History stamp results are confirmed; no further donation is needed.
 
-## Latest checkpoint
+## Previous checkpoint (M1 wallet investigation)
 
 - UTC2026-11-05T17:52:17Z, approximately117minutes. Tasks M1-ui/M1-e2e; actual QR/MetaMask SIWE succeeded, amount units fixed and deployed; authenticated reload failed and root hydration fix is being integrated.
 - Live cloud `7f1d89aa1055` / revision00004-jdg. Build `e5326fa8-5f4a-41ff-9f03-5692b2b02b36` succeeded with Linux contract/policy and production unit gates. Earlier corrected-gate actual logs remain in artifacts/diagnostic-cloud-build.log. Most recent public mandatory API+policy/money8tests passed on42048b5; new unit regression makes next full suite9tests.
@@ -110,7 +110,7 @@
 
 ## M2 implementation checkpoint
 
-- 2026-11-06T05:41+09:00: sharp 0.34.5 initially exposed three new high advisories.
+- 2026-11-06T06:20+09:00: sharp 0.34.5 initially exposed three new high advisories.
   Stopped deployment; upgraded to patched sharp 0.35.5 (published 2026-09-27, >168h)
   with pnpm install scripts disabled. The lockfile changes are limited to Sharp and
   its platform binaries; all 569 releases and lock hash verified; `pnpm audit` now
@@ -124,11 +124,20 @@
   delivery, owner withdrawal, and durable object cleanup/expiry queues. Public DTO
   excludes wallet, donation, points and storage object path. Pilgrim donation,
   History, Collection Photos and public temple-board UI wired.
-- Local policy, typecheck, production build and 9 focused tests pass. Mandatory real
-  API test now covers a synthetic portrait, consent rejection, private proxy image
-  delivery, replacement of old image, cross-wallet withdrawal denial and post-withdrawal 404. Next: Cloud
-  Build, deploy with `PHOTO_BUCKET`, run mandatory real API tests; then ask user to
-  select a non-sensitive test image for actual browser preview/consent/board/withdrawal.
+- Local policy, typecheck, production build and 9 focused tests pass. Cloud Build
+  `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded. Live revision `kalash-central-00007-dhb`
+  source `1bd067f75a67fe53d868c099a43179ebe6421a7f`, `PHOTO_BUCKET` verified.
+  Mandatory live API tests 7pass/0skip include synthetic portrait, consent rejection,
+  private proxy delivery, replacement/old-image 404, cross-wallet withdrawal denial,
+  owner withdrawal and post-withdrawal 404. GCS bucket has no remaining test objects;
+  public board returns an empty list. No personal photo uploaded.
+- `/board/temple-01` returns HTTP200 and the KALASH app shell; browser rendering/screenshot
+  could not be inspected because no browser client was connected. No open Dependabot
+  alerts remain after the Sharp patch; `pnpm audit` reports zero.
+- Remaining: visually inspect board/history upload UI and let the user choose a
+  non-sensitive image for camera/file preview, explicit consent, public display and
+  withdrawal. Temple/operator withdrawal authorization and cash-device photo intake
+  remain required parts of M2 integration; do not mark M2 complete yet.
 
 ## Submission
 
