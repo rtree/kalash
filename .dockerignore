@@ -9,3 +9,4 @@ _
 .env.*
 artifacts
 *.log
+scripts/e2e-*.mjs

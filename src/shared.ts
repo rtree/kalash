@@ -83,3 +83,11 @@ export function formatUsdc(value: string | bigint): string {
   const amount = BigInt(value);
   return `${amount / 1000000n}.${(amount % 1000000n).toString().padStart(6, '0')}`;
 }
+export function parseDonationUnits(input: unknown): bigint {
+  if (typeof input !== 'string' || !/^[1-9]\d*$/.test(input)) {
+    throw new Error('Central returned an invalid USDC base-unit donation amount.');
+  }
+  const value = BigInt(input);
+  if (value > 1000000n) throw new Error('Central donation exceeds the 1 USDC limit.');
+  return value;
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAmount, formatUsdc } from '../src/shared.ts';
+import { parseAmount, parseDonationUnits, formatUsdc } from '../src/shared.ts';
 
 test('money: default .01 exact fee/net and all cap/precision boundaries', () => {
   const amount = parseAmount('0.01');
@@ -12,5 +12,16 @@ test('money: default .01 exact fee/net and all cap/precision boundaries', () => 
   assert.equal(parseAmount('0.000001'), 1n);
   for (const invalid of ['0', '1.000001', '0.0000001', '0.0100000', '-1', '1e-2', 'NaN', ' 0.01', '00.01', '', 0.01, null]) {
     assert.throws(() => parseAmount(invalid));
+  }
+});
+
+test('Central donation amounts remain base units in wallet calls and displays', () => {
+  const amount = parseAmount('0.01').toString();
+  assert.equal(parseDonationUnits(amount), 10000n);
+  assert.equal(formatUsdc(amount), '0.010000');
+  assert.equal(parseDonationUnits('1'), 1n);
+  assert.equal(parseDonationUnits('1000000'), 1000000n);
+  for (const invalid of ['0', '01', '0.01', '1.000000', '1000001', '-1', '1e4', '', 10000, null]) {
+    assert.throws(() => parseDonationUnits(invalid));
   }
 });

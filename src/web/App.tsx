@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth';
 import { parseAbi, type Address, type Hex } from 'viem';
 import { useAccount, useConnect, useDisconnect, usePublicClient, useSwitchChain, useWalletClient, useWriteContract } from 'wagmi';
-import { CHAIN_ID, formatUsdc, parseAmount, stampAbi, vaultAbi, type CollectionResponse, type Donation, type DonationStatus, type Temple } from '../shared.ts';
+import { CHAIN_ID, formatUsdc, parseAmount, parseDonationUnits, stampAbi, vaultAbi, type CollectionResponse, type Donation, type DonationStatus, type Temple } from '../shared.ts';
 import type { Runtime } from './runtime.ts';
 import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
 
@@ -418,6 +418,17 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
   };
 
+  const signInWallet = () => {
+    if (connectingAuth) {
+      setNotice('Wallet verification is already in progress. Complete or reject the existing wallet request.');
+      return;
+    }
+    setError('');
+    void authenticateWallet().catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : 'Wallet verification failed.');
+    });
+  };
+
   const persistPending = (next: PendingOperation | null) => {
     setPendingOperation(next);
     if (next) localStorage.setItem(PENDING_OPERATION, JSON.stringify(next));
@@ -470,7 +481,7 @@ export function App({ runtime }: { runtime: Runtime }) {
         address: config.vault!,
         abi: vaultAbi,
         functionName: 'donate',
-        args: [target.id, target.templeKey, target.kind, parseAmount(target.amount), BigInt(target.deadline), target.signature],
+        args: [target.id, target.templeKey, target.kind, parseDonationUnits(target.amount), BigInt(target.deadline), target.signature],
         chainId: CHAIN_ID,
       });
       persistPending({ ...next, txHash: hash });
@@ -533,7 +544,7 @@ export function App({ runtime }: { runtime: Runtime }) {
       localStorage.setItem(CURRENT_DONATION, intent.id);
       persistPending(null);
 
-      const required = parseAmount(intent.amount);
+      const required = parseDonationUnits(intent.amount);
       if (!publicClient || !address) throw new Error('Wallet or Base Sepolia connection is unavailable.');
       const allowance = await publicClient.readContract({
         address: config.usdc,
@@ -654,7 +665,7 @@ export function App({ runtime }: { runtime: Runtime }) {
               <span className="wallet-address">{address.slice(0, 6)}…{address.slice(-4)}</span>
               {walletReady
                 ? <button className="text-button" onClick={() => void signOutWallet()}>Sign out</button>
-                : <button className="button button-small button-outline" disabled={connectingAuth} onClick={() => void authenticateWallet()}>{connectingAuth ? 'Verifying…' : 'Verify wallet'}</button>}
+                : <button className="button button-small button-outline" disabled={connectingAuth} onClick={signInWallet}>{connectingAuth ? 'Verifying…' : 'Verify wallet'}</button>}
             </div>
           ) : (
             <button className="button button-small button-outline" onClick={() => void connectWallet()} disabled={connecting}>
@@ -706,14 +717,14 @@ export function App({ runtime }: { runtime: Runtime }) {
             authenticated={walletReady}
             donations={collection?.donations ?? []}
             onConnect={() => void connectWallet()}
-            onSignIn={() => void authenticateWallet()}
+            onSignIn={signInWallet}
             onExplore={() => navigate('/temples')}
             onRefresh={() => setRefreshVersion((version) => version + 1)}
             onHistory={() => navigate('/history')}
             onResume={() => donation?.templeId && navigate(`/temples/${donation.templeId}`)}
           />
         ) : path === '/history' ? (
-          <HistoryPage temples={temples} donations={history} authenticated={walletReady} onConnect={() => void connectWallet()} onSignIn={() => void authenticateWallet()} onExplore={() => navigate('/temples')} />
+          <HistoryPage temples={temples} donations={history} authenticated={walletReady} onConnect={() => void connectWallet()} onSignIn={signInWallet} onExplore={() => navigate('/temples')} />
         ) : (
           <ExplorePage temples={matchingTemples} query={query} setQuery={setQuery} view={exploreView} setView={setExploreView} onTemple={(temple) => navigate(`/temples/${temple.id}`)} />
         )}
@@ -1034,7 +1045,7 @@ function PendingDonation({ donation, temples }: { donation: Donation; temples: T
   return (
     <article className="pending-donation">
       <div className={`pending-state-icon ${statusTone(donation.status, donation.mintStatus)}`}>◷</div>
-      <div className="pending-copy"><strong>{temple?.name ?? 'Temple support'}</strong><span>{formatUsdc(parseAmount(donation.amount))} USDC · {donationStatusLabel(donation.status, donation.mintStatus)}</span></div>
+      <div className="pending-copy"><strong>{temple?.name ?? 'Temple support'}</strong><span>{formatUsdc(donation.amount)} USDC · {donationStatusLabel(donation.status, donation.mintStatus)}</span></div>
       <span className="pending-tag">Not counted</span>
     </article>
   );
@@ -1060,7 +1071,7 @@ function HistoryPage(props: { temples: Temple[]; donations: Donation[]; authenti
         <div className="empty-state"><span className="empty-icon">◷</span><h2>No donations yet</h2><p>Your real transaction history will show here.</p><button className="button button-secondary" onClick={props.onExplore}>Explore temples</button></div>
       ) : (
         <div className="history-timeline">
-          {byMonth.map(([month, items]) => <section key={month} className="history-month"><h2>{month}</h2><div className="history-items">{items.map((item) => <article className="history-item" key={item.id}><span className="history-dot" /><div className="history-details"><strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong><span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span><span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span></div><strong className="history-amount">{formatUsdc(parseAmount(item.amount))}<small>USDC</small></strong></article>)}</div></section>)}
+          {byMonth.map(([month, items]) => <section key={month} className="history-month"><h2>{month}</h2><div className="history-items">{items.map((item) => <article className="history-item" key={item.id}><span className="history-dot" /><div className="history-details"><strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong><span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span><span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span></div><strong className="history-amount">{formatUsdc(item.amount)}<small>USDC</small></strong></article>)}</div></section>)}
         </div>
       )}
     </section>
