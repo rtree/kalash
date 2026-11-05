@@ -6,6 +6,9 @@ export const vaultAbi = parseAbi([
   'function donate(bytes32 donationId, bytes32 templeId, uint8 kind, uint256 amount, uint256 deadline, bytes signature)',
   'event Donated(bytes32 indexed donationId, address indexed donor, bytes32 indexed templeId, uint8 kind, uint256 amount, uint256 fee, address recipient)',
 ]);
+export const vaultFeeRecipientAbi = parseAbi([
+  'function feeRecipient() view returns (address)',
+]);
 export const stampAbi = parseAbi([
   'function mint(bytes32 donationId,address recipient,bytes32 templeId,uint8 kind,uint256 day)',
   'event StampMinted(bytes32 indexed donationId,address indexed recipient,uint256 indexed tokenId,bytes32 templeId,uint8 kind,uint256 day)',

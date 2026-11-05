@@ -1,13 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import {
-  decodeFunctionData, encodeFunctionData, getAddress, keccak256, parseEventLogs,
+  encodeFunctionData, keccak256,
   toHex, TransactionReceiptNotFoundError, TransactionNotFoundError,
   type Address, type Hex, type TransactionReceipt,
 } from 'viem';
-import { CHAIN_ID, USDC, donationTypes, parseAmount, vaultAbi, type Donation } from '../shared.ts';
+import {
+  CHAIN_ID, USDC, donationTypes, parseAmount, vaultAbi, vaultFeeRecipientAbi, type Donation,
+} from '../shared.ts';
 import { chain, db, deployment, minter } from './config.ts';
 import { temples } from './catalog.ts';
 import { HttpError, requireValue } from './errors.ts';
+import { validateDonationReceiptEvidence } from './donation-receipt.ts';
 
 export function donationReference(id: unknown) {
   requireValue(typeof id === 'string' && /^0x[0-9a-f]{64}$/i.test(id), 400, 'INVALID_ID', 'Invalid donation ID.');
@@ -111,35 +114,32 @@ export async function verifyDonation(id: unknown, owner: Address, hint: unknown)
     return ownedDonation(id, owner);
   }
   const transaction = await chain.getTransaction({ hash: receipt.transactionHash });
-  requireValue('chainId' in transaction && transaction.chainId === CHAIN_ID && transaction.to?.toLowerCase() === deployment.vault.toLowerCase()
-    && transaction.from.toLowerCase() === owner.toLowerCase(), 400, 'TX_MISMATCH', 'Transaction chain, sender or target does not match the intent.');
-  const expectedInput = encodeFunctionData({
-    abi: vaultAbi, functionName: 'donate',
-    args: [record.id, record.templeKey, 0, BigInt(record.amount), BigInt(record.deadline), record.signature],
-  });
-  requireValue(transaction.input.toLowerCase() === expectedInput.toLowerCase(), 400, 'CALL_MISMATCH', 'Transaction calldata does not match the immutable intent.');
-  const decoded = decodeFunctionData({ abi: vaultAbi, data: transaction.input });
-  requireValue(decoded.functionName === 'donate', 400, 'CALL_MISMATCH', 'Unexpected contract call.');
+  requireValue('chainId' in transaction && transaction.chainId === CHAIN_ID,
+    400, 'TX_MISMATCH', 'Transaction chain does not match the intent.');
+  const directDonation = transaction.to?.toLowerCase() === deployment.vault.toLowerCase()
+    && transaction.from.toLowerCase() === owner.toLowerCase();
+  if (directDonation) {
+    const expectedInput = encodeFunctionData({
+      abi: vaultAbi, functionName: 'donate',
+      args: [record.id, record.templeKey, 0, BigInt(record.amount), BigInt(record.deadline), record.signature],
+    });
+    requireValue(transaction.input.toLowerCase() === expectedInput.toLowerCase(),
+      400, 'CALL_MISMATCH', 'Transaction calldata does not match the immutable intent.');
+  }
   const block = await chain.getBlock({ blockNumber: receipt.blockNumber });
   requireValue(block.hash === receipt.blockHash, 409, 'NONCANONICAL', 'Transaction is not in the current canonical block.');
   if (receipt.status !== 'success') {
     await donationReference(id).update({ status: 'failed', txHash: receipt.transactionHash, error: 'Transaction reverted; no donation was confirmed.' });
     return ownedDonation(id, owner);
   }
-  const vault = deployment.vault;
-  const logs = parseEventLogs({
-    abi: vaultAbi, eventName: 'Donated',
-    logs: receipt.logs.filter((log) => log.address.toLowerCase() === vault.toLowerCase()), strict: true,
+  const feeRecipient = await chain.readContract({
+    address: deployment.vault, abi: vaultFeeRecipientAbi, functionName: 'feeRecipient',
   });
-  requireValue(logs.length === 1, 400, 'EVENT_MISMATCH', 'Expected exactly one Donated event.');
-  const log = logs[0]!;
-  const args = log.args;
-  requireValue(args.donationId === record.id && args.donor.toLowerCase() === owner.toLowerCase()
-    && args.templeId === record.templeKey && args.kind === 0 && args.amount === BigInt(record.amount)
-    && args.fee === BigInt(record.fee) && getAddress(args.recipient) === getAddress(record.recipient)
-    && block.timestamp <= BigInt(record.deadline), 400, 'EVENT_MISMATCH', 'Donation event values do not match the registered intent.');
+  const logIndex = validateDonationReceiptEvidence(
+    receipt.logs, record, owner, deployment.vault, feeRecipient, block.timestamp,
+  );
   const reference = donationReference(id);
-  const eventReference = db.collection('chainEvents').doc(`${CHAIN_ID}_${receipt.transactionHash}_${log.logIndex}`);
+  const eventReference = db.collection('chainEvents').doc(`${CHAIN_ID}_${receipt.transactionHash}_${logIndex}`);
   const totalReference = db.collection('walletTempleTotals').doc(`${owner.toLowerCase()}_${record.templeId}`);
   const jobReference = db.collection('mintJobs').doc(record.id);
   const confirmedAt = new Date(Number(block.timestamp) * 1000).toISOString();
