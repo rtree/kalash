@@ -11,7 +11,14 @@
   "scripts": {
     "policy": "node scripts/check-policy.mjs",
     "releases": "node scripts/verify-releases.mjs",
-    "test": "node scripts/check-policy.mjs && node --test"
+    "build": "node scripts/check-policy.mjs && node scripts/build.mjs",
+    "dev": "node scripts/check-policy.mjs && node src/server/main.ts",
+    "typecheck": "node scripts/check-policy.mjs && tsc --noEmit",
+    "test": "node scripts/check-policy.mjs && node --test tests/shared.test.ts tests/api.test.mjs",
+    "test:api": "node scripts/check-policy.mjs && node --test tests/api.test.mjs",
+    "test:contracts": "node scripts/check-policy.mjs && node --test tests/contracts.test.mjs",
+    "deploy:contracts": "node scripts/deploy-contracts.mjs",
+    "e2e:remote": "node scripts/check-policy.mjs && node scripts/e2e-remote.mjs"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "7.2.0",
@@ -40,7 +47,7 @@
       "ws@>=8.0.0 <8.21.0": "8.22.0",
       "tmp@>=0.2.6 <0.2.7": "0.2.7",
       "@grpc/grpc-js@<1.13.6": "1.14.7",
-      "zod@>=4.0.0 <4.6.6": "4.6.7",
+      "zod@<4.6.6": "4.6.7",
       "decode-uri-component@<0.5.1": "0.5.1",
       "glob@>=9.0.0 <14.0.2": "14.0.3",
       "minimatch@>=7.0.0 <11.0.1": "11.0.3",

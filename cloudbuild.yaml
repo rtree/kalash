@@ -1,0 +1,14 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/$PROJECT_ID/kalash/central:${_REVISION}
+      - .
+images:
+  - asia-south1-docker.pkg.dev/$PROJECT_ID/kalash/central:${_REVISION}
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s
+substitutions:
+  _REVISION: manual-unversioned

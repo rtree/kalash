@@ -48,14 +48,20 @@ function headers(response: ServerResponse) {
   response.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
   response.setHeader('Content-Security-Policy', [
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://*.walletconnect.com https://*.reown.com",
-    "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://*.firebaseio.com https://sepolia.base.org https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://*.reown.com",
+    "img-src 'self' data: blob: https://*.walletconnect.com https://*.reown.com https://*.web3modal.org https://tile.openstreetmap.org",
+    "font-src 'self' https://fonts.reown.com",
+    "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://*.firebaseio.com https://sepolia.base.org https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://*.reown.com https://*.web3modal.org",
     "frame-src 'self' https://*.firebaseapp.com https://verify.walletconnect.com https://verify.walletconnect.org",
     "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'",
   ].join('; '));
 }
 const publicRoot = resolve('dist/public');
 async function staticFile(pathname: string, response: ServerResponse) {
+  if (pathname === '/favicon.ico') {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
   const path = resolve(publicRoot, `.${decodeURIComponent(pathname)}`);
   requireValue(path === publicRoot || path.startsWith(publicRoot + sep), 400, 'INVALID_PATH', 'Invalid path.');
   const file = extname(pathname) ? path : resolve(publicRoot, 'index.html');
@@ -77,7 +83,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   const url = new URL(request.url ?? '/', origin);
   const path = url.pathname;
   if (!path.startsWith('/api/')) {
-    requireValue(request.method === 'GET', 405, 'METHOD_NOT_ALLOWED', 'Only GET is supported.');
+    requireValue(request.method === 'GET' || request.method === 'HEAD', 405, 'METHOD_NOT_ALLOWED', 'Only GET/HEAD is supported.');
     return staticFile(path, response);
   }
   rateLimit(request, path.startsWith('/api/auth/') ? 'auth' : 'api', path.startsWith('/api/auth/') ? 20 : 120);
@@ -86,7 +92,8 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       403, 'ORIGIN_MISMATCH', 'Request origin does not match this KALASH deployment.');
   }
   if (request.method === 'GET' && path === '/api/health') return send(response, {
-    status: 'ready', project, chainId: 84532, contractsDeployed: Boolean(publicConfig.vault), mintEnabled: process.env.MINT_ENABLED === 'true',
+    status: 'ready', project, chainId: 84532, contractsDeployed: Boolean(publicConfig.vault),
+    mintEnabled: process.env.MINT_ENABLED === 'true', sourceCommit: process.env.SOURCE_COMMIT ?? null,
   });
   if (request.method === 'GET' && path === '/api/config') return send(response, publicConfig);
   if (request.method === 'GET' && path === '/api/temples') return send(response, { temples });

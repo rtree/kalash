@@ -1,9 +1,9 @@
 {
-  "referenceUtc": "2026-11-05T16:18:15.537Z",
+  "referenceUtc": "2026-11-05T16:33:12.186Z",
   "registry": "https://registry.npmjs.org",
   "minimumAgeMinutes": 10080,
-  "lockfileSha256": "1a3757e32b82ff7c90a2322109d8f6bf5d883ada0e434da6f854a3179018e867",
-  "policySha256": "7fd64104b4b13a3674f192396d0cf0157c468ddc35b22a324927a98b39d21e7d",
+  "lockfileSha256": "d85b7ef79a5bb76a498c31510a5d963fe409e3add2492ce406b04b3150798291",
+  "policySha256": "693a9690fc533a5052f09e2297dcf6b6d686b2eed1b4c81d992dea6eaec45700",
   "passed": true,
   "packages": [
     {
@@ -3224,14 +3224,8 @@
     },
     {
       "name": "zod",
-      "version": "3.22.4",
-      "publishedUtc": "2023-10-04T21:53:36.013Z",
-      "passed": true
-    },
-    {
-      "name": "zod",
-      "version": "3.25.76",
-      "publishedUtc": "2025-07-08T09:10:18.684Z",
+      "version": "4.6.7",
+      "publishedUtc": "2026-10-12T16:29:37.778Z",
       "passed": true
     },
     {

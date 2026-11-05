@@ -4,7 +4,7 @@ import {
   toHex, TransactionReceiptNotFoundError, TransactionNotFoundError,
   type Address, type Hex, type TransactionReceipt,
 } from 'viem';
-import { CHAIN_ID, donationTypes, parseAmount, vaultAbi, type Donation } from '../shared.ts';
+import { CHAIN_ID, USDC, donationTypes, parseAmount, vaultAbi, type Donation } from '../shared.ts';
 import { chain, db, deployment, minter } from './config.ts';
 import { temples } from './catalog.ts';
 import { HttpError, requireValue } from './errors.ts';
@@ -63,7 +63,7 @@ export async function recordOperation(id: unknown, owner: Address, operation: un
     requireValue(data.deadline > Math.floor(Date.now() / 1000), 409, 'INTENT_EXPIRED', 'Donation intent expired. Verify any unknown submission before starting again.');
     requireValue(data.status === 'intent' && !data.donateAttemptId, 409, 'OPERATION_EXISTS', 'A donation operation is already in progress. Verify it; do not resend.');
     transaction.create(attempt, {
-      operation, source: owner, chainId: CHAIN_ID, target: operation === 'donate' ? deployment!.vault : 'USDC',
+      operation, source: owner, chainId: CHAIN_ID, target: operation === 'donate' ? deployment!.vault : USDC,
       amount: data.amount, startBlock: data.startBlock, createdAt: new Date().toISOString(),
     });
     if (operation === 'donate') transaction.update(reference, { donateAttemptId: attemptId, status: 'submitting' });
