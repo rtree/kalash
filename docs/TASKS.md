@@ -34,20 +34,22 @@
 
 | Affected task | Observed fact | Next diagnosis | Human action / resume condition |
 |---|---|---|---|
-| M1 cloud | Primary shell finds gcloud; project unset. Diagnostic Agent could not resolve gcloud | Use explicit installed gcloud path, list project IDs and check ADC without printing token | Select authorized project/region if ambiguous |
+| M1 cloud | Explicit gcloud path works. `kalash-donation` and `aireceptionist-510301` visible; ADC file exists but auth unverified | Ask project/region, then inspect APIs/IAM/ADC | Confirm project and region |
 | M1 chain/build | Windows ARM64; no WSL distro; Docker daemon not confirmed | Minimal pure-JS compile/local-chain probe, otherwise assigned Linux host | Provide supported host/access if needed |
 | M1 wallet | Wallets not generated yet | Generate after verified dependency setup, request exact role funding | Fund listed Base Sepolia addresses only |
 | M1 Android | adb missing in PATH/common SDK paths | Ask for SDK/USB host; do not claim phone verification | Attach authorized Android and provide installed adb location |
-| M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; localhost:5000 root 404 | Auth-protected non-consuming endpoint, safe credential source | Safe local credential path and hardware attendance later; not an M1 blocker |
+| M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; protected GetAllCashDevices returns HTTP401 before authentication (expected protection, not invalid credentials) | Obtain safe credential source and authenticate later | Safe local credential path and hardware attendance later; not an M1 blocker |
 
 ## Latest checkpoint
 
-- UTC: 2026-11-05T15:59Z (approximately 4 min after start).
+- UTC: 2026-11-05T16:04Z (approximately 9 min after start).
 - Tasks: M1-entry/M1-hosts; SDD sections 1-6 established.
-- Version: initial document commit being prepared; no running product.
+- Version: initial document commit `59a0f48` saved locally; no running product.
+- Push failed: GitHub remote HTTP500 at 16:02Z; commit retained. Retry next checkpoint, no force push.
+- Pre-acquisition policy passed on actual pnpm config. Exact dependency releases selected using registry publication timestamps; acquisition not yet run.
 - Observed: Node 26.13.0 published 2026-10-28, pnpm 10.34.9 published 2026-10-25T17:54:00.645Z; both older than 168h.
 - Agent execution: synchronous diagnostic task succeeded. Long-process and user-wait capabilities will be tested explicitly, not assumed.
-- Untested: all product/API/chain/device flows. Next: policy preflight, then wallet/bootstrap and first route.
+- Untested: all product/API/chain/device flows. Next: policy preflight, dependency acquisition/release evidence, then wallet/bootstrap and first route.
 
 ## Submission
 
