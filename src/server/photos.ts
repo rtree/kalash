@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getStorage } from 'firebase-admin/storage';
+import type { Address } from 'viem';
 import { HttpError, requireValue } from './errors.ts';
 import { db, publicConfig } from './config.ts';
 import { ownedDonation } from './donations.ts';
@@ -66,8 +67,8 @@ function decodeImage(input: unknown): Buffer {
   return bytes;
 }
 
-async function photoEligibility(donationId: unknown, owner: string) {
-  const donation = await ownedDonation(donationId, owner as `0x${string}`);
+async function photoEligibility(donationId: unknown, owner: Address) {
+  const donation = await ownedDonation(donationId, owner);
   requireValue(donation.status === 'confirmed', 409, 'DONATION_UNCONFIRMED', 'A confirmed donation is required before sharing a photo.');
   const total = (await db.collection('walletTempleTotals')
     .doc(`${owner.toLowerCase()}_${donation.templeId}`).get()).get('points');
@@ -97,12 +98,12 @@ async function deleteRetiredObject(photo: PhotoRecord): Promise<boolean> {
   }
 }
 
-export async function getPhotoEligibility(donationId: unknown, owner: string) {
+export async function getPhotoEligibility(donationId: unknown, owner: Address) {
   const { donation, points, sizeTier } = await photoEligibility(donationId, owner);
   return { templeId: donation.templeId, points, sizeTier };
 }
 
-export async function uploadPhoto(owner: string, body: Record<string, unknown>) {
+export async function uploadPhoto(owner: Address, body: Record<string, unknown>) {
   requireValue(body.consent === true && body.consentVersion === PHOTO_CONSENT_VERSION,
     400, 'PHOTO_CONSENT_REQUIRED', 'Explicit photo-board consent is required before upload.');
   requireValue(Object.keys(body).every((key) => [
@@ -139,11 +140,11 @@ export async function uploadPhoto(owner: string, body: Record<string, unknown>) 
       const previousId = slot.get('photoId') as string | undefined;
       const previousRef = previousId ? photoCollection.doc(previousId) : undefined;
       const previous = previousRef ? await transaction.get(previousRef) : undefined;
-      if (previous?.exists && previousRef) {
+      if (previous?.exists && previousRef && previousId) {
         retired = previous.data() as PhotoRecord;
         transaction.update(previousRef, { status: 'replaced', storageDeletePending: true });
-        transaction.delete(expiryCollection.doc(previousId!));
-        transaction.set(cleanupCollection.doc(previousId!), {
+        transaction.delete(expiryCollection.doc(previousId));
+        transaction.set(cleanupCollection.doc(previousId), {
           photoId: previousId, objectName: retired.objectName, createdAt,
         });
       }
@@ -167,20 +168,30 @@ export async function uploadPhoto(owner: string, body: Record<string, unknown>) 
   return { photo: publicPhoto(record), cleanupPending };
 }
 
-export async function listOwnedPhotos(owner: string): Promise<PhotoDto[]> {
+export async function listOwnedPhotos(owner: Address): Promise<PhotoDto[]> {
   const now = new Date().toISOString();
-  const result = await photoCollection.where('ownerWallet', '==', owner.toLowerCase()).limit(100).get();
-  return result.docs.map((doc) => doc.data() as PhotoRecord)
-    .filter((photo) => photo.status === 'published' && photo.expiresAt > now)
+  const slots = await slotCollection.where('ownerWallet', '==', owner.toLowerCase()).get();
+  const photos = await Promise.all(slots.docs.map(async (slot) => {
+    const id = slot.get('photoId') as string;
+    const snapshot = await photoCollection.doc(id).get();
+    return snapshot.data() as PhotoRecord | undefined;
+  }));
+  return photos.filter((photo): photo is PhotoRecord =>
+    Boolean(photo && photo.status === 'published' && photo.expiresAt > now))
     .map(publicPhoto);
 }
 
 export async function listBoardPhotos(templeId: string): Promise<PhotoDto[]> {
   requireValue(temples.some((temple) => temple.id === templeId), 404, 'UNKNOWN_TEMPLE', 'Unknown temple.');
   const now = new Date().toISOString();
-  const result = await photoCollection.where('templeId', '==', templeId).limit(100).get();
-  return result.docs.map((doc) => doc.data() as PhotoRecord)
-    .filter((photo) => photo.status === 'published' && photo.expiresAt > now)
+  const slots = await slotCollection.where('templeId', '==', templeId).limit(100).get();
+  const photos = await Promise.all(slots.docs.map(async (slot) => {
+    const id = slot.get('photoId') as string;
+    const snapshot = await photoCollection.doc(id).get();
+    return snapshot.data() as PhotoRecord | undefined;
+  }));
+  return photos.filter((photo): photo is PhotoRecord =>
+    Boolean(photo && photo.status === 'published' && photo.expiresAt > now))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(publicPhoto);
 }
@@ -200,7 +211,7 @@ export async function getBoardPhoto(templeId: string, id: string) {
   return { data, photo: publicPhoto(photo) };
 }
 
-export async function withdrawPhoto(owner: string, id: string) {
+export async function withdrawPhoto(owner: Address, id: string) {
   requireValue(/^[0-9a-f-]{36}$/i.test(id), 404, 'PHOTO_NOT_FOUND', 'Photo is not available.');
   const photoRef = photoCollection.doc(id);
   const initial = await photoRef.get();

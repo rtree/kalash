@@ -850,7 +850,7 @@ export function App({ runtime }: { runtime: Runtime }) {
           />
         ) : boardTempleId ? (
           <PhotoBoardPage
-            temple={temples.find((item) => item.id === decodeURIComponent(boardTempleId))}
+            temple={temples.find((item) => item.id === boardTempleId)}
             photos={boardPhotos}
             loading={boardLoading}
             error={boardError}
@@ -1280,7 +1280,11 @@ function CollectionPage(props: {
                   <div className="photo-gallery-copy">
                     <strong>{props.temples.find((item) => item.id === photo.templeId)?.name ?? 'Temple board'}</strong>
                     <span>Public until {new Date(photo.expiresAt).toLocaleDateString()}</span>
-                    <button className="button button-outline" onClick={() => void props.onWithdrawPhoto(photo.id)}>Withdraw photo</button>
+                    <button className="button button-outline" onClick={() => {
+                      if (window.confirm('Withdraw this photo from the public board and delete it?')) {
+                        void props.onWithdrawPhoto(photo.id);
+                      }
+                    }}>Withdraw photo</button>
                     <button className="text-button" onClick={() => props.onBoard(photo.templeId)}>View temple board</button>
                   </div>
                 </article>

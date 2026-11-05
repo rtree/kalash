@@ -10,8 +10,8 @@
 - DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 - Integration, shared documents, Git and deployment owner: primary Agent.
 - Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: implement M2 private image pipeline and consent lifecycle. Firebase project config names `kalash-donation.firebasestorage.app`, but no photo bucket exists yet. Do not send another donation for this.
-- Human requests: none outstanding for initial funding/Reown/ADB; MetaMask and later paper-note attendance remain.
+- Next action: validate the new photo/board APIs against Cloud Run, deploy, then have the user choose a non-sensitive test image to inspect preview, explicit consent, public board and withdrawal. No new donation is needed.
+- Human requests: no M1 action remains. For M2, user confirmation is needed before publishing any real personal photo; paper-note attendance remains for M3.
 - Three test-process donations plus two normal MetaMask donations and mints are verified; all cash hardware outcomes remain unverified.
 
 ## Goals and assignments
@@ -26,7 +26,7 @@
 | M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
 | M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
 | M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
-| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | No photo/board code found. Firebase Storage bucket absent; provision a private regional bucket, then implement validated image pipeline and consent lifecycle |
+| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Server photo API, same-origin board, owner UI and re-encoding tests implemented locally; private bucket exists in asia-south1; Cloud Build, deployment, live API regression and user-selected image/withdrawal verification remain |
 | M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
 | M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
 | M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
@@ -35,17 +35,17 @@
 
 | Affected task | Observed fact | Next diagnosis | Human action / resume condition |
 |---|---|---|---|
-| M1 cloud | Required APIs, Firestore asia-south1, Firebase Web, runtime/build SAs and scoped secret rights created. ADC principal differed from CLI; scoped signing grant corrected | Deploy same commit and test actual runtime SA; Google sign-in still pending | Reown configured in Secret Manager, never pasted |
+| M1 cloud | Required APIs, Firestore asia-south1, Firebase Web, runtime/build SAs and scoped secret rights created. ADC principal differed from CLI; scoped signing grant corrected. Runtime identity and Firebase custom-token signing verified on live revision | Google sign-in remains a later auth-role check; no M1 blocker | Reown configured in Secret Manager, never pasted |
 | M1 chain/build | Windows ARM64 Ganache leveldown failed; browser fallback failed. User confirms no nested virtualization and authorizes Cloud Build | Compile with solc JS and run Ganache tests in Linux Cloud Build | Not a request for WSL/Docker installation |
 | M1 wallet | Actual balances exceed requested budgets; no automatic budget increase | Persist/respect original budgets before every transaction | Funding no longer blocks M1 |
 | M1 Android | User requested install; Google archive platform-tools_r37.0.1-win.zip SHA1 matched repository metadata; `adb devices -l` shows Samsung SM_S942Z device | Screenshot/inspect then one operation and API evidence | Real camera QR/MetaMask verification still pending |
 | M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; protected GetAllCashDevices returns HTTP401 before authentication (expected protection, not invalid credentials) | Obtain safe credential source and authenticate later | Safe local credential path and hardware attendance later; not an M1 blocker |
-| M2 Storage | Firebase project config names `kalash-donation.firebasestorage.app`, but GCP bucket listing currently contains only the Cloud Build bucket | Confirm private bucket region, uniform access and public access prevention before provisioning | No user photo upload until server-side validation/re-encoding and consent-aware delivery are live |
+| M2 Storage | `kalash-donation-photos` created in asia-south1; uniform bucket-level access, public access prevention enforced, soft-delete duration 0; Cloud Run runtime SA has bucket objectAdmin | Deploy with `PHOTO_BUCKET=kalash-donation-photos`, run real consent/upload/withdraw API test; verify bucket remains non-public | Do not upload a personal photo without explicit user consent |
 
 ## Evidence retained
 
 - Checkpoints `df6d6a7` and public-build source `eb7599e` published; remote hashes checked. External WIP checkpoints are preserved, not reset or amended.
-- Audit zero vulnerabilities all severities after exact aged overrides. Optional wallet SDK peer warnings remain; normal MetaMask runtime pending.
+- Audit zero vulnerabilities all severities after exact aged overrides. Optional wallet SDK peer warnings remain; normal MetaMask PC donation and stamp flow verified.
 - Actual Cloud Build `a8edc91e-655f-4fd3-9213-24ed913ba4b6`: SUCCESS, isolated chain 23 tests passed, zero skipped/failed. Evidence `artifacts/contracts-cloud-build.log` and cloud logs. This is not testnet donation evidence.
 - Real deployments succeeded: vault tx `0x7377f2b6b10fe35f9baf3680f1a827829cab609b6e6c1af83790d1f930a968ec`, block54871753; stamp tx `0x02b3d8f17b64dd27c296799f7bd22d2f96c33adcfbad473f9064b0ec3041eb96`, block54871769. See config/deployment.public.json.
 - First real donation `0xa0335880c2902420bf92daf1b3ed8429697571bd67d0cf8361f2a3b89cfd5003`: tx `0xb2d660ff5b2c528550ec84a1942d69c8da1e7202ebfced60bfeb1c5368f49e5c`, mint `0x81aff92eac9df043a05557968ae0f27b09cc4b747b25c5d3ed6ca9e9ccaa20b5`;16:35:34.818 intent ->16:35:43.463 confirmed ->16:35:49.193 minted.
@@ -99,8 +99,34 @@
   minted tx `0xb848936a01bc7c3d25a93d60b5e8eedd95092a12d6c99bc9cdcbc68076f75b4b`
   (block54922071, success), on-chain stamp balance 1, temple-01 points 10000 units for
   that wallet. No data cleared, no resend. First normal MetaMask (delegated) donation
-  path is now verified end-to-end on chain/DB; remaining: human Collection/History
-  reload in browser, then a fresh MetaMask donation that Central confirms by itself.
+  path was verified end-to-end on chain/DB.
+- 2026-11-05T19:21Z / user confirmation 2026-11-06T04:29+09:00: user completed the
+  second normal MetaMask path: Connect, VerifyWallet, SpendingCap, transaction,
+  Central confirmation and stamp all succeeded. Firestore donation `0x92ded6b9f9…`
+  is confirmed/minted (donation tx `0x1027f9b8063b…`, mint tx `0xa0a91bdc6bd1…`);
+  direct Base Sepolia `balanceOf` is 1. User screenshots show two collected stamps
+  and two minted History entries. M1 end-to-end complete; no further M1 payment
+  requested or initiated.
+
+## M2 implementation checkpoint
+
+- 2026-11-06T05:41+09:00: sharp 0.34.5 was published more than 168 hours earlier;
+  added with pnpm install scripts disabled, then verified all 567 lockfile releases
+  and lock hash. Photo processor enforces JPEG/PNG/WebP input, byte/pixel/page bounds,
+  EXIF orientation, metadata-free 1600px JPEG output, and four integer-point tiers.
+- Private bucket `kalash-donation-photos` is in asia-south1 with uniform access,
+  public access prevention and zero-second soft delete; Cloud Run runtime SA is
+  granted objectAdmin on this bucket. No photos have been uploaded.
+- Implemented confirmed-donation eligibility, explicit-versioned-consent upload,
+  one latest wallet/temple slot, 30-day expiry, same-origin private-object board
+  delivery, owner withdrawal, and durable object cleanup/expiry queues. Public DTO
+  excludes wallet, donation, points and storage object path. Pilgrim donation,
+  History, Collection Photos and public temple-board UI wired.
+- Local policy, typecheck, production build and 9 focused tests pass. Mandatory real
+  API test now covers a synthetic portrait, consent rejection, private proxy image
+  delivery, replacement of old image, cross-wallet withdrawal denial and post-withdrawal 404. Next: Cloud
+  Build, deploy with `PHOTO_BUCKET`, run mandatory real API tests; then ask user to
+  select a non-sensitive test image for actual browser preview/consent/board/withdrawal.
 
 ## Submission
 

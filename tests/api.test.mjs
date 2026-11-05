@@ -191,7 +191,18 @@ test('real photo consent, private storage delivery, board listing and withdrawal
     assert.equal(imageResponse.headers.get('content-type'), 'image/jpeg');
     assert.match(imageResponse.headers.get('cache-control') ?? '', /no-store/);
 
-    const foreignWithdraw = await request(`/api/photos/${photo.id}/withdraw`, {
+    const replacement = await request('/api/photos', {
+      method: 'POST', bearer: token, body: { ...base, consent: true },
+    });
+    assert.equal(replacement.status, 201);
+    const replacementPhoto = (await replacement.json()).photo;
+    assert.notEqual(replacementPhoto.id, photo.id);
+    photoId = replacementPhoto.id;
+    assert.equal((await fetch(`${origin}${photo.imageUrl}`)).status, 404);
+    const replacedBoard = await (await request(`/api/board/${donation.templeId}/photos`)).json();
+    assert.deepEqual(replacedBoard.photos.map((item) => item.id), [replacementPhoto.id]);
+
+    const foreignWithdraw = await request(`/api/photos/${replacementPhoto.id}/withdraw`, {
       method: 'POST', bearer: otherToken, body: {},
     });
     assert.equal(foreignWithdraw.status, 404);

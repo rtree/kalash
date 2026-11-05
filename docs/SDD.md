@@ -127,8 +127,10 @@ to metadata-free JPEG (1600px maximum dimension, 5 MB input / 3 MB output limits
 Display-name text is optional, normalized and length-limited.
 
 Store objects in private `kalash-donation-photos` (asia-south1), uniform bucket-level
-access, public-access prevention, no soft-delete retention. Only the Cloud Run runtime
-service account gets object access. Never return storage paths or signed GCS URLs.
+access, public-access prevention, no soft-delete retention. The Cloud Run runtime
+service account has bucket-scoped objectAdmin for application reads/writes; project
+administrators retain control-plane access. No public grants are configured. Never
+return storage paths or signed GCS URLs.
 The public board API exposes only photo ID, temple, optional display name, size tier,
 creation/expiry and a same-origin image route. That route rechecks the published photo
 and current owner/temple slot on every request and returns `no-store`; replacing,
@@ -141,6 +143,12 @@ never include those fields. `photoSizeTier` uses integer point units and shared
 thresholds: 1–499, 500–1,999, 2,000–4,999 and 5,000+ points; zero is ineligible.
 An expiry queue and cleanup queue are processed by the existing Central process.
 The owner may withdraw; operator/temple withdrawal authorization remains to be added.
+
+API: `GET /api/photos/eligibility/:donationId`, `POST /api/photos`,
+`GET /api/photos/mine`, owner-only `POST /api/photos/:id/withdraw`,
+public `GET /api/board/:templeId/photos` and same-origin image delivery at
+`GET /api/board/:templeId/photos/:id`. Public board and direct image requests do not
+use Firebase auth or GCS public access; every image request rechecks published state.
 
 M3 cash controller/reconciliation, M4 fee/payout, and M5 onsite crypto remain required;
 their implementation is not implied by M1 code.
