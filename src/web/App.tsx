@@ -364,11 +364,18 @@ export function App({ runtime }: { runtime: Runtime }) {
 
   const connectWallet = async () => {
     setError('');
-    const injectedConnector = connectors.find((item) => item.id === 'injected' || /metamask/i.test(item.name));
-    if (injectedConnector) {
-      const attemptId = startWalletAttempt(injectedConnector.id);
-      recordWalletTrace('provider-start', { connector: injectedConnector.id }, attemptId);
-      try {
+    let injectedConnector: (typeof connectors)[number] | undefined;
+    let attemptId: string | undefined;
+    try {
+      for (const candidate of connectors) {
+        if ((candidate.id === 'injected' || /metamask/i.test(candidate.name)) && await candidate.getProvider()) {
+          injectedConnector = candidate;
+          break;
+        }
+      }
+      if (injectedConnector) {
+        attemptId = startWalletAttempt(injectedConnector.id);
+        recordWalletTrace('provider-start', { connector: injectedConnector.id }, attemptId);
         const result = await connectAsync({ connector: injectedConnector });
         recordWalletTrace('provider-resolve', {
           connector: injectedConnector.id,
@@ -376,14 +383,14 @@ export function App({ runtime }: { runtime: Runtime }) {
           connected: true,
           addressPresent: result.accounts.length > 0,
         }, attemptId);
-      } catch (cause) {
-        recordWalletTrace('provider-reject', { connector: injectedConnector.id }, attemptId);
-        setError(cause instanceof Error ? cause.message : 'Wallet connection was not completed.');
+      } else if (config.reownProjectId) {
+        runtime.openWalletConnect();
+      } else {
+        setNotice('No injected wallet was detected and WalletConnect is not configured for this deployment.');
       }
-    } else if (config.reownProjectId) {
-      runtime.openWalletConnect();
-    } else {
-      setNotice('No injected wallet was detected and WalletConnect is not configured for this deployment.');
+    } catch (cause) {
+      recordWalletTrace('provider-reject', { connector: injectedConnector?.id }, attemptId);
+      setError(cause instanceof Error ? cause.message : 'Wallet connection was not completed.');
     }
   };
 

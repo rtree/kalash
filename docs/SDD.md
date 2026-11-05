@@ -8,11 +8,11 @@ This document defines intended contracts; TASKS records verification, not this f
 
 | Responsibility | Host | Address / status |
 |---|---|---|
-| Web/API development | Current Windows ARM64, Node 26.13.0 | `http://localhost:3000` (not started) |
+| Web/API development | Current Windows ARM64, Node 26.13.0 | `http://localhost:3000`, read/API capable; local mint loop disabled |
 | Contract compile / isolated chain tests | Windows solc compile; Cloud Build Linux for chain tests | Ganache native leveldown incompatible with Windows ARM64; browser fallback also failed; no further Windows framework retries |
-| Cloud build / production | GCP Cloud Build / Cloud Run | `kalash-donation`, `asia-south1`; HTTPS URL not yet assigned |
+| Cloud build / production | GCP Cloud Build / Cloud Run | `kalash-donation`, `asia-south1`; `https://kalash-central-548318651344.asia-south1.run.app` |
 | Controller / ITL | Current Windows ARM64, .NET 10 | ITL loopback `http://localhost:5000`; no device operations authorized yet |
-| Android | Current Windows host, USB-connected authorized Samsung | ADB37.0.1 at `%LOCALAPPDATA%\KALASH\tools\platform-tools-37.0.1\platform-tools\adb.exe`; use exact serial. Phone URL will use reverse only for this host |
+| Android | Current Windows host, USB-connected authorized Samsung | ADB37.0.1 at `%LOCALAPPDATA%\KALASH\tools\platform-tools-37.0.1\platform-tools\adb.exe`; use exact serial. Use canonical public URL; reverse3000 is only for local diagnosis |
 
 User confirms nested virtualization is unavailable; use Cloud Build rather than Docker/WSL.
 Central is one process serving React, API and a durable mint loop.
@@ -126,6 +126,9 @@ donationId is tested without a transaction hash. Exact points are recomputed
 from confirmed donations in API tests, not merely checked for a positive total.
 
 React/Wagmi/AppKit client supports external injected MetaMask and WalletConnect.
+Registered injected connectors are not proof of an installed provider. The
+primary connect action checks getProvider before using one; ordinary mobile
+Chrome falls back to configured AppKit instead of failing Provider not found.
 Optional Coinbase/Base/social/email/smart-wallet providers are disabled to keep
 the requested EOA route and avoid unsupported inline telemetry.
 No inline script permission is granted by CSP; required Reown API/font endpoints
@@ -139,7 +142,7 @@ UI uses fixed100INR/USDC; all actual ledger amounts stay integerUSDC units.
 Cloud image build: `cloudbuild.yaml` with explicit `_REVISION` tag; single Node26.13
 image serves all paths and loop. Runtime is one min/max instance, alwaysCPU.
 Before activating Cloud Run minter, local `MINT_ENABLED` is set false; lease still
-protects rollout overlaps. Canonical planned HTTPS origin:
+protects rollout overlaps. Canonical deployed HTTPS origin:
 `https://kalash-central-548318651344.asia-south1.run.app`.
 
 The canonical regional URL is used for Firebase/Reown/metadata/API origin checks.
