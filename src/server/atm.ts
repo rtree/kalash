@@ -1,6 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getAddress, verifyMessage, type Address, type Hex } from 'viem';
-import { createSiweMessage } from 'viem/siwe';
 import { ATM_ID, CASH_LIMIT_PAISE, VISIT_REFERENCE, VISIT_TTL_MS, cashMachineStatus, metaMaskLink, templeTarget, visitState, type AtmDto, type CashMachineStatus, type VisitDto, type VisitState } from '../atm.ts';
 import { CHAIN_ID } from '../shared.ts';
 import { db, origin } from './config.ts';
