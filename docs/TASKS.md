@@ -41,7 +41,7 @@
 | M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | verified | 現地Crypto end-to-endを確認。Cashは無効のまま。次のM3現地現金は別ゴール |
 | M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | ユーザー提供メモ・v2 Postman例・package metadataで.NET 8.0、認証、localhost:5000、Host設定を照合。Payout Route=1とPostman例Route=3の不一致はM3-deviceの操作禁止条件として記録 |
 | M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。build成功、7 fake-child/config tests pass。実サーバ／実機／現金命令／サービス登録なし |
-| M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | doing | read-onlyクライアントで認証、USB一覧・接続一覧・詳細・在高・counter・通貨割当を直列取得。GetDeviceStatus（消費型）と全ての書込APIは未実装。9 Controller tests pass。Route値の不一致をManual v14・対象firmware/datasetで解決後にUSB実機確認。受入・払い出し命令は別ゲート |
+| M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | doing | 第1段階：実サーバ起動・API認証・USB一覧／接続一覧・正常終了。次に受付閉・自動ESCROW無効のOpenConnectionで初期化し、機種・dataset・route・在高・counterを確認。Route=1はSpectral Payoutのみ。GetDeviceStatusは単独pollerと記録を準備後。紙幣投入・払い出しは別ゲート |
 | M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
@@ -56,7 +56,7 @@
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
 | M3/NV200接続 | 現金受付の準備状態は未確認 | M5aではCashをfail-closedで無効にし、現地Cryptoを先に完成。現金受入・Controller実機連携は後続M3 | M5aでは機器操作不要。Cash実装時に準備状況を再確認 |
-| M3/ITL REST API | 非再配布.NET 8.0パッケージ44ファイルを専用ignored folderへコピーしSHA-256照合。`REST API Logs`は除外。`validate`は一時的なテスト鍵で成功、vendor server未起動。Postman Route=3と提供メモRoute=1の不一致は継続 | Controller child環境でHost allowlist/JWT上書き。Manual v14・対象firmware/datasetでRoute不一致を解決するまで機器接続・route/acceptor/payout操作を行わない | バイナリ・設定・資格情報はGitへ入れない。実機・メーカーサーバーは未起動 |
+| M3/ITL REST API | 非再配布.NET 8.0パッケージ44ファイルを専用ignored folderへコピーしSHA-256照合。`REST API Logs`は除外。`validate`は一時的なテスト鍵で成功、vendor server未起動。Manual v14ではSpectral Payout Route=1、NV4000例Route=3、acceptRoute=7は読戻し値 | 子プロセス環境のHost allowlist/JWT上書きを実サーバーで確認。Stage 1の認証・USB列挙後、OpenConnectionは受付無効・自動ESCROW無効で別確認。物理紙幣・払い出しは別途立会い | バイナリ・設定・資格情報はGitへ入れない。実機・メーカーサーバーは未起動 |
 
 ## M1の検証証跡
 
@@ -114,7 +114,7 @@
 - M5a live donation `0xd25b42f9…dd2dfb`（visit `178d6d49…fbbc0`）：kind=1、10,000 USDC base units、Firestore confirmed/minted。Donation tx `0x24708f73…aaba69` successful/canonical、exact Vault `Donated` and USDC fee/net transfers matched. Mint tx `0x658b3e88…9584b` successful/canonical、matching `StampMinted` event。Firestore visit `confirmed`、ATM `activeVisitId` cleared、points include 10× onsite multiplier。本人はCollection reload後のOn-site Lotus Courtyard Stamp表示も確認。
 - M5a配備 revision `00018-dgg`／image `central:dbb7efa`。Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815` successful. Live API `pnpm run test:atm` 8/8 pass, no skips. Source `dbb7efa47df17107a6843f46961c5d55881712f9`。
 - 次：M5a完了。M3現金は別ゴールとして準備し、Cash command／実機service登録は実装・権限の確認後に別途行う。Cash試験は人の立ち会いを待つ。
-- M3準備：専用.NET 10 Controller hostとBearer付きread-only ITL clientを実装。9件のfake process/config/API tests pass。非再配布REST API runtimeを専用ignored folderへコピーし44ファイルのSHA-256一致と一時テスト鍵での`validate`を確認。REST API logsは除外、server childは未起動。APIクライアントはread-only限定。Route=1/3不一致、保護されたdotnet/server/JWT設定、実機USB確認が残る。
+- M3準備：専用.NET 10 Controller hostとBearer付きread-only ITL clientを実装。9件のfake process/config/API tests pass。非再配布REST API runtime44ファイルのSHA-256一致・一時テスト鍵での`validate`を確認。REST API logsは除外、server childは未起動。Manual v14のRoute=1／NV4000のRoute=3適用差を記録。次は有効なローカルREST資格情報を用意し、Stage 1を実行する。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 

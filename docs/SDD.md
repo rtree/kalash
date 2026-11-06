@@ -426,11 +426,12 @@ override `AllowedHosts` to `localhost;127.0.0.1;[::1]` and provide `Jwt__Key`
 from protected local configuration in the child environment. Never log or
 commit that value, or modify the vendor distribution to make the override.
 
-The supplied manual extract says the Payout route request value is `1`, while
-the SDK v2 Postman example uses `Route: 3`. Do not choose a value or issue
-`OpenConnection`/route/acceptor/payout commands until the API Manual v14,
-firmware, dataset, and authorized device result resolve this discrepancy.
-`GetDeviceStatus` consumes events, so no additional poller may be introduced.
+The supplied Manual v14 extract (p.182) says request `Route=1` means RECYCLER
+for Spectral Payout. The SDK v2 Postman `Route=3` example is for NV4000;
+`acceptRoute=7` is a readback representation, not a request value. Use `1` only
+for the confirmed Spectral Payout configuration and verify its readback for the
+actual firmware/dataset; do not generalize. `GetDeviceStatus` consumes events,
+so no additional poller may be introduced.
 
 The host must use an explicit local server directory, refuse an already-used
 port instead of attaching to or stopping its owner, and retain only the process
@@ -454,7 +455,8 @@ checks and are never inferred from an open port.
 tokens in memory, refreshes the token before expiry, and serializes each request.
 It exposes authentication and non-consuming USB/device/inventory GETs only.
 There is deliberately no `GetDeviceStatus`, `OpenConnection`, route, acceptor,
-or payout method until the single-poller and route contracts are resolved.
+or payout method until the staged checks and explicit device-operation scope
+allow them.
 HTTP errors expose status codes, not response bodies; there are no blind retries.
 
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return

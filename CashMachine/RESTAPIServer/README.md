@@ -28,9 +28,11 @@ does not search `PATH` for a runtime. Never put the signing value in
 command-line arguments, source, or logs. The child inherits only a small
 platform environment allowlist plus the two explicit server overrides.
 
-The provided manual extract identifies the Payout route request value as `1`,
-but the SDK v2 Postman example uses `Route: 3`. Resolve this against the exact
-authorized manual, firmware, and dataset before any device-control operation.
+The provided Manual v14 extract (p.182) identifies `Route: 1` as RECYCLER for
+Spectral Payout. The SDK v2 Postman `Route: 3` example is for NV4000, and
+`acceptRoute: 7` is a readback value, not a request value. Do not generalize
+these mappings to other firmware or datasets; verify the target device's
+readback before enabling cash operations.
 
 The KALASH CashMachineController can launch and supervise its own server child
 process from this local installation. The package configuration has been
