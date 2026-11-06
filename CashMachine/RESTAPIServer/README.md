@@ -7,9 +7,25 @@ tracked here. All server binaries, DLLs, manuals, user configuration, and
 credentials placed in this directory are ignored by Git.
 
 The current design references ITL SDK package 3.2.9 and CashDevice REST API
-2.0.0 using the vendor's .NET 8.0 server package. Confirm the installed
-distribution and API contract against the authorized manufacturer materials
-before implementation or operation.
+2.0.0 using the vendor's .NET 8.0 server package. The reviewed package targets
+.NET 8.0 and has `serverconfig.json` set to `localhost:5000`.
+
+The package's `appsettings.json` currently has wildcard `AllowedHosts` and an
+embedded signing setting. Do not launch it unmodified. The Controller must
+override the host allowlist and supply `Jwt__Key` from protected local
+configuration through the child process environment; do not expose or copy the
+setting, and do not edit the vendor distribution.
+
+The local Controller requires `KALASH_ITL_REST_SERVER_DIR` to name this
+dedicated directory, `KALASH_ITL_DOTNET` to be an absolute `dotnet.exe` path,
+and `KALASH_ITL_JWT_KEY` to be supplied by protected local configuration. It
+does not search `PATH` for a runtime. Never put the signing value in
+command-line arguments, source, or logs. The child inherits only a small
+platform environment allowlist plus the two explicit server overrides.
+
+The provided manual extract identifies the Payout route request value as `1`,
+but the SDK v2 Postman example uses `Route: 3`. Resolve this against the exact
+authorized manual, firmware, and dataset before any device-control operation.
 
 The planned CashMachineController will launch and supervise its own server
 child process from a local installation. Keep the REST endpoint on loopback;

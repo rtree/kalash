@@ -16,8 +16,9 @@ HTTPS lab on the phone, never the development PC's localhost.
 M1 first vertical slice: `/temples/temple-01` -> 0.01 test USDC ->
 Central receipt verification -> real stamp -> Collection reload.
 This document defines intended contracts; TASKS records verification, not this file.
-The current implementation goal is M3, using the accepted
-[MetaMask/ATM journey](issue-penetrator/kalash-metamask-browser-journey.md).
+The active milestone is M5a with Cash disabled. M3 Controller preparation may
+proceed in parallel; M3 device and cash operations remain gated by TASKS and the
+accepted [MetaMask/ATM journey](issue-penetrator/kalash-metamask-browser-journey.md).
 M1 and photo publication are retained. The user deferred withdrawal follow-up;
 it does not gate ATM work, and existing owner withdrawal stays available.
 
@@ -405,9 +406,49 @@ one-use cash-consent signature, Controller Ready, finite acceptance, ordered
 STORED events, inventory reconciliation, stamp and optional ATM photo. No
 CashDevice command is enabled by M5a.
 
-The authenticated hardware heartbeat has not yet been integrated or verified.
-Until a fresh readiness report is received, Central reports hardware as
-offline/unknown and the ATM remains Crypto-only.
+Until a fresh authenticated readiness report is received, Central reports
+hardware as offline/unknown and the ATM remains Crypto-only. The health path
+does not authorize or execute ITL operations.
+
+### M3 local REST API process boundary
+
+The KALASH-owned .NET 10 Controller is kept under `CashMachine/CashMachineController`.
+The manufacturer CashDevice REST API Server is a non-redistributable local
+driver under the separately ignored `CashMachine/RESTAPIServer` area. Git tracks
+its README only, never the server, vendor logs, credentials, or configuration.
+
+The user-supplied manual extract identifies CashDevice REST API v2.0.0 on .NET
+8.0 and requires `serverconfig.json` to bind `localhost:5000`; package metadata
+confirms the .NET 8 runtime target and the local server configuration. The
+included `appsettings.json` has a wildcard `AllowedHosts` and a packaged signing
+setting, so the unmodified package must not be launched. The Controller must
+override `AllowedHosts` to `localhost;127.0.0.1;[::1]` and provide `Jwt__Key`
+from protected local configuration in the child environment. Never log or
+commit that value, or modify the vendor distribution to make the override.
+
+The supplied manual extract says the Payout route request value is `1`, while
+the SDK v2 Postman example uses `Route: 3`. Do not choose a value or issue
+`OpenConnection`/route/acceptor/payout commands until the API Manual v14,
+firmware, dataset, and authorized device result resolve this discrepancy.
+`GetDeviceStatus` consumes events, so no additional poller may be introduced.
+
+The host must use an explicit local server directory, refuse an already-used
+port instead of attaching to or stopping its owner, and retain only the process
+handle for the child it starts. Drain but do not record vendor stdout/stderr;
+vendor logs can contain credentials or tokens. Do not force-stop the child while
+device state is active or unknown. M3 host tests use a fake child; no real server,
+device operation, cash command, or Windows service registration is part of M5a
+or the initial M3 preparation.
+
+The current host source is the package-free
+`CashMachine/CashMachineController/KALASH.CashMachineController.csproj`.
+`run` is explicit; build and tests do not start the vendor server. Configuration
+requires the dedicated server directory, an absolute `dotnet.exe` path, and a
+protected signing-key environment value. The child does not resolve its runtime
+through the parent `PATH`; it receives only platform environment variables plus
+the exact `AllowedHosts` and `Jwt__Key` overrides. Startup checks that the
+process remains alive; API authentication and device readiness are separate
+checks and are never inferred from an open port.
 
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
 an explicit QR-unavailable reason instead of manufacturing a mobile link.

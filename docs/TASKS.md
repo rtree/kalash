@@ -2,8 +2,8 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M5a 現地Crypto ATM連携。Cashを常時無効にしてCryptoのみ選べるパターンを完成する。次の独立ゴールはM3現地現金。写真取り下げは後回し。M1寄付・本人写真掲載は成功済みのまま維持。
-- 成功条件：認可ATMのdeeplink QR→MetaMask→SIWE／明示visit claim→電話でamount・必要時approve・kind=1 donate→Central confirmed/minted→Collection再読込とATM初期画面復帰。未接続／不明時Cash無効・Crypto有効。模擬状態やUI表示を実寄付・Stampの成功証拠にしない。
+- 現在のゴール：M3 CashMachineController／ITL連携。M5a onsite Cryptoはverified。M3は専用Controllerホストとread-only機器状態から進め、実機経路の矛盾・USB未接続・資格情報未設定の間は現金命令を有効にしない。写真取り下げは後回し。
+- 成功条件：対象NV200の版・dataset・routeを確定し、Controllerが認証・単一poller・実Ready／在高を確認。以降の現金受付は別の立会いゲートで実紙幣・イベント・台帳を照合する。模擬状態やUI表示を実Ready／収納成功の証拠にしない。
 - 今回の担当：Integrator一人が本体Central／Web／Controller／テストとSPEC／SDD／TASKS・Gitを担当。PoCファイルと他担当の変更には触れない。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
@@ -15,7 +15,7 @@
 - Central ATM `atm-01` を本番Firestoreへ登録。Cash acceptanceはfalse。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：M5a実装をcommitしCloud Build/Cloud Runへ反映、実Central APIとMetaMask deeplink経路を検証する。Cash commandは作らない。成功済みの寄付や本人写真を再送／再公開しない。
+- 次の作業：RESTAPIServer用の保護設定と、route conflictのManual v14／対象firmware・dataset照合。USB接続後にread-only認証・在高確認を行う。route conflict解消・人の許可まではOpenConnection／acceptor／payoutを呼ばない。成功済みの寄付や本人写真を再送／再公開しない。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -39,9 +39,9 @@
 | M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | verified | visit claim・kind=1 intent、実receipt／Vaultイベント、mint／Stamp、points、ATM idleまで同じdonationIdで照合 |
 | M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | verified | 本人がATM screen pairing、MetaMask mobileの0.01 USDC送金、Collection再読込後のOn-site Stamp表示を確認 |
 | M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | verified | 現地Crypto end-to-endを確認。Cashは無効のまま。次のM3現地現金は別ゴール |
-| M3-itl-contract | M3準備（M5aと並行） | Integrator：メーカーREST API契約照合 | なし | todo | 非再配布のメーカー資料で版・認証・起動・loopback契約を照合し、検証済み要点のみSDDへ記録。配布物はGitへ入れず、実機操作なし |
-| M3-controller-host | M3準備（M5aと並行） | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | todo | 専用.NET 10ホストからローカルRESTAPIServerを子起動・準備確認・終了し、自分が起動した子だけ管理。loopback限定・fake child試験。現金命令／サービス登録なし |
-| M3-device | M3（次） | Integrator：CashMachineController/ITL | M5a、M3-controller-host | todo | USB接続後、認証・poller所有・接続／経路／在高・実Readyを確認 |
+| M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | ユーザー提供メモ・v2 Postman例・package metadataで.NET 8.0、認証、localhost:5000、Host設定を照合。Payout Route=1とPostman例Route=3の不一致はM3-deviceの操作禁止条件として記録 |
+| M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。build成功、7 fake-child/config tests pass。実サーバ／実機／現金命令／サービス登録なし |
+| M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | doing | read-onlyクライアントで認証、USB一覧・接続一覧・詳細・在高・counter・通貨割当を直列取得。GetDeviceStatus（消費型）と全ての書込APIは未実装。9 Controller tests pass。Route値の不一致をManual v14・対象firmware/datasetで解決後にUSB実機確認。受入・払い出し命令は別ゲート |
 | M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
@@ -56,6 +56,7 @@
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
 | M3/NV200接続 | 現金受付の準備状態は未確認 | M5aではCashをfail-closedで無効にし、現地Cryptoを先に完成。現金受入・Controller実機連携は後続M3 | M5aでは機器操作不要。Cash実装時に準備状況を再確認 |
+| M3/ITL REST API | 提供メモとv2 Postman例を照合。serverconfigはlocalhost:5000、runtime targetは.NET 8。パッケージ既定の`AllowedHosts`はwildcardで、署名設定も同梱。Postmanの`SetDenominationRoute`例はRoute=3、提供メモのPayout要求値はRoute=1 | Controller子環境でHost allowlistと保護済みJWT設定を上書き。Route値をManual v14・対象firmware/datasetで解決するまで実機接続・route/acceptor/payout操作を行わない | ベンダー配布物・ログ・資格情報をGitへ入れない。実機・メーカーサーバーは未起動 |
 
 ## M1の検証証跡
 
@@ -110,9 +111,10 @@
 - `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm run typecheck`、`pnpm run build`成功。Focused unit suiteは12/12成功・skipなし。
 - Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815`成功、image `central:dbb7efa`をrevision `00018-dgg`へ配備。`/api/health` ready・Base Sepolia・sourceCommit full SHA一致。ATM shell route HTTP200。
 - 実Central `pnpm run test:atm`は認可・pairing・expiry・claim・kind=1 intentを8/8成功・skipなし。未接続／古いhealthではCash disabled・Crypto available、Controller healthがreadyでもM5aではCash disabled。claim・intentの競合／再試行も実Firestoreで成功。API testは送金・mint・写真操作なし。
-- M5a live donation 0xd25b42f9…dd2dfb（visit 178d6d49…fbbc0）：kind=1、10,000 USDC base units、Firestore confirmed/minted。Donation tx 0x24708f73…aaba69 successful/canonical、exact Vault Donated and USDC fee/net transfers matched. Mint tx 0x658b3e88…9584b successful/canonical、matching StampMinted event。Firestore visit confirmed、ATM activeVisitId cleared、points include 10× onsite multiplier。本人はCollection reload後のOn-site Lotus Courtyard Stamp表示も確認。
-- M5a配備 revision 00018-dgg／image central:dbb7efa。Cloud Build 146fafbd-127e-47ff-ac98-b17d2b7e4815 successful. Live API pnpm run test:atm 8/8 pass, no skips. Source dbb7efa47df17107a6843f46961c5d55881712f9。
+- M5a live donation `0xd25b42f9…dd2dfb`（visit `178d6d49…fbbc0`）：kind=1、10,000 USDC base units、Firestore confirmed/minted。Donation tx `0x24708f73…aaba69` successful/canonical、exact Vault `Donated` and USDC fee/net transfers matched. Mint tx `0x658b3e88…9584b` successful/canonical、matching `StampMinted` event。Firestore visit `confirmed`、ATM `activeVisitId` cleared、points include 10× onsite multiplier。本人はCollection reload後のOn-site Lotus Courtyard Stamp表示も確認。
+- M5a配備 revision `00018-dgg`／image `central:dbb7efa`。Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815` successful. Live API `pnpm run test:atm` 8/8 pass, no skips. Source `dbb7efa47df17107a6843f46961c5d55881712f9`。
 - 次：M5a完了。M3現金は別ゴールとして準備し、Cash command／実機service登録は実装・権限の確認後に別途行う。Cash試験は人の立ち会いを待つ。
+- M3準備：専用.NET 10 Controller hostとBearer付きread-only ITL clientを実装。9件のfake process/config/API tests pass。メーカーRESTAPIServerは未起動、APIコマンドはread-only限定。Route=1とPostman例Route=3の不一致、保護されたdotnet/server/JWT設定、実機USB確認が残る。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 

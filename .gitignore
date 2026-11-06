@@ -10,5 +10,7 @@ artifacts/
 .tooling/
 CashMachine/CashMachineController/bin/
 CashMachine/CashMachineController/obj/
+CashMachine/CashMachineController.Tests/bin/
+CashMachine/CashMachineController.Tests/obj/
 CashMachine/RESTAPIServer/**
 !CashMachine/RESTAPIServer/README.md
