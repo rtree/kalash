@@ -93,3 +93,11 @@
 - 検証：調査担当による出典・API/返却形式・記述レビュー、相互リンク・Markdown差分確認。今回の実機操作・送金・撮影・配備・製品テストはなし。ソース例を実機成功扱いしない。
 - 制約：調査環境のHTTPプロキシ接続失敗により一般Web直接取得不可。GitHub connectorで公式原文と実装を取得。通常git push経路を使わず文書専用ブランチへGitHub APIで保存する。
 - 次の一手：実装担当が非秘密URLのdeeplinkとinjected経路を確認し、試験用QRのnative scanner返却・Cancel・復帰、既存confirmed寄付からcamera preview/破棄を確認する。本人の認証・署名・権限・公開同意は実機試験時に本人が行う。今回人の操作待ちはなし。主ブランチの既存進捗・未完了判定は変更しない。
+
+## USDC approve不表示の原因調査（文書ブランチ）
+
+- UTC 2026-11-06 05:10:49。対象：M1 mobile approve／M2へ進む前提。参照main `7b72c796255f34ae75857dc867ef7f0211e3c1a5`、同版TASKSの稼働記録 `00016-w6k`／source `1790e57`。SDD §2/§3/§7を照合、現行設計の変更なし。調査の統合担当のみ本節を記入し、主ブランチの進捗・別チームの実機操作は変更しない。
+- 成果：`docs/issue-penetrator/metamask-mobile-usdc-approve-investigation.md`（今回の文書commit）。直近再試行はCentralの `SIGNED_INTENT_STILL_VALID` 409でWallet要求前に停止。初発のapprove-only停滞は既存記録だけでは未特定。期限経過後の新しい試行を古い409で説明しない。
+- コード上の問題：最上位だけを見る拒否判定がViemのcause内4001を見落とし、pendingを残す条件を特定。client存在確認と実write経路が別、start traceが実provider送信を示さない、custom provider待ちにpublic HTTP timeoutが適用されない点も文書化。実端末で当該エラーが起きた証拠とは区別。
+- 検証：KALASHの固定commit、lockに対応するWagmi/Viem、MetaMask公開参照版、類似issueをGitHub connectorで取得して照合。SDK／MetaMask担当の最終レビューとMarkdown確認を実施。製品コード変更・実機試験・Wallet操作・送金・配備は行っていない。実端末のMetaMask版は未確認。
+- 未完了・次の一手：別チームが同一attemptのoperation応答、実provider method開始／終了、nested error code、connector typeを観測し、初発の停止境界を確定する。修正候補と判定表は文書§9。今回この調査のために必要な本人操作はなし。通常HTTPプロキシ接続不可のため出典取得・文書保存はGitHub connectorを使用。
