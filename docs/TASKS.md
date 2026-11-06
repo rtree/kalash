@@ -5,7 +5,7 @@
 - 現在のゴール：M3-cash onsite cash reception。M5a onsite CryptoとM3-device disabled initializationはverified。先輩決定（2026-11-06）：現金はオフチェーンINR台帳、3% USDC feeは寺院が後払い、Stampは既存onsite kind=1。Stage Bの同意・有限受付・イベント照合・Stamp・ATM写真を実装し、自動試験後にだけ現金UIを有効化する。
 - 成功条件：Controller/ITLの機器識別、route、在高/counter、disabled/empty escrowを実応答で確認。現金受付はCentral consent・有限時間・単一poller・STOREDと在高照合を人の立会い下で別途検証する。今回の初期化を現金収納成功と扱わない。
 - 今回の担当：Integratorが統合・既存Cryptoとの型境界・Web・共有SDD/TASKS・Git、Central担当が`src/cash.ts`・`src/server/atm.ts`・現金store/routesとその試験、Controller担当が製品受付ループ・永続状態/Outbox・ホスト接続とC#試験を担当。PoCと診断回収の既存差分は保持する。実環境の操作担当はIntegratorのみ。
-- 現在の障害：実本人署名→実IDLE Ready→Central受付開始→零枚終了・前後照合までは成功。開始直後のhealth判定がofflineとして閉じたため、実遅延を含む監視の鮮度・実行順序を調査中。まだ札は一枚も投入しておらず、実ESCROW/STORED→入金確定→Stampは未実証。Controller/RESTは自然安全終了済み、cashEnabled=false、active受付なし。新たな投入案内は修正・実受付安定確認後。
+- 現在の障害：実本人署名→実IDLE Ready→Central受付開始→零枚終了・前後照合までは成功。開始直後のhealth誤判定と、投入開始時のIDLE→ACCEPTING読取競合を局所再現・修正し、複数イベント順序も検証した。修正版は実機未確認。紙幣は未投入、実ESCROW/STORED→入金確定→Stampは未実証。read-only再確認ではcashEnabled=false、active受付・照合ロックなし、REST port待受なし。投入案内は修正版の実受付安定確認後。
 - 今回の実機許可（2026-11-06 18:26Z以降）：本人が立ち会い、Controller起動・atm-01/temple-01の署名済み₹100一枚受付・Done・Base Sepolia Stamp発行を明示許可。本人が署名し、実Ready案内まで投入しない。収納札は機内保管し、後日の正規fee/admin Payoutまで回収しない。追加札・fee送金・Payoutは今回許可に含めない。実機操作はIntegratorのみ。Controller担当は起動/heartbeat接続、Central担当はread-only実DB/receipt証拠確認を準備。ADB端末なし（18:26Z）、phone操作は本人の実QR導線を維持。
 - 操作画面は本人の別PCのペアリング済みATM。期限切れ時の再コードはこのPCのlocal dialogで表示しチャットへ残さない。実機開始readbackはPayout0、Cashbox₹10×2/₹20×2/₹200×1＝₹260・5枚、stored54/stacked2/dispensed53/transferred1（既存在高、今回入金ではない）。
 - 解消済み：初期化イベントparser、Controller Origin、IDLE/ACCEPTINGの段階誤認、既存状態JSON互換、cross-host時刻差。失敗session `2a364965-289e-4bff-abdf-e7af7cab0c3e`は実零枚証拠で明示終了しunknown命令・raw・stream/seqを保存。最新session `fe42ebe0-50f8-42dc-9688-e71b4c6992bd`は正常な零枚close、実read-only verifier全該当check=true/closed_zero_no_donation。旧命令は再送しない。
@@ -19,7 +19,7 @@
 - Central ATM `atm-01` は登録済み。API test後のFirestore確認でenabled=true、cashEnabled=false、active receptionなし。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：所有者立ち会いで署名済み一枚受付→同じnoteKeyの実STORED→Done→実DB確定→Stamp receiptを確認する。実機操作の承認・在高・回収方法が揃うまではgateを変更しない。CashFeeVault・3% USDC後払い・payoutはStage C。
+- 次の作業：診断差分を除いた製品版を独立検証・保存し、所有者の現在の立ち会いを確認。実Readyと開始在高、受付後2回以上のhealth安定を確認してから、既承認の₹100一枚→同じnoteKeyの実STORED→Done→実DB確定→Stamp receiptを確認する。旧命令再送・fee送金・Payoutはしない。CashFeeVault・3% USDC後払い・payoutはStage C。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -46,8 +46,8 @@
 | M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | Manual v14 p.182のSpectral Payout Route=1、NV4000用Postman例Route=3、acceptRoute=7の読戻しを区別。別firmware/datasetへ一般化しない |
 | M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。18件のController tests pass。 |
 | M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | done | Stage 1 verified。Stage 2 OpenConnection一回成功、6 route-result=true、status DISABLED。GET readback deviceModel/type/base=2/3/0、firmware/dataset一致、isOpen/isStarted=true、deviceError/dispenseState=0、noteInEscrow=false。6 INR levels/counters/currency取得。DisconnectDevice成功、connected list 0、所有REST child正常停止。現金操作なし |
-| M3-cash | M3 Stage B | Integrator：Central／ATM／Controller | M3-device | doing | INRオフチェーン、寺院3% USDC後払い、既存onsite kind1、₹400/session・demo ₹1,000/10枚。命令journal `ed6cfd0`、既存host/adapter `0cff0a8`、診断fail-closed `f9054dc`を保持し製品event/Doneを接続（M3-cash-local）。既承認test/demoのAPI read/write・配備権限あり。直近実配備`00019-jdc`/`666c516...`、live ATM API9/9・skip0、ATM cashEnabled=false。今回未確認：新event APIの配備/実DB、実ACCEPTING・STORED・全counter、署名済み一枚→Done→Stamp。診断の成功を製品E2Eに代用せず、人の立ち会い・事前在高・承認済み回収方法で製品経路を確認する |
-| M3-cash-local | M3 Stage B | Central担当／Controller担当／Integrator（上記所有範囲） | M3-cash | verified（局所実装、実機ではない） | 単一機器owner・永続判断/Outbox・Central順序/紙幣台帳・Done・原子的寄付/points/mint待ち・INR UIを接続。`pnpm run test:cash` 47/47・skip0（実C# HTTP serialization fixtureをTSで検証）、typecheck/build成功。未commit診断差分を除外したstaged snapshotでController build warning/error0、全46件（既存27＋製品19）成功。実DB・実機・mint receiptは別証拠が必要 |
+| M3-cash | M3 Stage B | Integrator：Central／ATM／Controller | M3-device | doing | INRオフチェーン、寺院3% USDC後払い、既存onsite kind1、₹400/session・demo ₹1,000/10枚。実配備`00022-jvh`/`d528200...`、ATM cashEnabled=false。正常な零枚受付と実DB照合は確認済み。修正版の実health安定、実ACCEPTING・ESCROW・STORED、署名済み一枚→Done→Stampは未確認。人の現在の立ち会い・実Ready・事前在高を確認し、診断を製品E2Eに代用しない |
+| M3-cash-local | M3 Stage B | Integrator：Controller製品受付・関連試験／共有文書 | M3-cash | doing（修正版の局所試験成功） | 遅延後の同一poller鮮度・実測型の複数イベントとIDLE→ACCEPTINGを修正。Controller製品47件＋既存27件、および`pnpm run test:cash`73件・skip0成功（synthetic）。未観測numeric stateを決め打ちしない。別の未commit診断回収差分を保持し、独立検証・保存後に実機を確認 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
@@ -113,6 +113,7 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 20:47、開始約30分、M3-cash-local／SDD §8.2：前任者のhealth修正を引継ぎ、正常な複数イベントIDLE拒否、直近IDLE後のACCEPTINGによるoffline誤判定、未観測numeric codeへの依存をsyntheticで再現・修正。イベント順序／不意のDISABLED／矛盾はfail-closed、同じpollerがhealth POST前にESCROWを処理。Controller製品47＋既存27成功、`pnpm run test:cash`73件・skip0、typecheck、policy成功。Firestore read-onlyは前回session零枚close・全check=true、cashEnabled=false／activeなし／reconciliationなし。Controller/REST非稼働。作業版の統合検証とcommit/push後に、本人の現在の立ち会いを確認。実機・スマホ署名・札・実mintは未確認。診断回収の既存未commit差分は保持・除外。
 - UTC 2026-11-06 19:42、`d528200`の実署名session `fe42ebe0-50f8-42dc-9688-e71b4c6992bd`でactual IDLE Ready→started成功。ただし最初のhealth周期でoffline終了。本人未投入、notes0、全baseline=final、outbox ACK、自然終了exit0/owned REST停止。Central verifierで所有/同意/命令/stream/baseline/前後照合全check=true、closed_zero_no_donation。cashEnabledfalse、activeなし。Controller担当は実遅延を入れた開始後health鮮度テストと実行順序修正を担当（単なる閾値延長はしない）。次回は開始後2周期以上の実安定確認をしてから投入案内。
 - UTC 2026-11-06 19:32以降、`00021-cxs`/source `8991bcc`へIDLE契約配備（build `e56c4212-12c4-43b4-b915-6f6ca12419b8` SUCCESS）。実APIの隔離IDLE fixture検証でserver-createdAtとControllerローカル時刻の厳密比較による拒否を発見。HTTP Dateでserver/client差を確認し、既存command validatorと同じ5秒許容をこのcross-clock下限に揃えた。機内イベント順序・新raw sequence・署名期限は緩めない。TS73/73・typecheck、C#局所44件成功。5000/5001ms境界試験を追加して再配備準備、実機は停止・cashEnabledfalseのまま。
 - M3零枚実照合完了：proof hash `8cb5a93a9b38e74775d2e5ed23c954a9119e3bc6af24ae7fa07f9aa78de024c7`、session `2a364965-289e-4bff-abdf-e7af7cab0c3e`。新schema未対応の最初の復旧試行はローカルdeserialize時点で停止（ITL要求/状態書込みなし）。互換修正後に一回の物理照合・disconnectとCentral apply成功。未知命令の再送・札操作・証拠削除はなし。次の配備中はController/機器接続とも停止、本人紙幣は機外。

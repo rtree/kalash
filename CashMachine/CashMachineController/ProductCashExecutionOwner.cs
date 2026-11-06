@@ -149,17 +149,10 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         {
             if (!initialized) throw new InvalidOperationException("Product owner is not initialized.");
             if (State.Intake is not { Closed: false }) await PollAsync(token);
-            await ReportHealthIfDueAsync(token);
             var permissionRefreshed = false;
             try
             {
-                if (Now >= nextPermissionPoll)
-                {
-                    nextPermissionPoll = Now + 1_000;
-                    permission = await central.GetCashSessionAsync(token);
-                    permissionObservedAt = Now;
-                    permissionRefreshed = true;
-                }
+                permissionRefreshed = await RefreshPermissionIfDueAsync(token);
                 ApplyPermission();
                 await SaveAsync();
                 await FlushOutboxAsync(token);
@@ -171,9 +164,25 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 await SaveAsync();
                 Log("central_unavailable_or_invalid_receipt", exception);
             }
+            await ReportHealthIfDueAsync(token);
 
             if (State.Intake is { Closed: false } active)
             {
+                try
+                {
+                    if (await RefreshPermissionIfDueAsync(token))
+                    {
+                        ApplyPermission();
+                        await SaveAsync();
+                    }
+                }
+                catch (Exception exception) when (IsOperational(exception))
+                {
+                    permission = null;
+                    State.Close("offline", Now);
+                    await SaveAsync();
+                    Log("central_unavailable_or_invalid_receipt", exception);
+                }
                 if (active.Deadline <= Now) State.Close("deadline", Now);
                 await StopIfClosingAsync(token);
                 await PollAsync(token);
@@ -231,6 +240,15 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             Log("product_owner_operation_failed", exception);
         }
         finally { gate.Release(); }
+    }
+
+    private async Task<bool> RefreshPermissionIfDueAsync(CancellationToken token)
+    {
+        if (Now < nextPermissionPoll) return false;
+        nextPermissionPoll = Now + 1_000;
+        permission = await central.GetCashSessionAsync(token);
+        permissionObservedAt = Now;
+        return true;
     }
 
     private void ApplyPermission()
@@ -374,24 +392,27 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         State.PollInFlight = true;
         await SaveAsync();
         var raw = await device.PollAsync(token);
-        lastOwnedPollAt = Now;
+        lastOwnedPollAt = raw.Status.ObservedAt;
         latest = raw.Status;
+        var acceptanceObserved = State.Intake is { Started: true };
         if (State.Intake is { Started: false, EnableDispatchStarted: true, EnableAcknowledgedAt: not null, CloseReason: null }
             && raw.Status.DeviceState == "ACCEPTING") State.Ready(raw.Status.ObservedAt);
-        if (State.Intake is { Started: false, EnableAcknowledgedAt: not null, CloseReason: null } starting
-            && raw.Sequence > starting.DisabledRawSequence && raw.Status.DeviceState == "IDLE"
-            && raw.Status.Events.Count == 1
-            && ProductCashReadback.Text(raw.Status.Events[0], "type") == "DeviceStatusResponse"
-            && ProductCashReadback.Text(raw.Status.Events[0], "stateAsString") == "IDLE")
-            idleAfterEnable = raw;
-        if (State.Intake is { Started: true, DisableDispatchStarted: false, CloseReason: null }
+        if (State.Intake is { Started: true, DisableDispatchStarted: false }
             && raw.Status.DeviceState == "DISABLED") State.Reconcile("unexpected_acceptor_disabled", Now);
+        (string Type, string State)? lastStateEvent = null;
         if (raw.Sequence != 0)
         {
             if (raw.Sequence != State.RawSequence + 1) State.Reconcile("raw_sequence_gap", Now);
-            foreach (var item in raw.Status.Events) Observe(item, raw.Status.ObservedAt);
+            foreach (var item in raw.Status.Events)
+                Observe(item, raw.Status.ObservedAt, ref acceptanceObserved, ref lastStateEvent);
             State.RawSequence = raw.Sequence;
         }
+        if (lastStateEvent is { } last && last.State != raw.Status.DeviceState)
+            State.Reconcile("device_state_summary_mismatch", raw.Status.ObservedAt);
+        if (!State.Locked && State.Intake is { Started: false, EnableAcknowledgedAt: not null, CloseReason: null } starting
+            && raw.Sequence > starting.DisabledRawSequence && raw.Status.DeviceState == "IDLE"
+            && lastStateEvent is { Type: "DeviceStatusResponse", State: "IDLE" })
+            idleAfterEnable = raw;
         if (State.Intake is { Closed: false } intake)
         {
             if (intake.DisableDispatchStarted)
@@ -403,7 +424,8 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         await SaveAsync();
     }
 
-    private void Observe(JsonElement item, long observedAt)
+    private void Observe(JsonElement item, long observedAt, ref bool acceptanceObserved,
+        ref (string Type, string State)? lastStateEvent)
     {
         try
         {
@@ -422,11 +444,18 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             if (type is "DeviceStateResponse" or "DeviceStatusResponse")
             {
                 var state = ProductCashReadback.Text(item, "stateAsString").ToUpperInvariant();
+                lastStateEvent = (type, state);
                 if (state is not ("CONNECTING" or "CONNECTED" or "STARTING" or "STARTED" or "DISABLED" or "IDLE" or "ACCEPTING"))
                     State.Reconcile("unexpected_device_state_event", observedAt);
                 else if (State.Intake is { Closed: false, EnableDispatchStarted: true }
                     && state is "CONNECTING" or "CONNECTED" or "STARTING" or "STARTED")
                     State.Reconcile("device_reinitialized_during_intake", observedAt);
+                else if (state == "DISABLED" && acceptanceObserved
+                    && State.Intake is { Closed: false, DisableDispatchStarted: false })
+                    State.Reconcile("unexpected_acceptor_disabled", observedAt);
+                if (state is "IDLE" or "ACCEPTING"
+                    && State.Intake is { Closed: false, EnableAcknowledgedAt: not null })
+                    acceptanceObserved = true;
                 return;
             }
             if (type != "CashEventResponse") { State.Reconcile("unknown_device_event", observedAt); return; }
@@ -522,25 +551,44 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     {
         if (Now < nextHealthReport) return;
         nextHealthReport = Now + 5_000;
-        healthReady = false;
         try
         {
             var health = await device.ReadHealthAsync(token);
             var readback = health.Readback;
+            if (State.Intake is { Closed: false } && await RefreshPermissionIfDueAsync(token))
+            {
+                ApplyPermission();
+                await SaveAsync();
+            }
             var idle = State.Intake is not { Closed: false };
             var routes = readback.Healthy && readback.EnabledValues.Length > 0
+                && (idle ? readback.DeviceStateCode == 4
+                    : latest?.DeviceState is "IDLE" or "ACCEPTING" && readback.DeviceStateCode != 4)
                 && (!State.SingleHundred || readback.EnabledValues.SequenceEqual([10_000L]))
                 && (!State.SingleHundred || !idle || readback.Inventory.Paise + 10_000 <= 100_000)
                 && !State.RouteVerificationRequired && State.ManualEscrowConfigured
                 && !State.Locked && State.Intake is not { CloseReason: not null, Closed: false }
                 && (idle
                     ? readback.Inventory.Paise < 100_000 && readback.Inventory.Notes < 10
-                    : readback.Inventory.Paise <= 100_000 && readback.Inventory.Notes <= 10)
+                    : readback.Inventory.Paise <= 100_000 && readback.Inventory.Notes <= 10);
+            if (!health.UsbConnected || !health.ConnectionOpen || !health.DeviceStarted || !routes)
+                healthReady = false;
+            var stateChangedSincePoll = !idle
+                && (latest?.DeviceState == "IDLE" && readback.DeviceStateCode != 5
+                    || latest?.DeviceState == "ACCEPTING" && readback.DeviceStateCode == 5);
+            if (lastOwnedPollAt is null || Now - lastOwnedPollAt.Value is < 0 or > 2_000 || stateChangedSincePoll)
+            {
+                // Refresh a stale or superseded observation through the existing consuming owner.
+                // Keep verified health while this same owner consumes events; only real failures revoke it.
+                await StopIfClosingAsync(token);
+                await PollAsync(token);
+                await DispatchPendingAsync(token);
+                await StopIfClosingAsync(token);
+            }
+            routes = routes && !State.Locked && State.Intake is not { CloseReason: not null, Closed: false }
                 && (idle
                     ? readback.EscrowEmpty && latest?.DeviceState == "DISABLED" && readback.DeviceStateCode == 4
-                    : latest?.DeviceState != "IDLE" || State.Intake is { Started: true, EnableDispatchStarted: true,
-                        EnableAcknowledgedAt: not null, DisabledObservedAt: not null }
-                        && readback.DeviceStateCode == 5);
+                    : latest?.DeviceState is "IDLE" or "ACCEPTING" && readback.DeviceStateCode != 4);
             var freshPoll = lastOwnedPollAt is { } observed && Now - observed is >= 0 and <= 2_000;
             var report = new ControllerHealthReport(await NextHealthSequenceAsync(), Now,
                 health.UsbConnected, health.ConnectionOpen, health.DeviceStarted, routes,
@@ -548,6 +596,15 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             await healthCentral.ReportHealthAsync(report, token);
             healthReady = report.UsbConnected && report.ConnectionOpen && report.DeviceStarted
                 && report.RoutesVerified && report.PollerOwned;
+            if (!healthReady)
+            {
+                var age = lastOwnedPollAt is { } poll ? (report.ReportedAt - poll).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) : "missing";
+                Console.Error.WriteLine($"Product cash fail-closed: health_not_ready; usbConnected={report.UsbConnected}; "
+                    + $"connectionOpen={report.ConnectionOpen}; deviceStarted={report.DeviceStarted}; "
+                    + $"routesVerified={report.RoutesVerified}; pollerOwned={report.PollerOwned}; lastPollAgeMs={age}; "
+                    + "response bodies withheld.");
+            }
             if (!healthReady && State.Intake is { Closed: false, CloseReason: null })
             {
                 State.Close("offline", Now);

@@ -16,8 +16,9 @@ HTTPS lab on the phone, never the development PC's localhost.
 M1 first vertical slice: `/temples/temple-01` -> 0.01 test USDC ->
 Central receipt verification -> real stamp -> Collection reload.
 This document defines intended contracts; TASKS records verification, not this file.
-The active milestone is M5a with Cash disabled. M3 Controller preparation may
-proceed in parallel; M3 device and cash operations remain gated by TASKS and the
+The active milestone is M3 onsite cash; M5a onsite Crypto is verified and Cash
+remains disabled outside the attended test in TASKS. Device operations remain
+gated by TASKS and the
 accepted [MetaMask/ATM journey](issue-penetrator/kalash-metamask-browser-journey.md).
 M1 and photo publication are retained. The user deferred withdrawal follow-up;
 it does not gate ATM work, and existing owner withdrawal stays available.
@@ -27,7 +28,7 @@ it does not gate ATM work, and existing owner withdrawal stays available.
 | Web/API development | Current Windows ARM64, Node 26.13.0 | `http://localhost:3000`, read/API capable; local mint loop disabled |
 | Contract compile / isolated chain tests | Windows solc compile; Cloud Build Linux for chain tests | Ganache native leveldown incompatible with Windows ARM64; browser fallback also failed; no further Windows framework retries |
 | Cloud build / production | GCP Cloud Build / Cloud Run | `kalash-donation`, `asia-south1`; `https://kalash-central-548318651344.asia-south1.run.app` |
-| Controller / ITL | Current Windows ARM64, .NET 10 | ITL loopback `http://localhost:5000`; no device operations authorized yet |
+| Controller / ITL | Current Windows ARM64, .NET 10 | ITL loopback `http://localhost:5000`; device operations require the attendance and scope recorded in TASKS |
 | Android | Current Windows host, USB-connected authorized Samsung | ADB37.0.1 at `%LOCALAPPDATA%\KALASH\tools\platform-tools-37.0.1\platform-tools\adb.exe`; use exact serial. Use canonical public URL; reverse3000 is only for local diagnosis |
 
 ### ADB on Windows
@@ -408,6 +409,10 @@ at that capacity. It naturally exits only after clean closure, exact Outbox ACKs
 and reverified DISABLED/empty escrow with unchanged final inventory/counters.
 Regular `run` stays resident. A readback-derived authenticated heartbeat runs
 every five seconds without a second event reader; shutdown reports unavailable.
+Before a due health report, the same owner refreshes a status older than two
+seconds, or a fresh IDLE/ACCEPTING status superseded by a device readback.
+Actual invalid readbacks revoke readiness. A locally decided ESCROW is persisted
+and dispatched before the health POST; failures still close reception.
 The Central client sends the configured HTTPS authority as `Origin` on all
 requests. A durable, truthful unavailable-health POST must succeed before the
 REST child starts. HTTP failures report status only, not response bodies.
@@ -424,6 +429,15 @@ disabled observation -> Enable dispatch/ack -> later owned-reader IDLE,
 numeric device state 5, manual escrow, verified routes/health/empty escrow, and
 identical baseline/current six-level inventory and four counters. Bare IDLE,
 stale/mismatched proof or a later changed intake baseline is rejected.
+The owned reader applies each poll buffer in order and requires the last
+device-status event and summary to agree on IDLE, not a single-event buffer.
+Unexpected DISABLED during reception, unknown events and contradictory status
+summaries lock reconciliation, even when a later event reports IDLE. Raw batches
+remain durable evidence; an expected DISABLED after the owned Disable is allowed.
+Outside the separately verified IDLE readiness proof (numeric code 5), only
+numeric code 4 is established as DISABLED. Active health uses a fresh owned
+reader's named IDLE/ACCEPTING state and rejects known code 4, without guessing
+other numeric mappings.
 Controller observation times retain strict local ordering. Their comparison to
 Central's command creation permits only the existing five-second command clock
 tolerance; a server/client clock difference must not reverse local causal order.

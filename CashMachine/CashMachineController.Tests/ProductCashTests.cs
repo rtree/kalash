@@ -92,12 +92,18 @@ internal static class ProductCashTests
         await Run("Central unavailable-health POST must pass before startup may continue", CentralPreStartupPost);
         await Run("HTTP failure logs expose status but never response bodies or credentials", SanitizedHttpStatus);
         await Run("actual IDLE after durable Enable produces immutable bound observation", IdleReadiness);
+        await Run("ordered multi-event IDLE readiness preserves binding and rejects contradictions", BatchedIdleReadiness);
         await Run("preexisting IDLE or missing transition never becomes Ready", UnboundIdle);
         await Run("IDLE readiness rejects changed routes, escrow, counters or numeric state", UnsafeIdleReadiness);
         await Run("legacy actual ACCEPTING observations remain supported", ActualAccepting);
+        await Run("uncommanded DISABLED inside a later IDLE batch requires reconciliation", UnexpectedDisabledInBatch);
         await Run("explicit failed-start zero-note recovery archives exact bytes without command replay", FailedZeroStartRecovery);
         await Run("zero-note recovery refuses other locks, gaps, notes and altered raw transitions", RejectOtherFailedStarts);
         await Run("zero-note recovery keeps unknown readbacks and disconnects fail-closed", UnsafeFailedStartRecovery);
+        await Run("start-report latency and repeated heartbeat readbacks retain ready waiting intake", DelayedActiveHeartbeats);
+        await Run("heartbeat accepts real-order IDLE to ESCROW and STORED transitions", ActiveNoteDuringHeartbeat);
+        await Run("active heartbeat uses fresh named status without guessing numeric mappings", UnmappedActiveReadback);
+        await Run("actual health loss closes intake with explicit sanitized components", ActualHealthLoss);
         Console.WriteLine($"{passed} product cash tests passed (synthetic fixtures; no hardware evidence).");
     }
 
@@ -879,6 +885,43 @@ internal static class ProductCashTests
             && fixture.Owner.State.Intake!.CloseReason is null, "Bound active IDLE did not retain truthful ready heartbeat.");
     }
 
+    private static async Task BatchedIdleReadiness()
+    {
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            fixture.Itl.BeforeEnable = () =>
+            {
+                fixture.Itl.EnqueueState("DISABLED");
+                return Task.CompletedTask;
+            };
+            fixture.Itl.AfterEnable = () => fixture.Itl.EnqueueRouteResult(true);
+            await fixture.Start();
+            var intake = fixture.Owner.State.Intake!;
+            var evidence = intake.ReadinessEvidence!;
+            evidence.Validate(intake.Command, fixture.Itl.DeviceId, evidence.IdleObservedAt);
+            Check(evidence.RawSequence > evidence.DisabledRawSequence && !fixture.Owner.State.Locked
+                && fixture.Itl.EnableCount == 1 && fixture.Itl.AcceptCount == 0,
+                "Ordered DISABLED, IDLE and route-result events did not yield bound IDLE readiness.");
+        }
+
+        Action<SyntheticItl>[] contradictions =
+        [
+            itl => itl.EnqueueState("DISABLED"),
+            itl => itl.EnqueueRouteResult(false),
+            itl => itl.EnqueueState("ERROR")
+        ];
+        foreach (var contradiction in contradictions)
+        {
+            await using var fixture = await OwnerFixture.Create();
+            fixture.Itl.AfterEnable = () => contradiction(fixture.Itl);
+            await fixture.Tick();
+            Check(fixture.Owner.State.Intake is { Started: false } && fixture.Owner.State.Locked
+                && fixture.Itl.DisableCount == 1 && fixture.Itl.AcceptCount == 0
+                && !fixture.Central.CommandReportBodies.Any(value => value.GetProperty("state").GetString() == "observed"),
+                "Contradictory or unsafe batched events were reported as IDLE readiness.");
+        }
+    }
+
     private static async Task UnboundIdle()
     {
         await using (var fixture = await OwnerFixture.Create())
@@ -937,6 +980,22 @@ internal static class ProductCashTests
         fixture.Itl.EnqueueState("IDLE");
         for (var index = 0; index < 6; index++) await fixture.Tick();
         Check(fixture.Owner.State.Intake!.CloseReason is null, "Observed ACCEPTING followed by IDLE lost its command binding.");
+    }
+
+    private static async Task UnexpectedDisabledInBatch()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        await fixture.Start();
+        fixture.Itl.EnqueueState("DISABLED");
+        fixture.Itl.EnqueueState("IDLE");
+        await fixture.Tick();
+        Check(fixture.Owner.State.Locked && fixture.Owner.State.LockReasons.Contains("unexpected_acceptor_disabled")
+            && fixture.Itl.DisableCount == 1 && fixture.Itl.AcceptCount == 0,
+            "An uncommanded DISABLED was hidden by a later IDLE summary.");
+        var raw = await File.ReadAllTextAsync(fixture.Files.File("raw.jsonl"));
+        Check(raw.Contains("\"stateAsString\":\"DISABLED\"", StringComparison.Ordinal)
+            && raw.Contains("\"stateAsString\":\"IDLE\"", StringComparison.Ordinal),
+            "The event sequence was not retained for reconciliation.");
     }
 
     private static async Task FailedZeroStartRecovery()
@@ -1041,6 +1100,191 @@ internal static class ProductCashTests
                 && state.LockReasons.Contains("failed_start_reconciliation_incomplete")
                 && fixture.Itl.EnableCount == 1 && fixture.Itl.AcceptCount == 0,
                 "Unknown recovery was cleared or a physical command replayed.");
+        }
+    }
+
+    private static async Task DelayedActiveHeartbeats()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        fixture.Itl.ReadbackCompleted = () => fixture.AdvanceBy(600);
+        fixture.Central.ResponseLatency = operation => fixture.AdvanceBy(operation switch
+        {
+            "observed" or "reported" => 2_500,
+            "intake_started" => 3_000,
+            "health" => 600,
+            "cash-session" => 300,
+            _ => 0
+        });
+        await fixture.Start();
+        var healthBefore = fixture.Central.HealthBodies.Count;
+        for (var cycle = 0; cycle < 3; cycle++)
+        {
+            if (cycle > 0) fixture.AdvanceHealthInterval();
+            await fixture.Tick();
+            Check(fixture.Owner.State.Intake is { Started: true, Closed: false, CloseReason: null }
+                && !fixture.Owner.State.Locked && fixture.Owner.State.Intake.Notes.Count == 0
+                && fixture.Itl.EnableCount == 1 && fixture.Itl.DisableCount == 0,
+                "Healthy waiting intake closed after delayed start reports or heartbeat scheduling.");
+            Check(fixture.Central.HealthBodies[^1].GetProperty("pollerOwned").GetBoolean(),
+                "Heartbeat used stale prior-tick status rather than refreshing the owned reader.");
+        }
+        Check(fixture.Central.HealthBodies.Count >= healthBefore + 3, "Two subsequent heartbeat cycles were not exercised.");
+
+        var inserted = false;
+        fixture.Itl.ReadbackCompleted = () =>
+        {
+            fixture.AdvanceBy(2_200);
+            if (inserted) return;
+            inserted = true;
+            fixture.Itl.Enqueue("ESCROW");
+        };
+        fixture.Itl.BeforeAccept = async () =>
+        {
+            var durable = await fixture.Journal.LoadAsync(None);
+            Check(durable.Intake!.Pending is { Decision: "accept", DispatchStarted: true }
+                && durable.Outbox.Any(value => value.Type == "note_escrow"),
+                "Heartbeat-consumed ESCROW was not persisted before Accept.");
+        };
+        fixture.Central.ResponseLatency = operation =>
+        {
+            if (operation == "health")
+            {
+                Check(fixture.Itl.AcceptCount == 1, "An owned heartbeat ESCROW waited on a cloud heartbeat before dispatch.");
+                fixture.AdvanceBy(2_500);
+            }
+            else if (operation == "cash-session") fixture.AdvanceBy(300);
+        };
+        fixture.AdvanceHealthInterval();
+        await fixture.Tick();
+        Check(fixture.Itl.AcceptCount == 1 && fixture.Itl.ReturnCount == 0
+            && fixture.Owner.State.Intake!.CloseReason is null && !fixture.Owner.State.Locked
+            && fixture.Itl.MaximumConcurrentStatus == 1,
+            "Heartbeat refresh made real ESCROW falsely offline or introduced another consuming owner.");
+    }
+
+    private static async Task ActiveNoteDuringHeartbeat()
+    {
+        await using var fixture = await OwnerFixture.Create(singleHundred: true);
+        await fixture.Start();
+        var reportedAt = fixture.Central.HealthBodies[^1].GetProperty("reportedAt").GetInt64();
+        var untilRecentPoll = reportedAt + 4_000 - fixture.ClockNow;
+        Check(untilRecentPoll >= 0, "Fixture start took too long to position the pre-heartbeat poll.");
+        fixture.AdvanceBy(untilRecentPoll);
+        await fixture.Owner.TickAsync(None);
+        var healthBefore = fixture.Central.HealthBodies.Count;
+        fixture.Itl.State = "ACCEPTING";
+        fixture.Itl.EnqueueState("ACCEPTING");
+        fixture.Itl.Enqueue("ESCROW");
+        var healthPostedAfterAccept = false;
+        fixture.Central.ResponseLatency = operation =>
+        {
+            if (operation != "health") return;
+            Check(fixture.Itl.AcceptCount == 1, "The heartbeat POST preceded the local ESCROW decision.");
+            healthPostedAfterAccept = true;
+        };
+        fixture.AdvanceBy(1_100);
+        await fixture.Owner.TickAsync(None);
+        Check(fixture.Central.HealthBodies.Count > healthBefore
+            && fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean()
+            && healthPostedAfterAccept
+            && fixture.Itl.AcceptCount == 1 && fixture.Itl.ReturnCount == 0
+            && fixture.Itl.DisableCount == 0 && !fixture.Owner.State.Locked
+            && fixture.Owner.State.Intake!.CloseReason is null,
+            $"A fresh prior IDLE poll disrupted ACCEPTING/ESCROW: reports={healthBefore}->{fixture.Central.HealthBodies.Count}, "
+            + $"routes={fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean()}, "
+            + $"accept={fixture.Itl.AcceptCount}, return={fixture.Itl.ReturnCount}, disable={fixture.Itl.DisableCount}, "
+            + $"locked={fixture.Owner.State.Locked}, close={fixture.Owner.State.Intake?.CloseReason}.");
+        var note = fixture.Owner.State.Intake!.Notes.Single();
+        Check(note.Decision == "accept" && note.DispatchStarted && !note.Stored,
+            "ESCROW was not durably dispatched without prematurely crediting the note.");
+
+        fixture.AdvanceBy(3_500);
+        fixture.Itl.Stored = 1;
+        fixture.Itl.State = "IDLE";
+        fixture.Itl.Enqueue("STORED");
+        fixture.Itl.EnqueueState("IDLE");
+        await fixture.Tick();
+        for (var index = 0; index < 5 && !fixture.Owner.State.Intake!.Closed; index++) await fixture.Tick();
+        Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked
+            && note.Stored && note.Credited && fixture.Itl.AcceptCount == 1
+            && fixture.Itl.DisableCount == 1 && fixture.Itl.MaximumConcurrentStatus == 1,
+            "The same note was not reconciled after STORED and IDLE in one poll.");
+        var envelopes = fixture.Central.Events.Select(text =>
+            JsonSerializer.Deserialize<CashEventEnvelope>(text, ProductCashJson.Options)!).ToArray();
+        Check(envelopes.Single(value => value.Type == "note_escrow").Data.GetProperty("noteKey").GetString() == note.Key
+            && envelopes.Single(value => value.Type == "note_stored").Data.GetProperty("noteKey").GetString() == note.Key,
+            "ESCROW and STORED did not preserve the same durable note identity.");
+    }
+
+    private static async Task UnmappedActiveReadback()
+    {
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            await fixture.Start();
+            fixture.Itl.ReadbackState = 42;
+            fixture.Itl.State = "ACCEPTING";
+            fixture.Itl.EnqueueState("ACCEPTING");
+            fixture.Itl.Enqueue("ESCROW");
+            fixture.AdvanceHealthInterval();
+            await fixture.Tick();
+            Check(fixture.Itl.AcceptCount == 1 && fixture.Itl.ReturnCount == 0
+                && !fixture.Owner.State.Locked && fixture.Owner.State.Intake!.CloseReason is null
+                && fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean()
+                && fixture.Itl.MaximumConcurrentStatus == 1,
+                "A fresh authoritative ACCEPTING event was rejected by an unverified numeric mapping.");
+        }
+
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            await fixture.Start();
+            fixture.Itl.ReadbackState = 42;
+            fixture.Itl.State = "ERROR";
+            fixture.Itl.EnqueueState("ERROR");
+            fixture.Itl.Enqueue("ESCROW");
+            fixture.AdvanceHealthInterval();
+            await fixture.Tick();
+            Check(fixture.Owner.State.Locked && fixture.Itl.AcceptCount == 0
+                && fixture.Owner.State.LockReasons.Contains("unexpected_device_state_event"),
+                "An unmapped numeric readback overrode an unsafe named device event.");
+        }
+    }
+
+    private static async Task ActualHealthLoss()
+    {
+        foreach (var failure in new[] { "usb", "state", "central" })
+        {
+            await using var fixture = await OwnerFixture.Create();
+            await fixture.Start();
+            fixture.AdvanceHealthInterval();
+            fixture.Itl.UsbDisconnected = failure == "usb";
+            if (failure == "state") fixture.Itl.ReadbackState = 4;
+            if (failure == "central") fixture.Central.HealthFailureStatus = HttpStatusCode.ServiceUnavailable;
+            else fixture.Itl.Enqueue("ESCROW");
+            var previous = Console.Error;
+            using var log = new StringWriter();
+            try { Console.SetError(log); await fixture.Tick(); }
+            finally { Console.SetError(previous); }
+            Check(fixture.Owner.State.Intake!.CloseReason == "offline" && fixture.Itl.DisableCount == 1
+                && fixture.Itl.AcceptCount == 0, "Genuine health loss no longer stopped acceptance.");
+            var output = log.ToString();
+            if (failure == "usb")
+                Check(output.Contains("health_not_ready", StringComparison.Ordinal)
+                    && output.Contains("usbConnected=False", StringComparison.Ordinal)
+                    && output.Contains("connectionOpen=True", StringComparison.Ordinal)
+                    && output.Contains("deviceStarted=True", StringComparison.Ordinal)
+                    && output.Contains("routesVerified=", StringComparison.Ordinal)
+                    && output.Contains("pollerOwned=True", StringComparison.Ordinal)
+                    && output.Contains("lastPollAgeMs=", StringComparison.Ordinal),
+                    "False health close omitted explicit readiness components and last poll age.");
+            else if (failure == "state")
+                Check(output.Contains("health_not_ready", StringComparison.Ordinal)
+                    && output.Contains("routesVerified=False", StringComparison.Ordinal),
+                    "Contradictory current device state was not logged unavailable before handling ESCROW.");
+            else
+                Check(output.Contains("HTTP 503", StringComparison.Ordinal), "Genuine health transport failure omitted status.");
+            Check(!output.Contains(SyntheticCentral.SensitiveErrorBody, StringComparison.Ordinal)
+                && !output.Contains(new string('a', 64), StringComparison.Ordinal),
+                "Health diagnostics exposed sensitive transport content.");
         }
     }
 
@@ -1163,6 +1407,9 @@ internal static class ProductCashTests
             for (var index = 0; index < 5; index++) clock.Advance();
         }
 
+        public void AdvanceBy(long milliseconds) => clock.Advance(milliseconds);
+        public long ClockNow => clock.GetUtcNow().ToUnixTimeMilliseconds();
+
         public async ValueTask DisposeAsync()
         {
             await poller.DisposeAsync();
@@ -1172,7 +1419,7 @@ internal static class ProductCashTests
         private sealed class FixtureClock : TimeProvider
         {
             private long offset;
-            public void Advance() => offset += 1_100;
+            public void Advance(long milliseconds = 1_100) => offset += milliseconds;
             public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.AddMilliseconds(offset);
         }
     }
@@ -1184,6 +1431,7 @@ internal static class ProductCashTests
         public HttpStatusCode? HealthFailureStatus;
         public bool Done, Offline, BadAck, LoseReceiptOnce, WrongBinding, NoSession, RejectHealth, BadCloseAck;
         public Action? AcceptingSessionRead, ClosePosted;
+        public Action<string>? ResponseLatency;
         public List<string> Events { get; } = [];
         public List<string> Attempts { get; } = [];
         public List<string> Types { get; } = [];
@@ -1218,6 +1466,7 @@ internal static class ProductCashTests
                 HealthBodies.Add(body);
                 if (HealthFailureStatus is { } failure)
                     return new HttpResponseMessage(failure) { Content = new StringContent(SensitiveErrorBody) };
+                ResponseLatency?.Invoke("health");
                 return Json(new ControllerHealthReceipt(!RejectHealth, false, false, true));
             }
             if (path == "/api/controller/atm-test/cash-session")
@@ -1231,6 +1480,7 @@ internal static class ProductCashTests
                 Fields(body, ["session"]);
                 Fields(body.GetProperty("session"), ["visitId", "cashSessionId", "state", "deadline", "closeRequested", "closeReason"]);
                 CashSessionBodies.Add(body);
+                ResponseLatency?.Invoke("cash-session");
                 return Json(body);
             }
             if (path == "/api/controller/atm-test/commands")
@@ -1260,6 +1510,7 @@ internal static class ProductCashTests
                     }
                     observed = true;
                 }
+                ResponseLatency?.Invoke(body.RootElement.GetProperty("state").GetString()!);
                 return Json(new { accepted = true });
             }
             Check(path == "/api/controller/atm-test/cash-events" && request.Method == HttpMethod.Post, "Unexpected synthetic Central endpoint.");
@@ -1276,6 +1527,7 @@ internal static class ProductCashTests
             if (LoseReceiptOnce) { LoseReceiptOnce = false; throw new HttpRequestException("synthetic lost committed receipt"); }
             var wrongAck = BadAck || BadCloseAck && value.Type == "intake_closed";
             if (value.Type == "intake_closed") ClosePosted?.Invoke();
+            ResponseLatency?.Invoke(value.Type);
             return Json(new CashEventAck(true, value.StreamId, value.Sequence + (wrongAck ? 1 : 0)));
         }
     }
@@ -1291,6 +1543,7 @@ internal static class ProductCashTests
         public HashSet<long> EnabledValues { get; } = CashInventory.Denominations.ToHashSet();
         public Func<Task>? BeforeAccept, BeforeEnable;
         public Action? AfterEnable;
+        public Action? ReadbackCompleted;
         public string State = "DISABLED";
         private bool escrow;
         private int statusRequests;
@@ -1304,6 +1557,7 @@ internal static class ProductCashTests
         }
 
         public void EnqueueState(string name) => events.Enqueue(new { type = "DeviceStatusResponse", stateAsString = name });
+        public void EnqueueRouteResult(bool result) => events.Enqueue(new { type = "SetDenominationRouteFinishedEventResponse", result });
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
@@ -1350,9 +1604,11 @@ internal static class ProductCashTests
                     value, countryCode = "INR", storedInPayout = value == 10_000 ? Stored : 0, storedInCashbox = 0,
                     isInhibited = !EnabledValues.Contains(value), isRecyclable = true, acceptRoute = BadRoute ? 0 : 7
                 }).ToArray());
-                case "GetCounters": return MissingCounter
-                    ? Json(new { stored = Stored, stacked = 0, dispensed = 0 })
-                    : Json(new { stored = Stored, stacked = 0, dispensed = 0, transferredToStack = 0 });
+                case "GetCounters":
+                    ReadbackCompleted?.Invoke();
+                    return MissingCounter
+                        ? Json(new { stored = Stored, stacked = 0, dispensed = 0 })
+                        : Json(new { stored = Stored, stacked = 0, dispensed = 0, transferredToStack = 0 });
                 case "EnableAcceptor":
                     if (BeforeEnable is not null) await BeforeEnable();
                     EnableCount++;

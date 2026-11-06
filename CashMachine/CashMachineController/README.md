@@ -123,6 +123,27 @@ fresh observation from the existing event reader, no reconciliation lock, and
 matching one-note inhibits when selected. The health path never starts another
 consuming poller, and idle status observation continues on the same owner.
 Readback/report failure blocks acceptance; shutdown posts unavailable.
+After synchronous command reports, outbox POSTs or slow readbacks, a due
+heartbeat refreshes stale status through that **same** execution owner before
+reporting poller readiness. It also refreshes when a new readback shows an
+IDLE/ACCEPTING transition after an otherwise fresh prior poll. The two-second
+freshness limit uses the actual status observation time and is not extended.
+Current session permission is refreshed before consuming events when needed.
+Previously verified health is not artificially cleared during that poll;
+actual invalid readbacks revoke it. An ESCROW consumed there is durably
+decided/dispatched before waiting on the health POST. A false health report logs
+only its readiness booleans and `lastPollAgeMs`; real readback/transport
+failures still stop acceptance.
+
+The owned reader applies every event in a batch in order. A bound readiness
+observation requires the last device-status event and the summary to agree on
+IDLE, but permits other known events in the same batch. Unknown events, a
+contradictory status summary, or an uncommanded DISABLED during reception
+require reconciliation even if a later event says IDLE. The raw batch remains
+in the journal. Only `GetCompleteCashDevice` code `4` is used as the known
+DISABLED mapping outside the separately verified IDLE readiness check (code
+`5`). Active `IDLE`/`ACCEPTING` health follows the fresh owned-reader string
+state; unobserved numeric values are not guessed.
 Central's independent registered `cashEnabled` flag must also be authorized by
 the integrator; heartbeat does not switch it on. Await an actual fresh ready
 screen/health record before signed claim and a Central-confirmed, causally bound
