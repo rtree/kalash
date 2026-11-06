@@ -39,7 +39,9 @@
 | M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | doing | explicit visit claim→kind=1 intent→通常receipt検証・Stamp→ATM reset、同じIDで冪等。コード／型チェック済み、実Central API未検証 |
 | M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | human-wait | PCの`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`をpairし、スマホMetaMaskから本人の0.01 USDC onsite test→Central/receipt/mint/Collection→ATM idleを確認 |
 | M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | human-wait | コード／live API完了。実機MetaMaskのapproval／donation・receipt・mint・Collection・ATM復帰は本人確認待ち。Cash disabledのまま。次のM3を完了したとは扱わない |
-| M3-device | M3（次） | Integrator：CashMachineController/ITL | M5a | todo | USB接続後、認証・poller所有・接続／経路／在高・実Readyを確認 |
+| M3-itl-contract | M3準備（M5aと並行） | Integrator：メーカーREST API契約照合 | なし | todo | 非再配布のメーカー資料で版・認証・起動・loopback契約を照合し、検証済み要点のみSDDへ記録。配布物はGitへ入れず、実機操作なし |
+| M3-controller-host | M3準備（M5aと並行） | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | todo | 専用.NET 10ホストからローカルRESTAPIServerを子起動・準備確認・終了し、自分が起動した子だけ管理。loopback限定・fake child試験。現金命令／サービス登録なし |
+| M3-device | M3（次） | Integrator：CashMachineController/ITL | M5a、M3-controller-host | todo | USB接続後、認証・poller所有・接続／経路／在高・実Readyを確認 |
 | M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
