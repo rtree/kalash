@@ -5,14 +5,14 @@
 - UX-mobile限定PoC（本人依頼、独立HTTPSサイトを選択）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／カメラpreviewを検証する。実機テストは本人。資料・実装は`docs/lab/uxmobile/`へ集約。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
-- PoC checkpoint（2026-11-06）：local build成功、PoC tests 37 pass・skipなし。Cloud Build `19d52ae7-9269-447d-8aac-4763b176e0f9`成功し、独立revision `kalash-uxmobile-00002-j6c`（image `uxmobile:d9bf3ce0ed07`）へ配備。実HTTPSの`/lab-health.json`は`{"ok":true,"service":"kalash-uxmobile","payments":false,"uploads":false}`、QR target `/?mode=phone&case=external-qr`はHTTP200。共有ブラウザーsnapshotは依然root・query未指定で、QR読取／スマホ到達の証拠ではない。本人の実機QR移動・MetaMask到達はhuman-wait。本体と分離、署名・寄付・撮影保存・uploadなし。
+- PoC checkpoint（2026-11-06）：指定調査報告と3人のread-onlyレビューを確認。公式deeplink `https://link.metamask.io/dapp/<host>/<path>?mode=phone&case=external-qr`を採用し、host/path/query全体はencodeしない。local build成功、PoC tests 37 pass・skipなし。Cloud Build `19d52ae7-9269-447d-8aac-4763b176e0f9`成功し、独立revision `kalash-uxmobile-00002-j6c`（image `uxmobile:d9bf3ce0ed07`）へ配備。実HTTPSの`/lab-health.json`は`{"ok":true,"service":"kalash-uxmobile","payments":false,"uploads":false}`、QR target `/?mode=phone&case=external-qr`はHTTP200。共有ブラウザーsnapshotのURLはroot・query未指定で、QR読取／スマホ到達の証拠ではない。本人の実機QR移動・最終origin/path/query到達はhuman-wait。本体と分離、署名・寄付・撮影保存・uploadなし。
 - ゴール：M1 モバイル寄付。MetaMask内蔵Browserのapprove-only停滞を安全に解決し、新しい0.01 test USDC寄付→Central確認→Stamp→Collection再読込を本人のWallet承認で通す。その後M2写真共有へ戻る。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
 - Cloud Run：revision `kalash-central-00016-w6k`、health ready・Base Sepolia・mint有効、source `1790e57`。History recovery、expired-signature guard、Provider approval trace、walletClient preflightを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：Androidの外部QRリーダーでPoC QRを読み、MetaMaskが開いたかだけでなく最終origin/path/query到達を本人が記録する。PoC試験中は再配備しない。完了後に限り本体M1 mobile donationを再開する。
+- 次の作業：Androidの外部QRリーダーでPoC QRを読み、MetaMaskが起動しただけでなく最終origin/path/queryがPoCの`?mode=phone&case=external-qr`になったか確認する。未到達なら最初の失敗段階で停止して画面を共有。PoC実機試験が終わるまで再配備しない。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|
 | UX-mobile-research | 限定PoC | 調査：上記research/manual-testのみ | なし | verified | 指定commitの2資料・公式仕様を照合。link.metamask.ioを採用、一般QRリーダー保証不可。本人用試験表あり |
 | UX-mobile-probe | 限定PoC | 実装：上記5ファイルのみ | なし | verified（実装・PC接続） | Reownなし、明示接続2method限定。本人のPC添付画面でMetaMask/EIP-6963・1 account・84532確認。PoCモバイル接続／cameraはhuman-wait |
-| UX-mobile-integrate | 限定PoC | 統合：配信／配備／検証・共有文書・Git | UX-mobile-research、UX-mobile-probe | human-wait | revision `00002-j6c`、health/QR-target HTTP200、37 pass・skipなし。実機QR→MetaMask→PoC origin/path/queryは本人確認待ち |
+| UX-mobile-integrate | 限定PoC | 統合：配信／配備／検証・共有文書・Git | UX-mobile-research、UX-mobile-probe | human-wait | revision `00002-j6c`、health/QR-target HTTP200、37 pass・skipなし。QR→MetaMask起動→最終PoC origin/path/query到達は本人確認待ち |
 | M1-entry | M1 | Integrator：AGENTS、仕様、依存ポリシー | なし | 完了 | 初期入力・preflight・公開手順を保存。初期lock検証539件、監査0件 |
 | M1-hosts | M1 | Integrator：ホスト・権限診断 | なし | 完了 | Windows開発、Cloud Build Linux、GCP/Auth/ADBの実態を記録 |
 | M1-wallets | M1 | Integrator：テストWallet | M1-entry | 完了 | 役割別Wallet、残高・予算の確認済み。残高が多くても当初予算を増やさない |
