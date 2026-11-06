@@ -41,7 +41,7 @@ test('isolated HTTP service serves only explicit public assets, without APIs', a
     assert.equal(module.headers.get('content-type'), 'text/javascript; charset=utf-8');
   });
   await t.test('health is static and truthful; HEAD has no body', async () => {
-    const response = await fetch(`${origin}/healthz`);
+    const response = await fetch(`${origin}/lab-health.json`);
     assert.deepEqual(await response.json(), {
       ok: true, service: 'kalash-uxmobile', payments: false, uploads: false,
     });

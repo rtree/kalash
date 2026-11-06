@@ -11,11 +11,11 @@
 - 未導入ケースは既にMetaMaskのない別環境がある場合だけ。既存Walletをアンインストール・初期化したり、データを消したりしない。
 - 統合担当が独立HTTPS URL・対象版・下記UIを確認してから開始する。対象版を途中で変えない。本番の寄付や既存写真は操作しない。
 
-| 確認対象 | 配備前の目安 |
+| 確認対象 | 操作先 |
 |---|---|
-| PCで開くPoC | `https://<POC_HOST>/`（サブパスがある場合は統合担当の指定に従う） |
+| PCで開くPoC | [独立PoC](https://kalash-uxmobile-548318651344.asia-south1.run.app/) |
 | スマホの正しい到達先 | 同じPoCのpath、`mode=phone`、`case=external-qr` |
-| 主リンク | `https://link.metamask.io/dapp/<POC_HOST>/?mode=phone&case=external-qr` |
+| 主リンク | PC画面の「MetaMaskで開く」。hostは`link.metamask.io`、行き先は上記PoC |
 | PC側の主QR | `qr-destination` を隔離PoC側にする。`qr-canvas` が主QR、`target-url` は通常HTTPS URL |
 | 入口と状態 | `deep-link`、`direct-link`、環境選択、`provider-select`、`connect-wallet`、`wallet-status` |
 | カメラ | `camera-start`、`camera-stop`、`camera-video`、`camera-status`、`camera-diagnostics` |

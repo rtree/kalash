@@ -52,7 +52,7 @@ export async function createLabServer({ root = join(lab, 'dist') } = {}) {
       send(400, 'text/plain; charset=utf-8', 'Invalid URL\n');
       return;
     }
-    if (path === '/healthz') {
+    if (path === '/lab-health.json') {
       send(200, 'application/json; charset=utf-8', JSON.stringify({
         ok: true, service: 'kalash-uxmobile', payments: false, uploads: false,
       }));

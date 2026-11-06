@@ -4,6 +4,13 @@
 限定できるかを確認する実験。調査・画面実装・統合検証の3名体制。
 進捗の正本は[共有TASKS](../../TASKS.md)。本番のReown削除や認証方式変更はしない。
 
+## 開始URL
+
+PCで[独立PoC](https://kalash-uxmobile-548318651344.asia-south1.run.app/)を開く。
+表示された主QRの行き先は同じサイトのスマホ表示。
+配備版・確認結果は[共有TASKS](../../TASKS.md)を参照。
+カメラ許可と実機テストは本人が行う。
+
 ## テストの順序
 
 1. 独立HTTPSサイトをPCで開き、寺院端末相当のQRを表示する。
@@ -23,7 +30,6 @@
 外部ブラウザや中間ページで止まる場合も結果として残す。
 
 詳細は[調査](research.md)と[本人向け試験表](manual-test.md)。
-これらのリンク先は同じPoCチームが作成する。
 
 ## ローカル起動
 
@@ -52,8 +58,10 @@ HTTP LAN URLのカメラ動作は保証しない。QRとスマホは公開HTTPS�
 専用Cloud Runサービス`kalash-uxmobile`、専用の権限未付与service accountを使う。
 min instances=0、max instances=1。秘密・Firebase設定・Central API接続は渡さない。
 既存`kalash-central`のコード、traffic、環境変数、IAMは変更しない。
-公開サイトはstatic assetと`/healthz`だけで、POST等は405。
+公開サイトはstatic assetと`/lab-health.json`だけで、POST等は405。
 cameraのみself許可、microphone禁止、script/styleはself、connect-srcはnone。
+`/healthz`は実配備先でアプリ外のHTML 404になったため使用しない。
+healthは専用パスで実HTTPS応答まで確認する。
 
 手順（リポジトリルート、作業をcommitしてからbuild）:
 
