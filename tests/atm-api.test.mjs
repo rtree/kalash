@@ -156,6 +156,13 @@ test('real ATM APIs require device/screen authority, origin and single-use pairi
   assert.equal(readyState.cryptoDonationEnabled, true);
 });
 test('real Firestore serializes Crypto reception creation, QR restoration and expiry', async () => {
+  const unplugged = await request(`/api/controller/${fixture}/health`, {
+    method: 'POST', token: credential, body: {
+      sequence: 3, reportedAt: Date.now(), usbConnected: false, connectionOpen: false,
+      deviceStarted: false, routesVerified: false, pollerOwned: true, deviceId: null,
+    },
+  });
+  assert.equal(unplugged.status, 200);
   const requestIds = [randomUUID(), randomUUID()];
   const results = await Promise.all(requestIds.map((requestId) => request(`/api/atm/${fixture}/visits`, {
     method: 'POST', screen: cookie, body: { mode: 'crypto', requestId },
