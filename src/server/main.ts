@@ -12,7 +12,7 @@ import {
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
-import { claimVisit, closeVisit, createPairing, createVisit, getAtm, getVisit, pairScreen, reportControllerHealth, validateControllerCredential } from './atm.ts';
+import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, getAtm, getVisit, pairScreen, reportControllerHealth, validateControllerCredential } from './atm.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -164,7 +164,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       }
     }
   }
-  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|claim|donation))?$/);
+  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|claim|donation|cash-challenge|cash-claim))?$/);
   if (request.method === 'GET' && visitMatch && !visitMatch[2]) {
     return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? ''));
   }
@@ -179,6 +179,20 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       requireValue(Object.keys(body).every((key) => ['templeId', 'consent'].includes(key)),
         400, 'UNKNOWN_FIELD', 'Only the confirmed temple and explicit join consent are accepted.');
       return send(response, await claimVisit(visitMatch[1]!, owner, body.templeId, body.consent));
+    }
+    if (request.method === 'POST' && visitMatch[2] === 'cash-challenge') {
+      const body = await jsonBody(request);
+      requireValue(Object.keys(body).every((key) => key === 'templeId'),
+        400, 'UNKNOWN_FIELD', 'Only the confirmed temple is accepted.');
+      return send(response, await createCashConsentChallenge(visitMatch[1]!, owner, body.templeId));
+    }
+    if (request.method === 'POST' && visitMatch[2] === 'cash-claim') {
+      const body = await jsonBody(request);
+      requireValue(Object.keys(body).every((key) => ['templeId', 'nonce', 'signature'].includes(key)),
+        400, 'UNKNOWN_FIELD', 'Only the signed cash-session consent is accepted.');
+      return send(response, await claimCashVisit(
+        visitMatch[1]!, owner, body.templeId, body.nonce, body.signature,
+      ));
     }
     if (request.method === 'POST' && visitMatch[2] === 'donation') {
       const body = await jsonBody(request);

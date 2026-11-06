@@ -110,12 +110,17 @@ export function AtmPage({ atmId }: { atmId: string }) {
   };
   const seconds = atm?.visit ? Math.max(0, Math.ceil((atm.visit.expiresAt - now) / 1000)) : 0;
   const waiting = atm?.visit?.state === 'awaiting_wallet' && seconds > 0;
+  const accepting = atm?.visit?.mode === 'cash'
+    && atm.visit.state === 'accepting'
+    && atm.visit.cashAcceptanceEnabled;
   return <div className="app-shell atm-shell">
     <header className="topbar"><span className="brand">KALASH</span><span>Temple ATM</span></header>
     <main className="atm-main">
       <p className="eyebrow">{atm?.name ?? atmId}</p>
       <h1>{atm?.templeName ?? 'Connect this temple screen'}</h1>
-      <div className="notice notice-info" role="status">Cash is disabled in this phase. Do not insert banknotes.</div>
+      <div className={`notice ${accepting ? 'notice-success' : 'notice-info'}`} role="status">
+        {accepting ? 'Cash acceptance is active. Insert only one INR note at a time.' : 'Cash is not accepting. Do not insert banknotes.'}
+      </div>
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
         event.preventDefault();
@@ -140,23 +145,42 @@ export function AtmPage({ atmId }: { atmId: string }) {
               setAtm(await screenApi<AtmDto>(`${base}/visits`, { mode: 'crypto', requestId: requestId.current }));
               requestId.current = null;
             })}>Donate with Crypto<br /><small>Continue on your phone</small></button>
-            <button className="button button-outline" disabled aria-describedby="cash-unavailable">
-              Cash donation<br /><small id="cash-unavailable">{atm.cashDisabledReason}</small>
+            <button className="button button-outline" disabled={busy || !atm.cashReceptionAvailable} aria-describedby="cash-unavailable" onClick={() => void act(async () => {
+              requestId.current ??= crypto.randomUUID();
+              setAtm(await screenApi<AtmDto>(`${base}/visits`, { mode: 'cash', requestId: requestId.current }));
+              requestId.current = null;
+            })}>
+              Cash donation<br/><small id="cash-unavailable">{atm.cashDisabledReason}</small>
             </button>
           </div>
           <p>No cash operation or device command is sent by this screen.</p>
         </section> : <section className="reception-card">
           {waiting ? <>
-            <h2>Continue your Crypto donation on your phone</h2>
-            <p>Onsite Crypto reception for {atm.templeName}. Scan using an external QR reader to open MetaMask.</p>
+            <h2>{atm.visit.mode === 'cash' ? 'Authorize this cash reception on your phone' : 'Continue your Crypto donation on your phone'}</h2>
+            <p>{atm.visit.mode === 'cash'
+              ? `Cash reception for ${atm.templeName}. Signing on the phone binds consent to this ATM session; it does not start acceptance.`
+              : `Onsite Crypto reception for ${atm.templeName}. Scan using an external QR reader to open MetaMask.`}</p>
             <p role="timer">QR expires in {seconds} seconds</p>
             {atm.deepLink && <QrCanvas text={atm.deepLink} />}
             {atm.qrUnavailableReason && <p role="alert">{atm.qrUnavailableReason}</p>}
             <p className="reception-target">{atm.targetUrl}</p>
-            <p>Reading this QR does not link a wallet or submit a transaction. Join the onsite donation on your phone.</p>
+            <p>{atm.visit.mode === 'cash'
+              ? 'Reading this QR does not authorize or start the cash machine. Do not insert a note until the ATM explicitly shows Cash acceptance active.'
+              : 'Reading this QR does not link a wallet or submit a transaction. Join the onsite donation on your phone.'}</p>
           </> : atm.visit.state === 'linked' ? <>
             <h2>Wallet linked</h2><p>The same onsite Crypto reception is saved on Central. Continue with amount and wallet confirmation on your phone.</p>
             <p>No donation has been submitted yet. Cash remains disabled.</p>
+          </> : atm.visit.state === 'awaiting_device' ? <>
+            <h2>Waiting for the cash machine</h2>
+            <p>The cash-session consent is linked to one wallet. Keep the acceptor disabled until the Controller reports actual Ready.</p>
+            <p>Do not insert banknotes.</p>
+          </> : atm.visit.state === 'accepting' ? <>
+            <h2>Cash acceptance active</h2>
+            <p>Accepted: {atm.visit.cashAcceptedPaise ?? '0'} paise of {atm.visit.cashLimitPaise} paise.</p>
+            <p>Insert only one supported INR note at a time. Stop when the timer expires or the screen says closing.</p>
+          </> : atm.visit.state === 'closing' || atm.visit.state === 'reconciling' ? <>
+            <h2>Reconciling cash reception</h2>
+            <p>Keep this screen open. Do not insert another note or close this reception.</p>
           </> : atm.visit.state === 'donation_pending' ? <>
             <h2>{atm.visit.donationState === 'failed' ? 'Donation not confirmed' : 'Confirming donation'}</h2>
             <p>Central will release this ATM only after it verifies the same donation. Do not retry from the ATM.</p>
@@ -171,12 +195,13 @@ export function AtmPage({ atmId }: { atmId: string }) {
   </div>;
 }
 export function ReceptionPanel({
-  reference, templeId, wallet, connected, api, onConnect, onVerify,
+  reference, templeId, wallet, connected, api, onConnect, onVerify, onCashConsent,
   amountOptions, amount, setAmount, customAmount, setCustomAmount, amountError, amountUnits, feeUnits, netUnits,
   busy, onDonate, onRestoreDonation, onCollection,
 }: {
   reference: string; templeId: string; wallet: string | null; connected: boolean; api: Api;
   onConnect: () => void; onVerify: () => void;
+  onCashConsent: (message: string) => Promise<string>;
   amountOptions: string[]; amount: string; setAmount: (value: string) => void;
   customAmount: string; setCustomAmount: (value: string) => void; amountError: string;
   amountUnits: bigint; feeUnits: bigint; netUnits: bigint;
@@ -237,9 +262,21 @@ export function ReceptionPanel({
     setJoining(true);
     setError('');
     try {
-      const result = await api<OwnerVisit>(`${base}/claim`, {
-        method: 'POST', body: JSON.stringify({ templeId, consent }),
-      }, true);
+      const result = visit?.mode === 'cash'
+        ? await (async () => {
+          const challenge = await api<{ nonce: string; message: string }>(`${base}/cash-challenge`, {
+            method: 'POST',
+            body: JSON.stringify({ templeId }),
+          }, true);
+          const signature = await onCashConsent(challenge.message);
+          return api<OwnerVisit>(`${base}/cash-claim`, {
+            method: 'POST',
+            body: JSON.stringify({ templeId, nonce: challenge.nonce, signature }),
+          }, true);
+        })()
+        : await api<OwnerVisit>(`${base}/claim`, {
+          method: 'POST', body: JSON.stringify({ templeId, consent }),
+        }, true);
       if (generation === version.current) setVisit(result);
     } catch (cause) {
       if (generation === version.current) setError(cause instanceof Error ? cause.message : 'Reception was not linked. Restore its state before retrying.');
@@ -247,22 +284,35 @@ export function ReceptionPanel({
   };
   const seconds = visit ? Math.max(0, Math.ceil((visit.expiresAt - now) / 1000)) : 0;
   return <section className="reception-card reception-phone">
-    <p className="eyebrow">ONSITE CRYPTO DONATION</p>
+    <p className="eyebrow">{visit?.mode === 'cash' ? 'ONSITE CASH DONATION' : 'ONSITE CRYPTO DONATION'}</p>
     <h1>{visit?.templeName ?? 'Check the ATM reception'}</h1>
     {error && <div className="notice notice-danger" role="alert">{error}</div>}
-    <p>This QR opens the donation page only. Join this reception explicitly, then approve and donate on your phone. The ATM is not taking cash.</p>
+    <p>{visit?.mode === 'cash'
+      ? 'This QR opens this cash session only. Sign the temple, ATM and session consent on your phone. No banknotes are accepted until the ATM explicitly shows Cash acceptance active.'
+      : 'This QR opens the donation page only. Join this reception explicitly, then approve and donate on your phone. The ATM is not taking cash.'}</p>
     {visit && <>
-      <p>{visit.atmName} · Base Sepolia · Maximum 1 USDC</p>
+      <p>{visit.atmName} · {visit.mode === 'cash' ? 'Maximum 500 INR per cash session' : 'Base Sepolia · Maximum 1 USDC'}</p>
       {visit.state === 'awaiting_wallet' && seconds > 0 ? <>
-        <p role="timer">Reception expires in {seconds} seconds</p>
+        <p role="timer">{visit.mode === 'cash' ? 'Consent QR' : 'Reception'} expires in {seconds} seconds</p>
         {!connected ? <button className="button button-primary" onClick={onConnect}>Connect MetaMask</button>
           : !wallet ? <button className="button button-primary" onClick={onVerify}>Verify wallet</button> : <>
             <label className="reception-consent"><input type="checkbox" checked={consent} disabled={joining || Boolean(error)} onChange={(event) => setConsent(event.target.checked)} />
-              I choose to join the Crypto donation for {visit.templeName} at {visit.atmName}. No banknotes will be accepted in this flow.</label>
+              {visit.mode === 'cash'
+                ? `I authorize this one cash session for ${visit.templeName} at ${visit.atmName}, up to 500 INR.`
+                : `I choose to join the Crypto donation for ${visit.templeName} at ${visit.atmName}. No banknotes will be accepted in this flow.`}</label>
             <button className="button button-primary button-wide" disabled={!consent || joining || Boolean(error)} onClick={() => void join()}>
-              {joining ? 'Joining reception…' : 'Join onsite Crypto donation'}
+              {joining ? 'Signing reception consent…' : visit.mode === 'cash' ? 'Authorize this cash session' : 'Join onsite Crypto donation'}
             </button>
           </>}
+      </> : visit.state === 'awaiting_device' ? <>
+        <h2>Waiting for the cash machine</h2>
+        <p>Your wallet is linked to this cash session. Wait until the ATM confirms Ready and explicitly starts the 120-second acceptance window. Do not insert notes yet.</p>
+      </> : visit.state === 'accepting' && visit.mode === 'cash' ? <>
+        <h2>Cash acceptance active</h2>
+        <p>Accepted {visit.cashAcceptedPaise ?? '0'} of {visit.cashLimitPaise} paise. Insert only one supported INR note at a time.</p>
+      </> : visit.state === 'closing' || visit.state === 'reconciling' ? <>
+        <h2>Reconciling cash reception</h2>
+        <p>Central is reconciling physical storage and event records. Do not insert another note or retry.</p>
       </> : visit.state === 'linked' && visit.linkedToYou ? <>
         <h2>You're linked to this temple visit</h2>
         <div className="amount-options" role="group" aria-label="Onsite donation amount">

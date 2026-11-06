@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { getAddress, type Address } from 'viem';
+import { getAddress, verifyMessage, type Address, type Hex } from 'viem';
+import { createSiweMessage } from 'viem/siwe';
 import { ATM_ID, CASH_LIMIT_PAISE, VISIT_REFERENCE, VISIT_TTL_MS, cashMachineStatus, metaMaskLink, templeTarget, visitState, type AtmDto, type CashMachineStatus, type VisitDto, type VisitState } from '../atm.ts';
+import { CHAIN_ID } from '../shared.ts';
 import { db, origin } from './config.ts';
 import { temples } from './catalog.ts';
 import { requireValue } from './errors.ts';
@@ -14,6 +16,7 @@ interface AtmRecord {
   name: string;
   templeId: string;
   enabled: boolean;
+  cashEnabled?: boolean;
   credentialHash: string;
   activeVisitId?: string | null;
   screenHash?: string;
@@ -24,10 +27,12 @@ interface VisitRecord {
   id: string;
   atmId: string;
   templeId: string;
-  mode: 'crypto';
+  mode: 'crypto' | 'cash';
   state: VisitState;
   expiresAt: number;
-  cashSessionId: null;
+  cashSessionId: string | null;
+  cashAcceptedPaise?: string;
+  cashDeadline?: number | null;
   ownerWallet?: Address;
   donationId?: string;
   linkedAt?: number;
@@ -73,15 +78,22 @@ function validScreen(data: AtmRecord | undefined, hash: string): AtmRecord {
     401, 'ATM_PAIRING_REQUIRED', 'Screen authorization expired. Pair it from the registered Controller.');
   return atm;
 }
-function dto(visit: VisitRecord, atm: AtmRecord, donationStatus?: string): VisitDto {
+function dto(visit: VisitRecord, atm: AtmRecord, donationStatus?: string, owner?: Address): VisitDto {
   const donationState = !visit.donationId ? null
     : donationStatus === 'confirmed' ? 'confirmed'
       : ['failed', 'expired', 'cancelled'].includes(donationStatus ?? '') ? 'failed' : 'pending';
   return {
     id: visit.id, templeId: visit.templeId, templeName: temples.find((item) => item.id === visit.templeId)!.name,
     atmId: atm.id, atmName: atm.name, mode: visit.mode, state: visitState(visit.state, visit.expiresAt, Date.now()),
-    expiresAt: visit.expiresAt, cashSessionId: null,
-    cashAcceptanceEnabled: false, cashLimitPaise: CASH_LIMIT_PAISE, donationState,
+    expiresAt: visit.expiresAt,
+    cashSessionId: owner && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()
+      ? visit.cashSessionId : null,
+    cashAcceptanceEnabled: visit.mode === 'cash' && visit.state === 'accepting'
+      && (visit.cashDeadline ?? 0) > Date.now(),
+    cashLimitPaise: CASH_LIMIT_PAISE,
+    ...(owner && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()
+      ? { cashAcceptedPaise: visit.cashAcceptedPaise ?? '0' } : {}),
+    donationState,
   };
 }
 function unclaimed(visit: VisitRecord, atm: AtmRecord) {
@@ -175,11 +187,14 @@ export async function getAtm(atmId: string, cookie: string | undefined): Promise
   const donation = visit?.donationId ? (await db.collection('donations').doc(visit.donationId).get()).data() : undefined;
   const view = visit ? dto(visit, atm, donation?.status) : null;
   const status = cashMachineStatus(atm.controllerHealth ?? null, Date.now());
+  const cashReceptionAvailable = atm.cashEnabled === true && status === 'ready' && !view;
   const cashDisabledReason = status === 'offline'
     ? 'Controller health is unavailable or stale. Cash is disabled; Crypto remains available.'
     : status === 'disconnected'
       ? 'NV200 is not USB-connected and ready. Cash is disabled; Crypto remains available.'
-      : 'Cash collection is the next stage and is not enabled yet. Crypto is available.';
+      : cashReceptionAvailable
+        ? 'Cash reception is available after wallet consent.'
+        : 'Cash collection is not enabled for this ATM yet. Crypto is available.';
   const qrUnavailableReason = view?.state === 'awaiting_wallet' && new URL(origin).protocol !== 'https:'
     ? 'QR handoff requires the deployed HTTPS site. Local reception tests do not provide a mobile QR.' : null;
   const targetUrl = view?.state === 'awaiting_wallet' && !qrUnavailableReason ? templeTarget(origin, atm.templeId, view.id) : null;
@@ -187,11 +202,13 @@ export async function getAtm(atmId: string, cookie: string | undefined): Promise
     id: atm.id, name: atm.name, templeId: atm.templeId, templeName: temples.find((item) => item.id === atm.templeId)!.name,
     visit: view, targetUrl, deepLink: targetUrl ? metaMaskLink(targetUrl, origin) : null, qrUnavailableReason,
     cashMachineStatus: status, cashDisabledReason,
-    cashAcceptanceEnabled: false, cryptoDonationEnabled: !view,
+    cashAcceptanceEnabled: view?.cashAcceptanceEnabled ?? false,
+    cashReceptionAvailable,
+    cryptoDonationEnabled: !view,
   };
 }
 export async function createVisit(atmId: string, cookie: string | undefined, mode: unknown, requestId: unknown) {
-  requireValue(mode === 'crypto', 409, 'MODE_UNAVAILABLE', 'Cash reception is not enabled in the onsite Crypto phase.');
+  requireValue(mode === 'crypto' || mode === 'cash', 400, 'INVALID_MODE', 'Choose Cash or Crypto.');
   requireValue(typeof requestId === 'string' && /^[a-f0-9-]{36}$/.test(requestId),
     400, 'INVALID_REQUEST_ID', 'A stable reception request ID is required.');
   const screenHash = screenCredential(cookie);
@@ -202,6 +219,11 @@ export async function createVisit(atmId: string, cookie: string | undefined, mod
   await db.runTransaction(async (tx) => {
     const [atmSnapshot, existingRequest] = await Promise.all([tx.get(atmRef), tx.get(requestRef)]);
     const atm = validScreen(atmSnapshot.data() as AtmRecord | undefined, screenHash);
+    if (mode === 'cash') {
+      requireValue(atm.cashEnabled === true
+        && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+      409, 'CASH_UNAVAILABLE', 'Cash is disabled until this registered Controller is freshly ready and Cash is enabled for the ATM.');
+    }
     if (existingRequest.exists) {
       requireValue(existingRequest.get('visitId') === atm.activeVisitId, 409, 'VISIT_REQUEST_CLOSED',
         'This request belongs to an older reception. Restore the current screen state.');
@@ -217,7 +239,9 @@ export async function createVisit(atmId: string, cookie: string | undefined, mod
     }
     const visit: VisitRecord = {
       id, atmId, templeId: atm.templeId, mode, state: 'awaiting_wallet',
-      expiresAt: Date.now() + VISIT_TTL_MS, cashSessionId: null,
+      expiresAt: Date.now() + VISIT_TTL_MS,
+      cashSessionId: mode === 'cash' ? randomUUID() : null,
+      ...(mode === 'cash' ? { cashAcceptedPaise: '0', cashDeadline: null } : {}),
     };
     tx.create(newRef, { ...visit, createdAt: Date.now() });
     tx.create(requestRef, { visitId: id });
@@ -268,7 +292,7 @@ export async function getVisit(id: string, templeId: string, owner?: Address) {
   const donation = linkedToYou && visit.donationId
     ? (await db.collection('donations').doc(visit.donationId).get()).data() : undefined;
   return {
-    ...dto(visit, atm, donation?.status), linkedToYou,
+    ...dto(visit, atm, donation?.status, owner), linkedToYou,
     ...(owner ? { donationId: linkedToYou ? visit.donationId ?? null : null } : {}),
   };
 }
@@ -289,6 +313,110 @@ export async function claimVisit(id: string, owner: Address, templeId: unknown, 
     if (visit.state === 'linked' && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()) return;
     unclaimed(visit, atm);
     tx.update(ref, { state: 'linked', ownerWallet: getAddress(owner), linkedAt: Date.now(), consentVersion: 'onsite-crypto-join-v1' });
+  });
+  return getVisit(id, templeId, owner);
+}
+
+export async function createCashConsentChallenge(id: string, owner: Address, templeId: unknown) {
+  requireValue(typeof templeId === 'string', 400, 'INVALID_TEMPLE', 'The confirmed temple is required.');
+  const ref = visitReference(id);
+  const visit = (await ref.get()).data() as VisitRecord | undefined;
+  requireValue(visit?.mode === 'cash' && visit.templeId === templeId
+    && visit.state === 'awaiting_wallet' && visit.cashSessionId,
+  409, 'CASH_VISIT_NOT_OPEN', 'This cash reception is not awaiting wallet consent.');
+  const atm = validAtm((await atmReference(visit.atmId).get()).data() as AtmRecord | undefined);
+  requireValue(atm.activeVisitId === id && atm.cashEnabled === true
+    && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+  409, 'CASH_CONTROLLER_NOT_READY', 'A fresh authorized Controller readiness report is required for cash consent.');
+  unclaimed(visit, atm);
+
+  const nonce = randomBytes(24).toString('hex');
+  const issuedAt = new Date();
+  const expiresAt = Math.min(visit.expiresAt, issuedAt.getTime() + 120_000);
+  const expiresAtIso = new Date(expiresAt).toISOString();
+  const site = new URL(origin);
+  const templeName = temples.find((item) => item.id === visit.templeId)!.name;
+  const message = [
+    'KALASH cash intake consent',
+    `Domain: ${site.host}`,
+    `Origin: ${site.origin}`,
+    `Chain ID: ${CHAIN_ID}`,
+    `Temple: ${templeName} (${visit.templeId})`,
+    `ATM: ${atm.name} (${atm.id})`,
+    `Cash session: ${visit.cashSessionId}`,
+    `Purpose: cash`,
+    `Maximum: ${CASH_LIMIT_PAISE} paise`,
+    `Nonce: ${nonce}`,
+    `Issued at: ${issuedAt.toISOString()}`,
+    `Expires at: ${expiresAtIso}`,
+  ].join('\n');
+  await db.collection('cashConsentChallenges').doc(nonce).create({
+    visitId: id,
+    cashSessionId: visit.cashSessionId,
+    atmId: visit.atmId,
+    templeId: visit.templeId,
+    wallet: getAddress(owner),
+    message,
+    expiresAt,
+    used: false,
+  });
+  return { nonce, message, expiresAt, cashLimitPaise: CASH_LIMIT_PAISE };
+}
+
+export async function claimCashVisit(
+  id: string,
+  owner: Address,
+  templeId: unknown,
+  nonce: unknown,
+  signature: unknown,
+) {
+  requireValue(typeof templeId === 'string'
+    && typeof nonce === 'string' && /^[a-f0-9]{48}$/.test(nonce)
+    && typeof signature === 'string' && /^0x[0-9a-f]+$/i.test(signature),
+  400, 'INVALID_CASH_CONSENT', 'A cash-session signature and confirmed temple are required.');
+  const challengeRef = db.collection('cashConsentChallenges').doc(nonce);
+  const challenge = (await challengeRef.get()).data();
+  requireValue(challenge && !challenge.used
+    && challenge.visitId === id && challenge.templeId === templeId
+    && challenge.wallet?.toLowerCase() === owner.toLowerCase()
+    && challenge.expiresAt > Date.now()
+    && typeof challenge.message === 'string',
+  401, 'CASH_CONSENT_EXPIRED', 'Cash consent expired or belongs to another wallet/session.');
+  requireValue(await verifyMessage({
+    address: getAddress(owner),
+    message: challenge.message,
+    signature: signature as Hex,
+  }), 401, 'CASH_CONSENT_INVALID', 'Cash-session signature is invalid.');
+
+  const visitRef = visitReference(id);
+  const atmRef = atmReference(challenge.atmId);
+  await db.runTransaction(async (tx) => {
+    const [challengeSnapshot, visitSnapshot, atmSnapshot] = await Promise.all([
+      tx.get(challengeRef), tx.get(visitRef), tx.get(atmRef),
+    ]);
+    const currentChallenge = challengeSnapshot.data();
+    const visit = visitSnapshot.data() as VisitRecord | undefined;
+    const atm = validAtm(atmSnapshot.data() as AtmRecord | undefined);
+    requireValue(currentChallenge && !currentChallenge.used
+      && currentChallenge.expiresAt > Date.now()
+      && currentChallenge.visitId === id
+      && currentChallenge.cashSessionId === visit?.cashSessionId
+      && currentChallenge.wallet?.toLowerCase() === owner.toLowerCase(),
+    401, 'CASH_CONSENT_USED', 'Cash consent was already used or expired.');
+    requireValue(visit && visit.mode === 'cash' && visit.state === 'awaiting_wallet'
+      && visit.atmId === atm.id && visit.templeId === templeId
+      && atm.activeVisitId === id && atm.cashEnabled === true
+      && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+    409, 'CASH_VISIT_NOT_READY', 'Cash reception is no longer active or the Controller is not ready.');
+    tx.update(challengeRef, { used: true, usedAt: Date.now() });
+    tx.update(visitRef, {
+      state: 'awaiting_device',
+      ownerWallet: getAddress(owner),
+      linkedAt: Date.now(),
+      cashConsentVersion: 'cash-session-v1',
+      cashConsentChallenge: nonce,
+      cashConsentAt: Date.now(),
+    });
   });
   return getVisit(id, templeId, owner);
 }

@@ -64,7 +64,8 @@ before(async () => {
   db = getFirestore();
   for (const id of [fixture, second]) {
     await db.collection('atms').doc(id).create({
-      id, name: 'Isolated reception test', templeId: 'temple-01', enabled: true, credentialHash: hash(credential),
+      id, name: 'Isolated reception test', templeId: 'temple-01', enabled: true,
+      cashEnabled: false, credentialHash: hash(credential),
     });
   }
   const firstPair = await pair(fixture);
@@ -91,6 +92,8 @@ after(async () => {
     }
     const pairings = await db.collection('atmPairings').where('atmId', '==', id).get();
     for (const record of pairings.docs) await record.ref.delete();
+    const cashChallenges = await db.collection('cashConsentChallenges').where('atmId', '==', id).get();
+    for (const record of cashChallenges.docs) await record.ref.delete();
     const ref = db.collection('atms').doc(id);
     const requests = await ref.collection('requests').get();
     for (const record of requests.docs) await record.ref.delete();
@@ -270,4 +273,119 @@ test('onsite Crypto claim and intent bind the authenticated wallet and never ena
   assert.equal((await request(`/api/atm/${fixture}/visits/${visit.id}/close`, {
     method: 'POST', screen: cookie, body: {},
   })).status, 409, 'a registered donation cannot be abandoned from the ATM screen');
+});
+
+test('cash visit consent binds one wallet to one cashSession and never starts acceptance', async () => {
+  const atmRef = db.collection('atms').doc(second);
+  await atmRef.update({ cashEnabled: true });
+  const health = await request(`/api/controller/${second}/health`, {
+    method: 'POST', token: credential, body: {
+      sequence: 1, reportedAt: Date.now(), usbConnected: true, connectionOpen: true,
+      deviceStarted: true, routesVerified: true, pollerOwned: true, deviceId: 'synthetic-device',
+    },
+  });
+  assert.equal(health.status, 200);
+  const readyAtm = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
+  assert.equal(readyAtm.cashMachineStatus, 'ready');
+  assert.equal(readyAtm.cashReceptionAvailable, true);
+  assert.equal(readyAtm.cashAcceptanceEnabled, false);
+
+  const created = await request(`/api/atm/${second}/visits`, {
+    method: 'POST', screen: otherCookie, body: { mode: 'cash', requestId: randomUUID() },
+  });
+  assert.equal(created.status, 201);
+  const createdState = await created.json();
+  assert.equal(createdState.visit.mode, 'cash');
+  assert.equal(createdState.visit.cashSessionId, null);
+  assert.equal(createdState.cashAcceptanceEnabled, false);
+
+  const publicView = await (await request(`/api/visits/${createdState.visit.id}?templeId=temple-01`)).json();
+  assert.equal(publicView.cashSessionId, null, 'the cashSessionId is not public before owner authentication');
+  const response = await request(`/api/visits/${createdState.visit.id}/cash-challenge`, {
+    method: 'POST', token: tokens[0], body: { templeId: 'temple-01' },
+  });
+  assert.equal(response.status, 200);
+  const challenge = await response.json();
+  assert.match(challenge.message, /Cash session:/);
+  assert.match(challenge.message, /Purpose: cash/);
+  assert.equal(challenge.cashLimitPaise, '50000');
+  const signature = await accounts[0].signMessage({ message: challenge.message });
+  const claim = await request(`/api/visits/${createdState.visit.id}/cash-claim`, {
+    method: 'POST', token: tokens[0],
+    body: { templeId: 'temple-01', nonce: challenge.nonce, signature },
+  });
+  assert.equal(claim.status, 200);
+  const linked = await claim.json();
+  const cashSessionId = challenge.message.match(/Cash session: ([a-f0-9-]+)/)?.[1];
+  assert.ok(cashSessionId);
+  assert.equal(linked.mode, 'cash');
+  assert.equal(linked.state, 'awaiting_device');
+  assert.equal(linked.linkedToYou, true);
+  assert.equal(linked.cashSessionId, cashSessionId);
+  assert.equal(linked.cashAcceptanceEnabled, false, 'wallet consent alone must not start acceptance');
+  assert.equal((await request(`/api/visits/${createdState.visit.id}/cash-claim`, {
+    method: 'POST', token: tokens[0],
+    body: { templeId: 'temple-01', nonce: challenge.nonce, signature },
+  })).status, 401, 'cash consent is one-use');
+  assert.equal((await request(`/api/visits/${createdState.visit.id}/mine?templeId=temple-01`, {
+    token: tokens[1],
+  })).status, 403, 'another wallet cannot read the linked cash session');
+  const screenState = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
+  assert.equal(screenState.cashAcceptanceEnabled, false, 'the ATM remains non-accepting until a controller command');
+});
+
+test('cash visit requires a session-bound wallet signature and remains non-accepting', async () => {
+  const atmRef = db.collection('atms').doc(second);
+  await atmRef.update({ cashEnabled: true });
+  const ready = await request(`/api/controller/${second}/health`, {
+    method: 'POST', token: credential, body: {
+      sequence: 1, reportedAt: Date.now(), usbConnected: true, connectionOpen: true,
+      deviceStarted: true, routesVerified: true, pollerOwned: true, deviceId: 'synthetic-device',
+    },
+  });
+  assert.equal(ready.status, 200);
+  const available = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
+  assert.equal(available.cashMachineStatus, 'ready');
+  assert.equal(available.cashReceptionAvailable, true);
+  assert.equal(available.cashAcceptanceEnabled, false);
+
+  const created = await request(`/api/atm/${second}/visits`, {
+    method: 'POST', screen: otherCookie, body: { mode: 'cash', requestId: randomUUID() },
+  });
+  assert.equal(created.status, 201);
+  const screenState = await created.json();
+  assert.equal(screenState.visit.mode, 'cash');
+  assert.equal(screenState.visit.cashSessionId, null, 'cashSessionId is not public before owner authentication');
+  assert.equal(screenState.cashAcceptanceEnabled, false, 'creating a cash visit must not start acceptance');
+
+  const publicView = await (await request(`/api/visits/${screenState.visit.id}?templeId=temple-01`)).json();
+  assert.equal(publicView.cashSessionId, null);
+  const challengeResponse = await request(`/api/visits/${screenState.visit.id}/cash-challenge`, {
+    method: 'POST', token: tokens[0], body: { templeId: 'temple-01' },
+  });
+  assert.equal(challengeResponse.status, 200);
+  const challenge = await challengeResponse.json();
+  assert.match(challenge.message, /Cash session:/);
+  assert.match(challenge.message, /Purpose: cash/);
+  assert.equal(challenge.cashLimitPaise, '50000');
+  const signature = await accounts[0].signMessage({ message: challenge.message });
+  const claim = await request(`/api/visits/${screenState.visit.id}/cash-claim`, {
+    method: 'POST', token: tokens[0], body: { templeId: 'temple-01', nonce: challenge.nonce, signature },
+  });
+  assert.equal(claim.status, 200);
+  const linked = await claim.json();
+  assert.equal(linked.mode, 'cash');
+  assert.equal(linked.state, 'awaiting_device');
+  assert.equal(linked.linkedToYou, true);
+  assert.equal(linked.cashSessionId, challenge.message.match(/Cash session: ([a-f0-9-]+)/)?.[1]);
+  assert.equal(linked.cashAcceptanceEnabled, false, 'wallet consent alone must not enable the acceptor');
+
+  assert.equal((await request(`/api/visits/${screenState.visit.id}/cash-claim`, {
+    method: 'POST', token: tokens[0], body: { templeId: 'temple-01', nonce: challenge.nonce, signature },
+  })).status, 401, 'cash consent signature is one-use');
+  assert.equal((await request(`/api/visits/${screenState.visit.id}/mine?templeId=temple-01`, {
+    token: tokens[1],
+  })).status, 403, 'another wallet cannot read the linked cash session');
+  const afterClaim = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
+  assert.equal(afterClaim.cashAcceptanceEnabled, false, 'claim does not start physical acceptance');
 });

@@ -5,7 +5,17 @@ export const ATM_PHOTO_IDLE_MS = 30_000;
 export const VISIT_REFERENCE = /^[a-f0-9]{64}$/;
 export const ATM_ID = /^[a-z0-9][a-z0-9-]{2,63}$/;
 export type VisitMode = 'cash' | 'crypto';
-export type VisitState = 'awaiting_wallet' | 'linked' | 'donation_pending' | 'confirmed' | 'expired' | 'closed';
+export type VisitState =
+  | 'awaiting_wallet'
+  | 'linked'
+  | 'awaiting_device'
+  | 'accepting'
+  | 'closing'
+  | 'reconciling'
+  | 'donation_pending'
+  | 'confirmed'
+  | 'expired'
+  | 'closed';
 export type CashMachineStatus = 'unknown' | 'offline' | 'disconnected' | 'ready';
 
 export interface VisitDto {
@@ -17,9 +27,10 @@ export interface VisitDto {
   mode: VisitMode;
   state: VisitState;
   expiresAt: number;
-  cashSessionId: null;
-  cashAcceptanceEnabled: false;
+  cashSessionId: string | null;
+  cashAcceptanceEnabled: boolean;
   cashLimitPaise: string;
+  cashAcceptedPaise?: string;
   donationState: 'pending' | 'confirmed' | 'failed' | null;
   donationId?: string | null;
 }
@@ -34,7 +45,8 @@ export interface AtmDto {
   qrUnavailableReason: string | null;
   cashMachineStatus: CashMachineStatus;
   cashDisabledReason: string;
-  cashAcceptanceEnabled: false;
+  cashAcceptanceEnabled: boolean;
+  cashReceptionAvailable: boolean;
   cryptoDonationEnabled: boolean;
 }
 export function visitState(state: VisitState, expiresAt: number, now: number): VisitState {
