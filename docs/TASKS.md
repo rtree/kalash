@@ -8,7 +8,7 @@
 - Cloud Run：revision `kalash-central-00012-hvk`、health ready・Base Sepolia・mint有効、source `2af9a24`。early/expired approval resolverを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：本人がMetaMaskのSIWE warningを解除してSign-inを承認。auth verify HTTP200、KALASHにWallet verified表示。Historyからapprove-only attemptを安全に解決するUIを追加中。解決後だけ新規0.01 test USDC寄付を行う。
+- 次の作業：History recovery版revision `00014-kcl`を配備し、API 7件成功・skipなしを確認。端末は旧History画面のままなので本人が再読込し、新しいapprove-only recovery boxを確認する。resolveは本人確認後に実行する。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -36,7 +36,7 @@
 | M2 カメラ | Android MetaMask内蔵Browserで`getUserMedia`が起動し、撮影・閉じる操作を表示。撮影・アップロードはせずStreamを停止 | 再度撮影する場合は所有者が操作・確認 | 許可プロンプトは本人操作。許可だけでは撮影・公開しない |
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
-| M1/Mobile Approval | 現intent `0x9c721a5a…2932e`は02:59:43Z作成、03:09:43Z期限、Firestore status=`intent`。登録operationはapproveのみ（10000 units、USDC宛）、donateAttempt/txHashなし。期限切れ。Historyに「Ready to submit」と表示。Temple detailには復旧箱が出ずDonateが有効に見えたため、押さずHistoryへ退避 | `GET /api/history`にowner-onlyの安全なapprove attempt IDを付与し、Historyから既存resolve APIへ進むボタンを実装中。APIがresolve時にreceipt/event・Allowanceを再検証 | Historyのresolve dialogでMetaMask requestなしを本人確認。古い署名を手動送信しない。新規0.01送金はresolve完了後のみ |
+| M1/Mobile Approval | 現intent `0x9c721a5a…2932e`は02:59:43Z作成、03:09:43Z期限、Firestore status=`intent`。登録operationはapproveのみ（10000 units、USDC宛）、donateAttempt/txHashなし。期限切れ。Historyに「Ready to submit」と表示。Temple detailで復旧箱なし・Donateが有効に見えたため押さずHistoryへ退避 | revision `00014-kcl` / source `e34d814`配備済み。History APIはowner-onlyで単一approve attemptのIDを返し、UIから既存resolve APIへ進める。live API 7件成功・skipなし | Historyを再読込して復旧boxとresolve dialogを確認。MetaMask requestなしを本人が確認し、dialogを承認。古い署名を手動送信しない |
 | M3/M4 ITL | 保護APIは認証前HTTP401（認証失敗とは未確定） | 後続ゴールで安全な資格情報を用意して認証 | 紙幣・払い出しは人の立ち会いが必要 |
 
 ## M1の検証証跡
@@ -65,10 +65,10 @@
 - 端末はWindowsからADB 37.0.1で認識。Samsung SM_S942Z、Android 16、物理1080×2340。Chromeは`com.android.chrome`、MetaMaskは`io.metamask`。
 - MetaMask内蔵DApp BrowserでKALASHのHistory/Collection・写真操作を表示。通常Chrome＋WalletConnectのVerifyWalletは`personal_sign` unavailableで失敗したため、認証を迂回しない。
 - Historyへ表示される2件のrecent donationsはどちらもPC Chrome起点で、モバイル購入ではない。3件目の送金は行わない。
-- MetaMask内蔵Browserの最新intentは`0x9c721a5a…2932e`、status=`intent`、approveのみ（attempt `29b1b082…`）、txHash/donateAttemptなし。本人photo slot 1件維持。SIWE verify HTTP200。Historyは「Ready to submit」を表示するがresolveボタンはなかった。Donateフォームはactiveに見えるため触らず、Historyへ移動。History recovery API/UIをlocal実装中。
+- MetaMask内蔵Browserの最新intentは`0x9c721a5a…2932e`、status=`intent`、approveのみ（attempt `29b1b082…`）、txHash/donateAttemptなし。本人photo slot 1件維持。SIWE verify HTTP200。Historyは旧revisionの「Ready to submit」を表示。History recovery版は配備済みだが、端末のページはまだ再読込していない。
 - 失効済みapprove-only intent 3件は開始後600ブロック内にUSDC Approval/Vault Donatedがなく、Allowance 0。
 - 既存版は期限後だけの解決だった。`src/server/donations.ts`のローカル変更は、approve-only・owner・イベント不在・Allowance 0を再検証し、deadline前は`cancelled`、期限後は`expired`とする。期限前cancelは署名を無効化せず期限まで有効であることを表示。署名・送金・Firestore削除はしない。
-- 型チェック/build・局所9件成功。Cloud Run `00013-xhm`、health ready・source `aa4ee49`。live Central API 7件成功・skipなし。History recovery changeの型チェック/build・局所9件も成功。残り：新Cloud Build、配備、live API test、新Historyボタンから本人intentをresolve、0.01 mobile donation。過去API testsは専用signerだけを変更し、本人intentに触れていない。
+- 型チェック/build・局所9件成功。Cloud Build `3e83da0e-0ef8-47f1-84b8-0b35fcca974e`成功。Cloud Run `00014-kcl`、health ready・source `e34d814`。History recoveryのlive API 7件成功・skipなし（owner lookup・foreign wallet isolation含む）。専用signerのAPI testsだけが更新され、本人intentは未変更。残り：端末再読込、本人のintent resolve、0.01 mobile donation。
 - 予期しないMetaMaskページが開いた場合は操作・入力しない。所有者が正規KALASH画面へ戻したことを確認する。Wallet unlock、生体認証、カメラ権限、Spend/Donate署名は本人が行う。
 
 ## 過去のM1調査（要約）
@@ -83,4 +83,4 @@
 - 完了：M1全体、delegated receipt復旧、M2のprivate photo API/boardとカメラ実装、PC MetaMaskの実寄付、写真のpublic listing。
 - 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
 - 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
-- 次の一手：History recovery変更をcommit/push・Cloud Build・Cloud Runへ反映し、実API 7件を再実行。その後MetaMask内蔵BrowserのHistoryを再読込し、新ボタンから表示されるresolve dialogで「wallet requestなし」を本人が確認して選択する。既存intent解決をFirestore/chain evidenceで確認後に限り、0.01 test USDC寄付を本人が承認する。
+- 次の一手：MetaMask内蔵BrowserのHistoryを端末で再読込。新しいrecovery boxからresolve dialogを開き、MetaMask requestがないことを本人が確認して選択する。既存intentのstatus・chain evidenceを照合後に限り、新規0.01 test USDC寄付を本人が承認する。
