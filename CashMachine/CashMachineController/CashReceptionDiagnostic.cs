@@ -300,23 +300,25 @@ public sealed class CashReceptionDiagnostic(
             if (status.ObservedAt < notBefore) continue;
             foreach (var item in status.Events)
             {
+                if (!IsCashEvent(item)) continue;
                 var name = EventName(item);
-                if (name is null) continue;
-                if (name is "STACKED" or "REJECTED" or "RETURNED" or "CASHBOX"
-                    || (expectedName == "STORED" && name == "ESCROW"))
+                if (name is null)
+                {
+                    throw new InvalidDataException(
+                        "A cash event omitted its type; diagnostic requires reconciliation.");
+                }
+
+                if (name != expectedName)
                 {
                     throw new InvalidDataException(
                         $"Unexpected cash event {name}; diagnostic requires reconciliation.");
                 }
 
-                if (name == expectedName)
-                {
-                    return new CashDiagnosticEvent(
-                        name,
-                        RequiredInteger(item, "value"),
-                        RequiredString(item, "countryCode"),
-                        status.ObservedAt);
-                }
+                return new CashDiagnosticEvent(
+                    name,
+                    RequiredInteger(item, "value"),
+                    RequiredString(item, "countryCode"),
+                    status.ObservedAt);
             }
 
             if (status.DeviceState == "DISABLED")
@@ -337,6 +339,11 @@ public sealed class CashReceptionDiagnostic(
             var status = await device.ReadNextStatusAsync(deadline - DateTimeOffset.UtcNow, cancellationToken);
             if (status is null) break;
             if (status.ObservedAt < notBefore) continue;
+            if (status.Events.Any(IsCashEvent))
+            {
+                throw new InvalidDataException(
+                    "A cash event arrived before ACCEPTING was observed; diagnostic requires reconciliation.");
+            }
             if (string.Equals(status.DeviceState, "ACCEPTING", StringComparison.OrdinalIgnoreCase))
             {
                 return status.ObservedAt;
@@ -354,6 +361,11 @@ public sealed class CashReceptionDiagnostic(
         {
             var status = await device.ReadNextStatusAsync(deadline - DateTimeOffset.UtcNow, cancellationToken);
             if (status is null) break;
+            if (status.Events.Any(IsCashEvent))
+            {
+                throw new InvalidDataException(
+                    "An additional cash event arrived during closing; diagnostic requires reconciliation.");
+            }
             if (status.ObservedAt >= notBefore
                 && string.Equals(status.DeviceState, "DISABLED", StringComparison.OrdinalIgnoreCase)) return;
         }
@@ -399,6 +411,17 @@ public sealed class CashReceptionDiagnostic(
             || TryGetString(value, "stateAsString", out eventType)
             ? eventType!.ToUpperInvariant()
             : null;
+    }
+
+    private static bool IsCashEvent(JsonElement value)
+    {
+        if (TryGetString(value, "type", out var type))
+        {
+            return string.Equals(type, "CashEventResponse", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return TryGetString(value, "eventTypeAsString", out _)
+            || TryGetString(value, "stateAsString", out _);
     }
 
     private static long RequiredInteger(JsonElement value, string name)
