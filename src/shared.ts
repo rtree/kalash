@@ -110,6 +110,7 @@ export interface PhotoDto {
   expiresAt: string;
 }
 export interface PublicConfig {
+  cashPolicy?: 'strict' | 'interim-ledger';
   chainId: 84532;
   usdc: Address;
   vault: Address | null;

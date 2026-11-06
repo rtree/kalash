@@ -15,7 +15,8 @@ internal static class CashTimingTests
         ReadinessTimestampOrdering();
         HumanWindowAndLocalCloseDetail();
         TimingConstants();
-        Console.WriteLine("6 cash timing boundary tests passed.");
+        CashPolicyMode();
+        Console.WriteLine("7 cash timing and policy boundary tests passed.");
         return Task.CompletedTask;
     }
 
@@ -106,6 +107,25 @@ internal static class CashTimingTests
             && ProductTiming.EscrowDecisionMs == 2_000
             && ProductTiming.PayoutCompletionMs == 180_000,
             "Shared product timing constants differ from the approved values.");
+    }
+
+    private static void CashPolicyMode()
+    {
+        var previous = Environment.GetEnvironmentVariable("KALASH_CASH_POLICY");
+        try
+        {
+            foreach (var value in new string?[] { null, "", "strict", "INTERIM-LEDGER", "interim-ledger " })
+            {
+                Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", value);
+                Check(!ProductCashPolicy.InterimEnabled, $"Cash policy value '{value}' did not fail closed to strict.");
+            }
+            Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", "interim-ledger");
+            Check(ProductCashPolicy.InterimEnabled, "Exact interim-ledger policy did not enable interim behavior.");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", previous);
+        }
     }
 
     private static ProductCashReadinessEvidence Readiness(CashStartCommand command,

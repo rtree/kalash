@@ -40,6 +40,7 @@ export interface VisitDto {
   donationId?: string | null;
 }
 export interface AtmDto {
+  cashPolicy?: 'strict' | 'interim-ledger';
   id: string;
   name: string;
   templeId: string;

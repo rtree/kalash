@@ -24,6 +24,7 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
     private bool healthReady;
     private ItlDeviceStatusSnapshot? latest;
     private long? lastOwnedPollAt;
+    private long nextAuditRecheck;
     private bool initialized;
     private bool emergencyStopAttempted;
     private string? singleHundredSession;
@@ -172,6 +173,7 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
         {
             if (!initialized) throw new InvalidOperationException("Product owner is not initialized.");
             if (State.Intake is not { Closed: false }) await PollAsync(token);
+            await TryRetireHistoricalIntakeAsAuditAsync(token);
             var permissionRefreshed = false;
             try
             {
@@ -215,7 +217,8 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
                 await StopIfClosingAsync(token);
                 await FinishIfClosedAsync(token);
             }
-            else if (allowStart && healthReady && !PayoutBlocksIntake && permissionRefreshed && Now >= nextCommandPoll && !State.Locked
+            else if (allowStart && healthReady && !PayoutBlocksIntake && permissionRefreshed && Now >= nextCommandPoll
+                && !ProductCashPolicy.BlocksOperations(State)
                 && (!State.SingleHundred || singleHundredSession is null)
                 && State.Outbox.Count == 0 && permission is { State: "awaiting_device", CloseRequested: false })
             {
@@ -245,7 +248,7 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
                     await StopIfClosingAsync(token);
                 }
             }
-            else if (State.Locked && State.Intake is null)
+            else if (ProductCashPolicy.BlocksOperations(State) && State.Intake is null)
             {
                 Log("product_cash_locked_without_intake");
             }
@@ -343,7 +346,8 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
     public async Task<CashDevicePreflight> CheckPreconditionsAsync(CashStartCommand command, CancellationToken token)
     {
         command.Validate(atmId, Now);
-        if (!healthReady || PayoutBlocksIntake || State.Locked || !State.ManualEscrowConfigured || State.Intake is { Closed: false } || State.Outbox.Count != 0
+        if (!healthReady || PayoutBlocksIntake || ProductCashPolicy.BlocksOperations(State)
+            || !State.ManualEscrowConfigured || State.Intake is { Closed: false } || State.Outbox.Count != 0
             || State.CompletedSessions.Contains(command.CashSessionId))
             return new(false, "unknown", "product_journal_not_clear");
         permission = await central.GetCashSessionAsync(token);
@@ -401,8 +405,9 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
         while (Now < until)
         {
             await PollAsync(token);
-            if (State.Locked || State.Intake?.Command.CashSessionId != cashSessionId) return null;
             var intake = State.Intake;
+            if (State.Locked || intake is null
+                || intake.Command.CashSessionId != cashSessionId) return null;
             if (latest?.DeviceState == "ACCEPTING")
             {
                 State.Ready(latest.ObservedAt);
@@ -513,6 +518,60 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
         }
         State.PollInFlight = false;
         await SaveAsync();
+    }
+
+    private async Task TryRetireHistoricalIntakeAsAuditAsync(CancellationToken token)
+    {
+        if (!ProductCashPolicy.InterimEnabled || !ProductCashPolicy.CanReobserveClosedIntake(State)
+            || State.Intake is not { Closed: true } || Now < nextAuditRecheck
+            || State.PollInFlight || State.ConnectionDispatchPending || State.Outbox.Count != 0
+            || ActivePayout is not null
+            || State.Payouts.Any(payout => !payout.Reconciled
+                && payout.State is "dispatching" or "unknown")
+            || State.LockReasons.Count == 0
+            || State.LockReasons.Any(reason => !ProductCashPolicy.IsAuditableHistoricalReason(reason)))
+            return;
+        var intake = State.Intake!;
+        if (intake.Reasons.Count == 0
+            || intake.Reasons.Any(reason => !ProductCashPolicy.IsAuditableHistoricalReason(reason)))
+            return;
+
+        nextAuditRecheck = Now + ProductTiming.EscrowDecisionMs;
+        var commands = await commandJournal.ReadAllAsync(token);
+        if (commands.Any(entry => entry.State is "dispatching" or "unknown"
+            || entry.PendingReportState == "dispatching"
+            || entry.State is "observed" or "reported"
+                && !State.CompletedSessions.Contains(entry.Command.CashSessionId)
+                && State.Intake?.Command.CommandId != entry.Command.CommandId))
+            return;
+
+        if (State.PollInFlight || State.Outbox.Count != 0) return;
+        var pollAt = lastOwnedPollAt;
+        var observed = latest;
+        if (pollAt is null || observed is null || !Fresh(pollAt.Value, Now)
+            || Now - pollAt.Value > ProductTiming.EscrowDecisionMs
+            || observed.DeviceState != "DISABLED" || observed.Events.Count != 0)
+            return;
+
+        var lockReasons = State.LockReasons.ToHashSet(StringComparer.Ordinal);
+        var intakeReasons = intake.Reasons.ToHashSet(StringComparer.Ordinal);
+        var health = await device.ReadHealthAsync(token);
+        var readback = health.Readback;
+        readback.Inventory.Validate();
+        if (!health.UsbConnected || !health.ConnectionOpen || !health.DeviceStarted
+            || !readback.Healthy || !readback.EscrowEmpty || readback.DeviceStateCode != 4
+            || readback.EnabledValues.Length == 0 || !State.ManualEscrowConfigured
+            || State.RouteVerificationRequired
+            || State.SingleHundred && !readback.EnabledValues.SequenceEqual([10_000L])
+            || State.PollInFlight || State.Outbox.Count != 0
+            || State.LockReasons.Count != lockReasons.Count
+            || State.LockReasons.Any(reason => !lockReasons.Contains(reason))
+            || intake.Reasons.Count != intakeReasons.Count
+            || intake.Reasons.Any(reason => !intakeReasons.Contains(reason)))
+            return;
+
+        if (State.RetireHistoricalIntakeAsAudit(Now))
+            await SaveAsync();
     }
 
     private void Observe(JsonElement item, long observedAt, ref bool acceptanceObserved,

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { getAddress, keccak256, toHex, type Hex } from 'viem';
 import { CASH_LIMIT_PAISE } from '../atm.ts';
+import { interimCashEnabled } from '../cash-policy.ts';
 import {
   CASH_DEMO_LIMIT_PAISE, CASH_DEMO_NOTE_LIMIT, applyCashEvent, cashTotals,
   newCashLedger, validateCashEvent, type CashEvent, type CashLedger, type CashSessionDto,
@@ -9,7 +10,7 @@ import { donationPointUnits, type CashDonation } from '../shared.ts';
 import { db } from './config.ts';
 import { temples } from './catalog.ts';
 import {
-  atmReference, cashCloseUpdate, credentialHash, validAtm, visitReference,
+  atmReference, cashCloseUpdate, cashLedgerHistoricalOnly, cashLedgerHasOperationalError, cashReconciliationBlocks, credentialHash, validAtm, visitReference,
   type AtmRecord, type VisitRecord,
 } from './atm.ts';
 import { HttpError, requireValue } from './errors.ts';
@@ -46,7 +47,7 @@ export async function getControllerCashSession(atmId: string, authorization: str
     if (['closed', 'confirmed'].includes(visit.state)) return { session: null };
     const expired = visit.state === 'accepting' && (visit.cashDeadline ?? 0) <= Date.now();
     const stop = expired ? cashCloseUpdate(visit, 'deadline')
-      : atm.cashReconciliationRequired || atm.activePayoutId ? { ...cashCloseUpdate(visit, 'fault'), state: 'reconciling' as const } : null;
+      : cashReconciliationBlocks(atm) || atm.activePayoutId ? { ...cashCloseUpdate(visit, 'fault'), state: 'reconciling' as const } : null;
     if (stop) tx.update(visitRef, stop);
     return { session: {
       visitId: visit.id, cashSessionId: visit.cashSessionId,
@@ -81,7 +82,7 @@ export async function reportControllerCashEvent(
       tx.set(atmRef.collection('cashRejectedEvents').doc(digest(body)), {
         code: 'INVALID_CASH_EVENT', payloadHash: digest(body), receivedAt: Date.now(),
       });
-      tx.update(atmRef, { cashReconciliationRequired: true });
+      tx.update(atmRef, { cashReconciliationRequired: true, cashHistoricalReconciliationOnly: false, cashPhysicalReconciliationRequired: true, cashAuditReadback: null });
       if (visitRef && visit?.mode === 'cash' && visit.atmId === atm.id && visit.cashSessionId === body.cashSessionId) {
         tx.update(visitRef, { ...cashCloseUpdate(visit, 'fault'), state: 'reconciling', reconciliationReason: 'invalid_cash_event' });
       }
@@ -119,7 +120,7 @@ export async function reportControllerCashEvent(
       tx.set(atmRef.collection('cashRejectedEvents').doc(payloadHash), {
         code, payloadHash, event, receivedAt: Date.now(),
       });
-      tx.update(atmRef, { cashReconciliationRequired: true });
+      tx.update(atmRef, { cashReconciliationRequired: true, cashHistoricalReconciliationOnly: false, cashPhysicalReconciliationRequired: true, cashAuditReadback: null });
       tx.update(visitRef, { ...cashCloseUpdate(visit, 'fault'), state: 'reconciling', reconciliationReason: code });
       return { error: new HttpError(409, code, message) };
     };
@@ -151,7 +152,7 @@ export async function reportControllerCashEvent(
     const flag = (reason: string) => {
       if (!ledger.reconciliationReasons.includes(reason)) ledger.reconciliationReasons.push(reason);
     };
-    if (atm.cashReconciliationRequired || ['reconciling', 'needs_reconciliation'].includes(visit.state)) flag('prior_reconciliation_required');
+    if (cashReconciliationBlocks(atm) || ['reconciling', 'needs_reconciliation'].includes(visit.state)) flag('prior_reconciliation_required');
     if (event.type === 'intake_started' && (!['observed', 'reported'].includes(command.state)
       || !['accepting', 'closing'].includes(visit.state) || !visit.cashDeadline)) flag('start_not_observed_ready');
     if (event.type === 'intake_started' && command.readinessEvidence
@@ -187,8 +188,18 @@ export async function reportControllerCashEvent(
       return reject('CASH_SETTLEMENT_CONFLICT', 'Donation or mint reservation exists without the matching accepted close event.');
     }
     const now = Date.now();
+    const historicalClose = interimCashEnabled() && event.type === 'intake_closed'
+      && event.data.disabled && event.data.escrowEmpty && event.data.reason !== 'fault'
+      && cashLedgerHistoricalOnly(ledger) && ['observed', 'reported'].includes(command.state)
+      && !visit.reconciliationReason && !visit.donationId
+      && !atm.activePayoutId && !atm.cashPhysicalReconciliationRequired;
     const visitUpdate: Record<string, unknown> = { cashAcceptedPaise: totals.storedPaise.toString(), cashStreamId: event.streamId };
-    if (ledger.reconciliationReasons.length) {
+    if (historicalClose && event.type === 'intake_closed') {
+      Object.assign(visitUpdate, {
+        state: 'closed', closedAt: now, cashCloseRequested: true, cashCloseReason: event.data.reason,
+        cashHistoricalAuditWarning: true, reconciliationReasons: ledger.reconciliationReasons,
+      });
+    } else if (ledger.reconciliationReasons.length) {
       Object.assign(visitUpdate, cashCloseUpdate(visit, 'fault'), { state: 'reconciling', reconciliationReasons: ledger.reconciliationReasons });
     } else if (event.type === 'intake_closed') {
       Object.assign(visitUpdate, {
@@ -227,14 +238,19 @@ export async function reportControllerCashEvent(
     }
     tx.create(eventRef, { payloadHash, event, receivedAt: now });
     tx.set(streamRef, { lastSequence: event.sequence, lastOccurredAt: event.occurredAt });
-    tx.set(sessionRef, { atmId, visitId: visit.id, cashSessionId: visit.cashSessionId, streamId: event.streamId, ledger });
+    tx.set(sessionRef, { atmId, visitId: visit.id, cashSessionId: visit.cashSessionId, streamId: event.streamId, ledger,
+      ...(event.type === 'intake_closed' ? { closeEvidence: event, cashHistoricalAuditWarning: historicalClose } : {}),
+    });
     tx.set(budgetRef, {
       storedPaise: storedPaise.toString(), storedNotes, pendingPaise: pendingPaise.toString(), pendingNotes,
     });
     tx.update(visitRef, visitUpdate);
     tx.update(atmRef, {
       cashStreamId: event.streamId,
-      ...(ledger.reconciliationReasons.length ? { cashReconciliationRequired: true } : {}),
+      ...(ledger.reconciliationReasons.length ? {
+        cashReconciliationRequired: true, cashHistoricalReconciliationOnly: historicalClose,
+        ...(cashLedgerHasOperationalError(ledger) ? { cashPhysicalReconciliationRequired: true } : {}),
+      } : {}),
       ...(event.type === 'intake_closed' && !ledger.reconciliationReasons.length && !shouldConfirm ? { activeVisitId: null } : {}),
     });
     return { accepted: true as const, streamId: event.streamId, sequence: event.sequence };

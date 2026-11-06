@@ -12,7 +12,8 @@ public static class ProductCashHost
     {
         if (!enabled) throw new InvalidOperationException("Product connection is forbidden while the physical gate is off.");
         var state = await journal.LoadAsync(token);
-        if (state.Locked || state.Payouts.Any(payout => !payout.Reconciled && payout.State is not ("reported" or "precondition_failed"))
+        if ((state.Locked && !ProductCashPolicy.CanReobserveClosedIntake(state))
+            || state.Payouts.Any(payout => !payout.Reconciled && payout.State is not ("reported" or "precondition_failed"))
             || state.ConnectionDispatchPending || state.PollInFlight || state.Intake is { Closed: false })
             throw new InvalidOperationException("Unresolved product cash state forbids another OpenConnection.");
         state.ConnectionDispatchPending = true;

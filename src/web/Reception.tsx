@@ -130,6 +130,9 @@ export function AtmPage({ atmId }: { atmId: string }) {
           ? 'Cash reception ends soon. Do not insert another banknote.'
           : accepting ? 'Cash acceptance is active. Insert only one INR note at a time.' : 'Cash is not accepting. Do not insert banknotes.'}
       </div>
+      {atm?.cashPolicy === 'interim-ledger' && <p className="notice notice-info">
+        Interim CashIN: sign the QR to start reception. Historical ledger differences are retained without blocking the next visit.
+      </p>}
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
         event.preventDefault();

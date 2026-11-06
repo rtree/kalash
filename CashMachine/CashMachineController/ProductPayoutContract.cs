@@ -18,6 +18,7 @@ public sealed record ProductPayoutCommand(string CommandId, string Type, string 
             || ExpiresAt <= CreatedAt || ExpiresAt - CreatedAt > ProductTiming.HumanWindowMs)
             throw new InvalidDataException("Invalid payout authorization.");
         Baseline.Validate();
+        // Central binds the administrator approval to actual Payout inventory, not the cash ledger or Cashbox.
         if (CashInventory.ParseValue(AmountPaise) != ProductPayoutInventory.Value(Baseline))
             throw new InvalidDataException("Payout must equal the full approved recycler value.");
     }

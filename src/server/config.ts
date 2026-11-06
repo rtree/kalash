@@ -8,7 +8,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
 import { CHAIN_ID, USDC, type PublicConfig } from '../shared.ts';
 import { cashFeeAbi } from '../payout.ts';
+import { currentCashPolicy } from '../cash-policy.ts';
 
+const cashPolicy = currentCashPolicy();
 export const project = process.env.GOOGLE_CLOUD_PROJECT ?? 'kalash-donation';
 export const origin = process.env.PUBLIC_ORIGIN ?? 'http://localhost:3000';
 const serviceAccount = `kalash-central@${project}.iam.gserviceaccount.com`;
@@ -61,6 +63,7 @@ if (deployment) {
 }
 const firebase = JSON.parse(readFileSync('config/firebase.public.json', 'utf8')) as PublicConfig['firebase'];
 export const publicConfig: PublicConfig = {
+  cashPolicy,
   chainId: CHAIN_ID, usdc: USDC, vault: deployment?.vault ?? null, stamp: deployment?.stamp ?? null,
   cashFeeVault: deployment?.cashFeeVault ?? null,
   reownProjectId: await secret('kalash-reown-project-id'), firebase, origin,

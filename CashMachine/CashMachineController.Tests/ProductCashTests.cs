@@ -64,6 +64,9 @@ internal static class ProductCashTests
         await Run("STORED requires pending dispatched identity and payout", StoredIdentity);
         await Run("fault latches and late STORED never resurrects credit", NoResurrection);
         await Run("close reconciles all counters and denomination levels", CloseMismatch);
+        await Run("strict cash policy keeps historical reconciliation locked", StrictHistoricalMismatch);
+        await Run("interim policy retires only verified closed intake as unresolved audit", InterimHistoricalMismatch);
+        await Run("interim policy does not retire hardware faults or unknown dispatch", InterimUnsafeHistoricalMismatch);
         await Run("inventory wire fields and mandatory counters", InventoryContract);
         await Run("legacy readback stays unknown rather than inventing a device state", LegacyReadback);
         await Run("readiness permits bounded server clock skew but never stale observations", ReadinessClock);
@@ -258,6 +261,155 @@ internal static class ProductCashTests
             Check(state.Outbox[^2].Type == "needs_reconciliation", "Reasons must precede close.");
         }
         return Task.CompletedTask;
+    }
+
+    private static async Task StrictHistoricalMismatch()
+    {
+        using var policy = new CashPolicyEnvironment(null);
+        Check(!ProductCashPolicy.InterimEnabled, "An absent cash policy must remain strict.");
+        await using var fixture = await OwnerFixture.Create();
+        SeedHistoricalMismatch(fixture.Owner.State);
+        Check(ProductCashPolicy.BlocksOperations(fixture.Owner.State),
+            "Strict policy did not block a historical reconciliation lock.");
+        Check(!ProductCashPolicy.CanReobserveClosedIntake(fixture.Owner.State),
+            "Strict policy allowed a locked historical intake to reopen for physical observation.");
+        await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+
+        await fixture.Owner.TickAsync(None, allowStart: false);
+        Check(fixture.Owner.State.Locked && !fixture.Owner.State.HistoricalAuditRetired
+            && fixture.Owner.State.Intake!.Pending is not null
+            && fixture.Owner.State.Intake.Notes.Single() is { Stored: false, Returned: false, Credited: false }
+            && fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0 && fixture.Itl.ReturnCount == 0,
+            "Strict policy retired a historical lock or replayed a physical command.");
+    }
+
+    private static async Task InterimHistoricalMismatch()
+    {
+        using var policy = new CashPolicyEnvironment("interim-ledger");
+        Check(ProductCashPolicy.InterimEnabled, "The exact interim-ledger policy was not recognized.");
+        await using var fixture = await OwnerFixture.Create();
+        SeedHistoricalMismatch(fixture.Owner.State);
+        Check(ProductCashPolicy.BlocksOperations(fixture.Owner.State),
+            "Interim classification bypassed the required physical audit readback.");
+        Check(ProductCashPolicy.CanReobserveClosedIntake(fixture.Owner.State),
+            "Interim policy did not permit a qualifying closed intake to reopen for readback.");
+        var oldIntake = fixture.Owner.State.Intake!;
+        var oldInventory = oldIntake.FinalInventory;
+        var oldSequence = fixture.Owner.State.NextSequence;
+        var oldAcknowledged = fixture.Owner.State.AcknowledgedSequence;
+        await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+
+        await fixture.Owner.TickAsync(None, allowStart: false);
+        Check(!fixture.Owner.State.Locked && fixture.Owner.State.HistoricalAuditRetired
+            && !ProductCashPolicy.BlocksOperations(fixture.Owner.State)
+            && fixture.Owner.State.AuditWarnings.Contains("inventory_mismatch")
+            && fixture.Owner.State.AuditWarnings.Contains("unresolved_note_audit:" + oldIntake.Notes.Single().Key)
+            && oldIntake.FinalInventory == oldInventory
+            && oldIntake.Reasons.Contains("unexpected_device_state_event")
+            && oldIntake.Notes.Single() is
+                { Decision: "return", DispatchStarted: true, Stored: false, Returned: false, Credited: false,
+                    AuditDisposition: "unresolved_audit" }
+            && fixture.Owner.State.NextSequence == oldSequence
+            && fixture.Owner.State.AcknowledgedSequence == oldAcknowledged
+            && fixture.Owner.State.Outbox.Count == 0
+            && fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0 && fixture.Itl.ReturnCount == 0,
+            "Verified historical intake was not archived without fabricating a note outcome or changing the ledger.");
+
+        await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+        var recoveredAudit = await fixture.Journal.LoadAsync(None);
+        Check(recoveredAudit.HistoricalAuditRetired && !recoveredAudit.Locked
+            && recoveredAudit.Intake!.Pending is null
+            && recoveredAudit.Intake.Notes.Single() is
+                { Stored: false, Returned: false, Credited: false, AuditDisposition: "unresolved_audit" }
+            && recoveredAudit.NextSequence == oldSequence
+            && recoveredAudit.AcknowledgedSequence == oldAcknowledged,
+            "Audit retirement did not survive journal reload with sequence and non-credit intact.");
+
+        var nextCommand = fixture.Central.Command;
+        var preflight = await fixture.Owner.CheckPreconditionsAsync(nextCommand, None);
+        Check(preflight.Ready && fixture.Owner.State.Intake?.Command.CommandId == nextCommand.CommandId
+            && fixture.Owner.State.Intake.Notes.Count == 0
+            && fixture.Owner.State.HistoricalIntakes.Single() is
+                { Closed: true, AuditRetiredAt: not null, Notes.Count: 1, FinalInventory.Counters.Stored: 57 }
+            && fixture.Owner.State.HistoricalIntakes.Single().Notes.Single() is
+                { Stored: false, Returned: false, Credited: false, AuditDisposition: "unresolved_audit" },
+            "Interim policy did not preserve the old ledger and allow a distinct signed intake after safe audit retirement.");
+
+        var afterNextIntake = await fixture.Journal.LoadAsync(None);
+        Check(afterNextIntake.Intake is { Closed: false }
+            && afterNextIntake.HistoricalIntakes.Single().FinalInventory!.Counters == new CashInventoryCounters(57, 2, 53, 1)
+            && afterNextIntake.HistoricalIntakes.Single().Notes.Single().AuditDisposition == "unresolved_audit",
+            "A new intake overwrote the retired historical ledger or unresolved note audit.");
+    }
+
+    private static async Task InterimUnsafeHistoricalMismatch()
+    {
+        using var policy = new CashPolicyEnvironment("interim-ledger");
+        await using (var fault = await OwnerFixture.Create())
+        {
+            SeedHistoricalMismatch(fault.Owner.State);
+            fault.Itl.UsbDisconnected = true;
+            await fault.Journal.SaveAsync(fault.Owner.State, None);
+            await fault.Owner.TickAsync(None, allowStart: false);
+            Check(fault.Owner.State.Locked && !fault.Owner.State.HistoricalAuditRetired
+                && ProductCashPolicy.BlocksOperations(fault.Owner.State)
+                && fault.Itl.EnableCount == 0 && fault.Itl.AcceptCount == 0 && fault.Itl.ReturnCount == 0,
+                "Interim policy retired history despite a live USB fault.");
+        }
+
+        await using (var unknown = await OwnerFixture.Create())
+        {
+            SeedHistoricalMismatch(unknown.Owner.State);
+            await new CashCommandJournal(unknown.Files.File("commands")).SaveAsync(new CashCommandJournalEntry
+            {
+                Command = unknown.Central.Command,
+                ContentHash = unknown.Central.Command.ContentHash(),
+                State = "unknown",
+                Reason = "synthetic_unknown_dispatch",
+                UpdatedAt = DateTimeOffset.UtcNow
+            }, None);
+            await unknown.Journal.SaveAsync(unknown.Owner.State, None);
+            await unknown.Owner.TickAsync(None, allowStart: false);
+            Check(unknown.Owner.State.Locked && !unknown.Owner.State.HistoricalAuditRetired
+                && ProductCashPolicy.BlocksOperations(unknown.Owner.State)
+                && unknown.Itl.EnableCount == 0 && unknown.Itl.AcceptCount == 0 && unknown.Itl.ReturnCount == 0,
+                "Interim policy retired an unresolved command dispatch.");
+        }
+    }
+
+    private static void SeedHistoricalMismatch(ProductCashState state)
+    {
+        var command = Command();
+        state.Begin(command, Inventory(), [10_000]);
+        var intake = state.Intake!;
+        intake.CloseReason = "fault";
+        intake.CloseDetail = "historical_device_mismatch";
+        intake.ClosingAt = command.CreatedAt + 1;
+        intake.DisableDispatchStarted = true;
+        intake.DisabledObserved = true;
+        intake.Closed = true;
+        intake.FinalInventory = new CashInventory(CashInventory.Denominations.Select(value =>
+            new CashInventoryLevel(value.ToString(), value == 10_000 ? 57 : 0, 0)).ToArray(),
+            new CashInventoryCounters(57, 2, 53, 1));
+        intake.Notes.Add(new ProductCashNote
+        {
+            Key = $"{command.CashSessionId}:1",
+            Value = 10_000,
+            Currency = "INR",
+            Decision = "return",
+            DispatchStarted = true
+        });
+        var reasons = new[]
+        {
+            "unexpected_device_state_event", "unexpected_device_state", "close_observation_timeout",
+            "unresolved_escrow", "counter_mismatch", "inventory_mismatch", "uncredited_notes"
+        };
+        intake.Reasons.AddRange(reasons);
+        state.LockReasons.AddRange(reasons);
+        state.Locked = true;
+        state.CompletedSessions.Add(command.CashSessionId);
+        state.NextSequence = 7;
+        state.AcknowledgedSequence = 6;
     }
 
     private static Task ReadinessClock()
@@ -1417,6 +1569,15 @@ internal static class ProductCashTests
         public void Dispose() => Directory.Delete(root, true);
     }
 
+    private sealed class CashPolicyEnvironment : IDisposable
+    {
+        private readonly string? previous = Environment.GetEnvironmentVariable("KALASH_CASH_POLICY");
+
+        public CashPolicyEnvironment(string? value) => Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", value);
+
+        public void Dispose() => Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", previous);
+    }
+
     private sealed class OwnerFixture : IAsyncDisposable
     {
         public readonly FixtureDirectory Files = new();
@@ -1545,9 +1706,17 @@ internal static class ProductCashTests
         }
     }
 
-    private sealed class SyntheticCentral(CashStartCommand command) : HttpMessageHandler
+    private sealed class SyntheticCentral : HttpMessageHandler
     {
+        private readonly CashStartCommand command;
+        public SyntheticCentral(CashStartCommand command)
+        {
+            this.command = command;
+            Command = command;
+        }
+
         public const string SensitiveErrorBody = "synthetic-sensitive-response-body-not-for-logs";
+        public CashStartCommand Command { get; }
         public string ExpectedOrigin = "https://central.example";
         public HttpStatusCode? HealthFailureStatus;
         public HttpStatusCode? CashSessionFailureStatus;

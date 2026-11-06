@@ -1,11 +1,11 @@
 [CmdletBinding()]
-param([switch]$OneHundred)
+param([switch]$OneHundred, [switch]$Interim)
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $project = Join-Path $PSScriptRoot 'KALASH.CashMachineController.csproj'
 $dotnet = (Get-Command dotnet.exe -CommandType Application -ErrorAction Stop).Source
-$variables = @('KALASH_ITL_REST_SERVER_DIR', 'KALASH_ITL_DOTNET', 'KALASH_ITL_FRESH_PACKAGE_DIR')
+$variables = @('KALASH_ITL_REST_SERVER_DIR', 'KALASH_ITL_DOTNET', 'KALASH_ITL_FRESH_PACKAGE_DIR', 'KALASH_CASH_POLICY')
 $previous = @{}
 $exitCode = 1
 foreach ($name in $variables) {
@@ -18,6 +18,7 @@ if ($OneHundred -and $env:KALASH_PRODUCT_CASH_ENABLE -cne 'OWNER_ATTENDED_PRODUC
 
 Push-Location $repositoryRoot
 try {
+    if ($Interim) { $env:KALASH_CASH_POLICY = 'interim-ledger' }
     $env:KALASH_ITL_REST_SERVER_DIR = Join-Path $repositoryRoot 'CashMachine\RESTAPIServer'
     $env:KALASH_ITL_DOTNET = $dotnet
     $env:KALASH_ITL_FRESH_PACKAGE_DIR = Join-Path $repositoryRoot '_do_not_redistribute_\Fresh-ITL_SDK_Package_v3.2.9'

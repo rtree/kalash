@@ -190,6 +190,16 @@ administrator approval pays out all actual Payout notes; value differences
 are retained, not turned into invented donation credit or ignored device
 faults. Cashbox remains excluded and uncertain physical commands never retry.
 
+Interim retirement requires a closed historical intake, no pending outbox or
+unresolved payout dispatch, and a new owned healthy DISABLED/empty-escrow
+readback. The Host may reopen that allowlisted historical state only in disabled
+mode to obtain this evidence; reopening does not clear its lock. Retirement is
+an audit annotation rather than a fabricated RETURNED/STORED event. Central
+retains the original ledger, command and device evidence. Fee coverage is keyed
+by cash session to avoid charging recognized notes again across retirements.
+The administrator view shows recognized cash, actual Payout cash and their
+signed difference before approving the exact actual full payout amount.
+
 The owner-approved demo administrator/fee payer for temple-01 is explicitly
 registered in `config/temple-admins.public.json`. Wallet ownership is verified
 through the existing one-use SIWE/Firebase session; this demo role does not

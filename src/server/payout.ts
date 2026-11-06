@@ -12,11 +12,16 @@ import {
   type PayoutReconciliationAuthorization,
 } from '../payout.ts';
 import { cashTotals, validateCashInventory, type CashInventory, type CashLedger } from '../cash.ts';
-import { atmReference, credentialHash, screenCredential, validAtm, validScreen, validateControllerCredential, type AtmRecord } from './atm.ts';
+import {
+  atmReference, cashAuditReasonAllowed, cashLedgerAuditableAfterReadback, cashLedgerHistoricalOnly,
+  cashReconciliationBlocks, credentialHash, screenCredential, validAtm, validScreen,
+  validateControllerCredential, type AtmRecord,
+} from './atm.ts';
 import { chain, db, deployment, minter, origin } from './config.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { validateCashFeeReceipt } from './cash-fee-receipt.ts';
 import { HumanWindowMs } from '../timing.ts';
+import { currentCashPolicy, interimCashEnabled } from '../cash-policy.ts';
 
 const adminConfig: { chainId: number; templeWalletAdmins: Record<string, string> } =
   JSON.parse(readFileSync('config/temple-admins.public.json', 'utf8'));
@@ -24,7 +29,9 @@ const publicWallets: { wallets: Record<string, string> } = JSON.parse(readFileSy
 const HASH = /^0x[0-9a-f]{64}$/i;
 const MAX_DONATIONS = 200;
 interface Account { activeInvoiceId?: Hex; dispensedPaise?: string }
-interface CashSource { id: Hex; cashSessionId: string; cashAmountPaise: string }
+interface CashSource {
+  sourceKey: string; cashSessionId: string; cashAmountPaise: string; donationIds: Hex[];
+}
 interface PayoutRecord {
   command: PayoutCommand; state: PayoutState; approver: Address;
   invoiceIds: Hex[]; reportHash?: string; observedAt?: number;
@@ -41,10 +48,24 @@ function admin(templeId: string, wallet: Address) {
   403, 'TEMPLE_ADMIN_REQUIRED', 'Only the explicitly registered temple administrator may settle or approve payouts.');
 }
 function readyIdle(atm: AtmRecord) {
-  requireValue(!atm.activeVisitId && !atm.activePayoutId && !atm.cashReconciliationRequired,
+  requireValue(!atm.activeVisitId && !atm.activePayoutId && !cashReconciliationBlocks(atm),
     409, 'ATM_BUSY_OR_LOCKED', 'Finish reception or reconcile the existing operation before payout.');
   requireValue(cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
     409, 'CONTROLLER_NOT_READY', 'Fresh Controller readiness is required.');
+}
+function sourceCoverageKeys(source: CashSource) {
+  return [...new Set([source.sourceKey, ...source.donationIds])];
+}
+function historicalLedgerEligible(
+  ledger: CashLedger, visit: Record<string, unknown> | undefined, cashSessionId: string,
+) {
+  const readback = visit?.cashRetirementReadback as PayoutInventoryReport | undefined;
+  return ledger.reconciliationReasons.length === 0 || cashLedgerHistoricalOnly(ledger)
+    || (visit?.state === 'closed' && Number.isSafeInteger(visit.cashRetiredAt)
+      && visit.cashHistoricalAuditWarning === true && visit.cashSessionId === cashSessionId
+      && readback?.deviceState === 'DISABLED' && readback.escrowEmpty === true
+      && typeof readback.deviceId === 'string' && Number.isSafeInteger(readback.observedAt)
+      && cashLedgerAuditableAfterReadback(ledger));
 }
 function reportedInventory(atm: AtmRecord) {
   const report = inventoryInput(atm.payoutInventory);
@@ -62,7 +83,8 @@ function canonical(value: unknown): string {
     .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`).join(',')}}`;
   return JSON.stringify(value) ?? 'null';
 }
-async function sources(templeId: string): Promise<CashSource[]> {
+async function sources(templeId: string, atmId?: string): Promise<CashSource[]> {
+  if (interimCashEnabled()) return interimLedgerSources(templeId, atmId);
   const rows = await db.collection('donations').where('templeId', '==', templeId).limit(MAX_DONATIONS + 1).get();
   requireValue(rows.size <= MAX_DONATIONS, 409, 'SETTLEMENT_QUERY_LIMIT', 'Cash settlement requires a bounded operator reconciliation.');
   return rows.docs.flatMap((row) => {
@@ -71,8 +93,56 @@ async function sources(templeId: string): Promise<CashSource[]> {
     requireValue(HASH.test(row.id) && typeof data.cashSessionId === 'string'
       && PAYOUT_UUID.test(data.cashSessionId) && typeof data.cashAmountPaise === 'string'
       && /^[1-9]\d{0,15}$/.test(data.cashAmountPaise), 409, 'INVALID_CASH_SOURCE', 'Malformed cash donation cannot be settled.');
-    return [{ id: row.id as Hex, cashSessionId: data.cashSessionId, cashAmountPaise: data.cashAmountPaise }];
+    return [{ sourceKey: row.id, cashSessionId: data.cashSessionId, cashAmountPaise: data.cashAmountPaise,
+      donationIds: [row.id as Hex] }];
   });
+}
+async function interimLedgerSources(templeId: string, atmId?: string): Promise<CashSource[]> {
+  requireValue(typeof atmId === 'string', 409, 'INVALID_CASH_SOURCE', 'Interim settlement requires a registered ATM.');
+  const [sessions, donations] = await Promise.all([
+    db.collection('cashSessions').where('atmId', '==', atmId).limit(MAX_DONATIONS + 1).get(),
+    db.collection('donations').where('templeId', '==', templeId).limit(MAX_DONATIONS + 1).get(),
+  ]);
+  requireValue(sessions.size <= MAX_DONATIONS && donations.size <= MAX_DONATIONS,
+    409, 'SETTLEMENT_QUERY_LIMIT', 'Cash settlement requires a bounded operator reconciliation.');
+  const donationsBySession = new Map<string, { id: Hex; amount: bigint }[]>();
+  for (const row of donations.docs) {
+    const data = row.data();
+    if (data.paymentMethod !== 'cash' || data.status !== 'confirmed') continue;
+    requireValue(HASH.test(row.id) && typeof data.cashSessionId === 'string'
+      && PAYOUT_UUID.test(data.cashSessionId) && typeof data.cashAmountPaise === 'string'
+      && /^[1-9]\d{0,15}$/.test(data.cashAmountPaise), 409, 'INVALID_CASH_SOURCE', 'Malformed cash donation cannot be settled.');
+    const items = donationsBySession.get(data.cashSessionId) ?? [];
+    items.push({ id: row.id as Hex, amount: BigInt(data.cashAmountPaise) });
+    donationsBySession.set(data.cashSessionId, items);
+  }
+  const result: CashSource[] = [];
+  for (const row of sessions.docs) {
+    if (!PAYOUT_UUID.test(row.id)) {
+      throw new HttpError(409, 'INVALID_CASH_SOURCE', 'Malformed cash session cannot be settled.');
+    }
+    const session = row.data();
+    const ledger = session.ledger as CashLedger | undefined;
+    if (session.atmId !== atmId || !ledger?.closed) continue;
+    requireValue(session.cashSessionId === row.id,
+      409, 'INVALID_CASH_SOURCE', 'Cash session reference does not match its ledger.');
+    requireValue(typeof session.visitId === 'string', 409, 'INVALID_CASH_SOURCE', 'Cash ledger is not bound to a visit.');
+    const visit = (await db.collection('visits').doc(session.visitId).get()).data();
+    requireValue(visit?.atmId === atmId && visit.templeId === templeId && visit.cashSessionId === row.id,
+      409, 'INVALID_CASH_SOURCE', 'Cash ledger visit does not match its registered temple and ATM.');
+    requireValue(historicalLedgerEligible(ledger, visit, row.id),
+      409, 'UNRECONCILED_CASH_SOURCE', 'Cash ledger mismatch is not eligible for Interim fee settlement.');
+    let creditedPaise: bigint;
+    try { creditedPaise = cashTotals(ledger).creditedPaise; }
+    catch { throw new HttpError(409, 'INVALID_CASH_SOURCE', 'Malformed cash ledger cannot be settled.'); }
+    if (creditedPaise <= 0n) continue;
+    const amount = creditedPaise.toString();
+    const donationRows = donationsBySession.get(row.id) ?? [];
+    const donationIds = donationRows.reduce((sum, item) => sum + item.amount, 0n) === creditedPaise
+      ? donationRows.map((item) => item.id) : [];
+    result.push({ sourceKey: `cash-session:${row.id}`, cashSessionId: row.id, cashAmountPaise: amount, donationIds });
+  }
+  return result;
 }
 export async function getTemplePayout(atmId: string, wallet: Address) {
   const atm = validAtm((await atmReference(atmId).get()).data() as AtmRecord | undefined);
@@ -82,12 +152,26 @@ export async function getTemplePayout(atmId: string, wallet: Address) {
     ? (await db.collection('cashFeeInvoices').doc(account.activeInvoiceId).get()).data() as CashFeeInvoice | undefined : null;
   const payoutReference = atm.activePayoutId ?? atm.lastPayoutId;
   const payout = payoutReference ? (await db.collection('cashPayouts').doc(payoutReference).get()).data() : null;
-  return { atmId, templeId: atm.templeId, cashEnabled: atm.cashEnabled === true,
+  const result = { atmId, templeId: atm.templeId, cashEnabled: atm.cashEnabled === true,
     activeReception: Boolean(atm.activeVisitId), reconciliationRequired: atm.cashReconciliationRequired === true,
     controllerReady: cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
     inventory: atm.payoutInventory ?? null, invoice: invoice ?? null, payout,
     cashFeeVaultAvailable: Boolean(deployment?.cashFeeVault),
-    feeRatePercent: 3, feePaymentWallet: wallet, donationRecipientUnchanged: true };
+    feeRatePercent: 3, feePaymentWallet: wallet, donationRecipientUnchanged: true,
+    cashPolicy: currentCashPolicy(), recognizedCashPaise: undefined as string | undefined,
+    actualPayoutPaise: undefined as string | undefined, differencePaise: undefined as string | undefined };
+  if (interimCashEnabled()) {
+    const candidates = await sources(atm.templeId, atmId);
+    let recognizedCash = 0n;
+    for (const source of candidates) {
+      const session = (await db.collection('cashSessions').doc(source.cashSessionId).get()).data();
+      if (session?.atmId === atmId) recognizedCash += BigInt(source.cashAmountPaise);
+    }
+    const actualPayout = atm.payoutInventory ? payoutTotal(atm.payoutInventory.inventory) : 0n;
+    return { ...result, recognizedCashPaise: recognizedCash.toString(), actualPayoutPaise: actualPayout.toString(),
+      differencePaise: (actualPayout - recognizedCash).toString() };
+  }
+  return result;
 }
 export async function reportPayoutInventory(atmId: string, authorization: string | undefined, body: Record<string, unknown>) {
   await validateControllerCredential(atmId, authorization);
@@ -95,14 +179,49 @@ export async function reportPayoutInventory(atmId: string, authorization: string
   await db.runTransaction(async (tx) => {
     const ref = atmReference(atmId);
     const atm = validAtm((await tx.get(ref)).data() as AtmRecord | undefined);
-    requireValue(!atm.activeVisitId && !atm.activePayoutId && !atm.cashReconciliationRequired
-      && report.deviceId === atm.controllerHealth?.deviceId, 409, 'PAYOUT_INVENTORY_NOT_IDLE', 'Only the single idle Controller may report payout inventory.');
+    requireValue(!atm.activePayoutId && report.deviceId === atm.controllerHealth?.deviceId
+      && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+    409, 'PAYOUT_INVENTORY_NOT_IDLE', 'Only the fresh healthy registered Controller may report payout inventory.');
+    let auditReadback: { visitId: string; cashSessionId: string; report: PayoutInventoryReport } | null = null;
+    if (atm.activeVisitId) {
+      requireValue(interimCashEnabled(), 409, 'PAYOUT_INVENTORY_NOT_IDLE', 'Only an idle Controller may report payout inventory.');
+      const visit = (await tx.get(db.collection('visits').doc(atm.activeVisitId))).data();
+      const cashSessionId = visit?.cashSessionId;
+      requireValue(visit?.mode === 'cash' && ['closed', 'reconciling', 'needs_reconciliation'].includes(visit.state)
+        && !visit.donationId && typeof cashSessionId === 'string' && PAYOUT_UUID.test(cashSessionId),
+      409, 'PAYOUT_INVENTORY_NOT_IDLE', 'Only a closed, unresolved historical cash visit can be audited.');
+      const [sessionSnapshot, commandSnapshot] = await Promise.all([
+        tx.get(db.collection('cashSessions').doc(cashSessionId)),
+        tx.get(db.collection('controllerCommands').doc(`cash-start-${cashSessionId}`)),
+      ]);
+      const session = sessionSnapshot.data();
+      const command = commandSnapshot.data();
+      const ledger = session?.ledger as CashLedger | undefined;
+      const closeObservedAt = session?.closeEvidence?.type === 'intake_closed'
+        ? session.closeEvidence.occurredAt : undefined;
+      const visitReasons = [
+        ...(typeof visit.reconciliationReason === 'string' ? [visit.reconciliationReason] : []),
+        ...(Array.isArray(visit.reconciliationReasons) ? visit.reconciliationReasons : []),
+      ];
+      requireValue(session?.atmId === atmId && session.visitId === visit.id && session.cashSessionId === cashSessionId
+        && ledger && cashLedgerAuditableAfterReadback(ledger)
+        && Number.isSafeInteger(closeObservedAt) && report.observedAt >= closeObservedAt
+        && visitReasons.every((reason: unknown) => typeof reason === 'string' && cashAuditReasonAllowed(reason))
+        && command?.commandId === `cash-start-${cashSessionId}` && command.atmId === atmId
+        && command.visitId === visit.id && command.cashSessionId === cashSessionId
+        && command.templeId === atm.templeId && ['observed', 'reported'].includes(command.state),
+      409, 'PAYOUT_AUDIT_READBACK_UNAVAILABLE', 'A bound, historically auditable closed session and resolved start command are required.');
+      auditReadback = { visitId: visit.id, cashSessionId, report };
+    } else {
+      requireValue(!cashReconciliationBlocks(atm), 409, 'PAYOUT_INVENTORY_NOT_IDLE',
+        'An unreconciled Controller cannot report normal payout inventory.');
+    }
     const previous = atm.payoutInventory;
     requireValue(!previous || report.rawSequence > previous.rawSequence
       || (report.rawSequence === previous.rawSequence && report.observedAt >= previous.observedAt
         && report.deviceId === previous.deviceId && sameInventory(report.inventory, previous.inventory)),
     409, 'STALE_PAYOUT_INVENTORY', 'A fresh unchanged readback or newer durable observation is required.');
-    tx.update(ref, { payoutInventory: report });
+    tx.update(ref, { payoutInventory: report, cashAuditReadback: auditReadback });
   });
   return { accepted: true };
 }
@@ -113,7 +232,7 @@ export async function createCashFeeInvoice(atmId: string, wallet: Address, body:
   const atmRef = atmReference(atmId);
   const initial = validAtm((await atmRef.get()).data() as AtmRecord | undefined);
   admin(initial.templeId, wallet);
-  const candidates = await sources(initial.templeId);
+  const candidates = await sources(initial.templeId, atmId);
   const invoiceId = keccak256(toHex(`cash-fee-v1:${atmId}:${body.requestId}`));
   const existing = (await db.collection('cashFeeInvoices').doc(invoiceId).get()).data() as CashFeeInvoice | undefined;
   if (existing) {
@@ -122,15 +241,23 @@ export async function createCashFeeInvoice(atmId: string, wallet: Address, body:
   }
   const unpaid: CashSource[] = [];
   for (const source of candidates) {
-    const [session, coverage] = await Promise.all([
-      db.collection('cashSessions').doc(source.cashSessionId).get(), db.collection('cashFeeCoverage').doc(source.id).get(),
+    const [session, ...coverage] = await Promise.all([
+      db.collection('cashSessions').doc(source.cashSessionId).get(),
+      ...sourceCoverageKeys(source).map((key) => db.collection('cashFeeCoverage').doc(key).get()),
     ]);
     if (session.get('atmId') !== atmId) continue;
     const ledger = session.get('ledger') as CashLedger | undefined;
-    requireValue(ledger?.closed && ledger.reconciliationReasons.length === 0
-      && cashTotals(ledger).creditedPaise.toString() === source.cashAmountPaise,
-    409, 'UNRECONCILED_CASH_SOURCE', 'Only reconciled credited cash can be invoiced.');
-    if (!coverage.exists) unpaid.push(source);
+    const visit = session.get('visitId')
+      ? (await db.collection('visits').doc(session.get('visitId')).get()).data() as Record<string, unknown> | undefined : undefined;
+    const credited = ledger ? cashTotals(ledger).creditedPaise : 0n;
+    requireValue(ledger?.closed && credited > 0n && credited.toString() === source.cashAmountPaise
+      && (interimCashEnabled() ? historicalLedgerEligible(ledger, visit, source.cashSessionId)
+        : ledger.reconciliationReasons.length === 0),
+    409, 'UNRECONCILED_CASH_SOURCE', 'Only recognized stored cash can be invoiced.');
+    const sourceCovered = coverage[0]?.exists === true;
+    const legacyDonationCoverage = source.donationIds.length > 0
+      && coverage.slice(1).length === source.donationIds.length && coverage.slice(1).every((row) => row.exists);
+    if (!sourceCovered && !legacyDonationCoverage) unpaid.push(source);
   }
   const cashPaise = unpaid.reduce((sum, row) => sum + BigInt(row.cashAmountPaise), 0n);
   requireValue(cashPaise > 0n, 409, 'NO_UNSETTLED_CASH', 'No new unsettled cash; do not pay the fee again.');
@@ -144,7 +271,8 @@ export async function createCashFeeInvoice(atmId: string, wallet: Address, body:
   });
   const invoice: CashFeeInvoice = {
     invoiceId, atmId, templeId: initial.templeId, templeKey, payer: wallet, amount: amount.toString(),
-    cashPaise: cashPaise.toString(), donationIds: unpaid.map((row) => row.id), deadline,
+    cashPaise: cashPaise.toString(), donationIds: [...new Set(unpaid.flatMap((row) => row.donationIds))],
+    ...(interimCashEnabled() ? { sourceKeys: unpaid.map((row) => row.sourceKey) } : {}), deadline,
     status: 'awaiting_payment', vault: deployment.cashFeeVault,
     recipient: getAddress(publicWallets.wallets['fee-recipient']!), signature,
     startBlock: (await chain.getBlockNumber()).toString(),
@@ -154,11 +282,13 @@ export async function createCashFeeInvoice(atmId: string, wallet: Address, body:
     const invoiceRef = db.collection('cashFeeInvoices').doc(invoiceId);
     const [atmSnap, accountSnap, invoiceSnap, ...coverage] = await Promise.all([
       tx.get(atmRef), tx.get(accountRef), tx.get(invoiceRef),
-      ...unpaid.map((row) => tx.get(db.collection('cashFeeCoverage').doc(row.id))),
+      ...[...new Set(unpaid.flatMap(sourceCoverageKeys))]
+        .map((key) => tx.get(db.collection('cashFeeCoverage').doc(key))),
     ]);
     const atm = validAtm(atmSnap.data() as AtmRecord | undefined);
     admin(atm.templeId, wallet);
     readyIdle(atm);
+    if (interimCashEnabled()) reportedInventory(atm);
     if (invoiceSnap.exists) return invoiceSnap.data() as CashFeeInvoice;
     const account = accountSnap.data() as Account | undefined;
     const currentInvoice = account?.activeInvoiceId
@@ -213,10 +343,11 @@ export async function verifyCashFee(atmId: string, wallet: Address, invoiceId: s
   requireValue(receipt.logs.every((log) => log.transactionHash === hash && log.blockHash === receipt.blockHash
     && log.blockNumber === receipt.blockNumber && !log.removed), 400, 'FEE_LOG_CONTEXT_MISMATCH', 'Fee logs must belong to the canonical receipt.');
   const logIndex = validateCashFeeReceipt(receipt.logs, initial, block.timestamp);
+  const coverageKeys = [...new Set([...(initial.sourceKeys ?? []), ...initial.donationIds])];
   return db.runTransaction(async (tx) => {
     const eventRef = db.collection('cashFeeChainEvents').doc(`${CHAIN_ID}_${hash}_${logIndex}`);
     const [snapshot, event, ...coverage] = await Promise.all([
-      tx.get(ref), tx.get(eventRef), ...initial.donationIds.map((id) => tx.get(db.collection('cashFeeCoverage').doc(id))),
+      tx.get(ref), tx.get(eventRef), ...coverageKeys.map((key) => tx.get(db.collection('cashFeeCoverage').doc(key))),
     ]);
     const current = snapshot.data() as CashFeeInvoice | undefined;
     requireValue(current && current.txHash === hash, 409, 'FEE_HASH_CONFLICT', 'Invoice changed while verifying receipt.');
@@ -225,7 +356,7 @@ export async function verifyCashFee(atmId: string, wallet: Address, invoiceId: s
     const paid = { ...current, status: 'paid' as const, paidBlock: receipt.blockNumber.toString() };
     tx.update(ref, paid);
     tx.create(eventRef, { invoiceId, blockHash: receipt.blockHash });
-    initial.donationIds.forEach((id) => tx.create(db.collection('cashFeeCoverage').doc(id), { invoiceId, atmId, txHash: hash }));
+    coverageKeys.forEach((key) => tx.create(db.collection('cashFeeCoverage').doc(key), { invoiceId, atmId, txHash: hash }));
     return paid;
   });
 }
@@ -263,7 +394,7 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
     if (wallet) admin(initial.templeId, wallet);
     else validScreen(initial, screenCredential(cookie));
     readyIdle(initial);
-    const candidates = await sources(initial.templeId);
+    const candidates = await sources(initial.templeId, atmId);
     const ref = db.collection('cashPayoutApprovals').doc(body.requestId);
     return db.runTransaction(async (tx) => {
       const [atmSnap, requestSnap, accountSnap] = await Promise.all([
@@ -287,22 +418,44 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
         const session = (await tx.get(db.collection('cashSessions').doc(source.cashSessionId))).data();
         if (session?.atmId !== atmId) continue;
         const ledger = session.ledger as CashLedger;
-        requireValue(ledger.closed && ledger.reconciliationReasons.length === 0
-          && cashTotals(ledger).creditedPaise.toString() === source.cashAmountPaise,
-        409, 'UNRECONCILED_CASH_SOURCE', 'Unreconciled cash cannot be paid out.');
-        const coverage = (await tx.get(db.collection('cashFeeCoverage').doc(source.id))).data();
-        requireValue(coverage?.atmId === atmId && typeof coverage.invoiceId === 'string' && HASH.test(coverage.invoiceId),
-          409, 'UNSETTLED_CASH', 'Settle all new cash fees before approving payout.');
-        const invoice = (await tx.get(db.collection('cashFeeInvoices').doc(coverage.invoiceId))).data() as CashFeeInvoice | undefined;
-        requireValue(invoice?.status === 'paid' && invoice.atmId === atmId && invoice.donationIds.includes(source.id)
-          && invoice.txHash === coverage.txHash && invoice.paidBlock,
-        409, 'UNSETTLED_CASH', 'Paid fee evidence must cover the exact cash donation.');
+        const visit = session.visitId
+          ? (await tx.get(db.collection('visits').doc(session.visitId))).data() as Record<string, unknown> | undefined : undefined;
+        const recognized = cashTotals(ledger).creditedPaise;
+        requireValue(ledger.closed && recognized > 0n && recognized.toString() === source.cashAmountPaise
+          && (interimCashEnabled() ? historicalLedgerEligible(ledger, visit, source.cashSessionId)
+            : ledger.reconciliationReasons.length === 0),
+        409, 'UNRECONCILED_CASH_SOURCE', 'Only recognized stored cash can be paid out.');
+        const coverageKeys = sourceCoverageKeys(source);
+        const coverageRows = await Promise.all(coverageKeys.map((key) => tx.get(db.collection('cashFeeCoverage').doc(key))));
+        const sourceRow = coverageRows[0];
+        const legacyRows = source.donationIds.length > 0 ? coverageRows.slice(1) : [];
+        const paidRows = sourceRow?.exists ? [sourceRow] : legacyRows.length === source.donationIds.length
+          && legacyRows.every((row) => row.exists) ? legacyRows : [];
+        requireValue(paidRows.length > 0, 409, 'UNSETTLED_CASH', 'Settle all recognized cash fees before approving payout.');
+        for (const row of paidRows) {
+          const coverage = row.data();
+          requireValue(coverage?.atmId === atmId && typeof coverage.invoiceId === 'string' && HASH.test(coverage.invoiceId),
+            409, 'UNSETTLED_CASH', 'Fee coverage must belong to this ATM.');
+          const invoice = (await tx.get(db.collection('cashFeeInvoices').doc(coverage.invoiceId))).data() as CashFeeInvoice | undefined;
+          const invoiceCoversSource = invoice?.sourceKeys?.includes(source.sourceKey)
+            || (source.donationIds.length > 0 && source.donationIds.every((id) => invoice?.donationIds.includes(id)));
+          requireValue(invoice?.status === 'paid' && invoice.atmId === atmId && invoiceCoversSource
+            && invoice.txHash === coverage.txHash && invoice.paidBlock,
+          409, 'UNSETTLED_CASH', 'Paid fee evidence must cover the recognized cash source.');
+          invoiceIds.add(invoice.invoiceId);
+        }
         creditedPaise += BigInt(source.cashAmountPaise);
-        invoiceIds.add(invoice.invoiceId);
       }
-      const remaining = creditedPaise - BigInt(account?.dispensedPaise ?? '0');
-      requireValue(remaining > 0n && remaining === payoutTotal(report.inventory), 409, 'PAYOUT_CASH_ATTRIBUTION_MISMATCH',
-        'Full payout inventory must equal credited cash minus verified prior dispensing. Cashbox is excluded.');
+      const actualPayoutPaise = payoutTotal(report.inventory);
+      let remaining: bigint;
+      if (interimCashEnabled()) {
+        requireValue(actualPayoutPaise > 0n, 409, 'NO_CASH_TO_PAYOUT', 'There are no notes in the Payout compartment to dispense.');
+        remaining = actualPayoutPaise;
+      } else {
+        remaining = creditedPaise - BigInt(account?.dispensedPaise ?? '0');
+        requireValue(remaining > 0n && remaining === actualPayoutPaise, 409, 'PAYOUT_CASH_ATTRIBUTION_MISMATCH',
+          'Full payout inventory must equal credited cash minus verified prior dispensing. Cashbox is excluded.');
+      }
       const approvalId = body.requestId as string;
       const payoutId = randomUUID();
       const expiresAt = Date.now() + HumanWindowMs;
@@ -373,7 +526,7 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       }
       if (['unknown', 'precondition_failed', 'reported'].includes(record.state) || record.command.expiresAt <= Date.now())
         return { command: null };
-      requireValue(!atm.activeVisitId && !atm.cashReconciliationRequired
+      requireValue(!atm.activeVisitId && !cashReconciliationBlocks(atm)
         && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
       409, 'PAYOUT_COMMAND_NOT_AUTHORIZED', 'Payout needs exclusive idle ownership and fresh online authorization.');
       return { command: record.command };
@@ -431,7 +584,7 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       };
       requireValue(transitions[record.state].includes(next), 409, 'PAYOUT_STATE_CONFLICT', 'Payout reports cannot skip dispatch or replay prior execution.');
       if (next === 'dispatching') {
-        requireValue(record.command.expiresAt > Date.now() && !atm.cashReconciliationRequired
+        requireValue(record.command.expiresAt > Date.now() && !cashReconciliationBlocks(atm)
           && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
         409, 'PAYOUT_DISPATCH_NOT_AUTHORIZED', 'Fresh online authorization and exclusive machine ownership are required.');
       }
@@ -446,7 +599,7 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       } else requireValue(body.evidence === undefined, 400, 'INVALID_PAYOUT_REPORT', 'Completion evidence is not valid before observed dispensing.');
       tx.update(ref, { state: next, reportHash, ...(body.observedAt ? { observedAt: body.observedAt } : {}),
         ...(body.reason ? { reason: body.reason } : {}), ...(evidence ? { evidence } : {}), ...(endState ? { endState } : {}) });
-      if (next === 'unknown') tx.update(atmRef, { cashReconciliationRequired: true });
+      if (next === 'unknown') tx.update(atmRef, { cashReconciliationRequired: true, cashHistoricalReconciliationOnly: false });
       if (next === 'precondition_failed') tx.update(atmRef, { activePayoutId: null, lastPayoutId: payoutId });
       if (next === 'reported') {
         const account = accountSnap.data() as Account | undefined;

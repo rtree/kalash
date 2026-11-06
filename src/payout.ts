@@ -28,6 +28,7 @@ export interface CashFeeInvoice {
   amount: string; cashPaise: string; donationIds: Hex[]; deadline: number;
   status: 'awaiting_payment' | 'submitted' | 'unknown' | 'paid';
   vault: Address; recipient: Address; signature: Hex; startBlock: string;
+  sourceKeys?: string[];
   txHash?: Hex; paidBlock?: string;
 }
 export interface PayoutCommand {

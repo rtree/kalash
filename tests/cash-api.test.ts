@@ -1,4 +1,4 @@
-import { after, before, beforeEach, mock, test } from 'node:test';
+import { after, afterEach, before, beforeEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -170,7 +170,16 @@ function seed() {
     type: 'start_cash', state: 'reported', expiresAt: now + 120_000,
   });
 }
-beforeEach(seed);
+let previousCashPolicy: string | undefined;
+beforeEach(() => {
+  previousCashPolicy = process.env.KALASH_CASH_POLICY;
+  process.env.KALASH_CASH_POLICY = 'strict';
+  seed();
+});
+afterEach(() => {
+  if (previousCashPolicy === undefined) delete process.env.KALASH_CASH_POLICY;
+  else process.env.KALASH_CASH_POLICY = previousCashPolicy;
+});
 test('payout rejects donor-wallet admin escalation and cannot discover fee invoices', async () => {
   await assert.rejects(payout.getTemplePayout(atmId, wallet.address), { code: 'TEMPLE_ADMIN_REQUIRED' });
   const response = await fetch(`${url}/api/temple-admin/${atmId}`, { headers: { Authorization: 'Bearer payout-test-owner' } });
@@ -403,6 +412,259 @@ const makeEvent = (sequence: number, data: CashEventData): CashEvent => ({
   visitId, cashSessionId, ...data,
 });
 const post = (event: CashEvent | Record<string, unknown>) => cash.reportControllerCashEvent(atmId, auth, event as Record<string, unknown>);
+async function mismatchedClose() {
+  await start();
+  await stored();
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  const event = closeEvent();
+  assert.equal(event.type, 'intake_closed');
+  if (event.type === 'intake_closed') event.data.inventory = inventory(2);
+  await post(event);
+  return event;
+}
+test('strict default preserves the historical mismatch reconciliation lock', async () => {
+  delete process.env.KALASH_CASH_POLICY;
+  await mismatchedClose();
+  assert.equal((await atm.getAtm(atmId, cookie)).cashPolicy, 'strict');
+  assert.equal(store.read(visitPath).state, 'reconciling');
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, true);
+  await assert.rejects(atm.closeVisit(atmId, cookie, visitId), { code: 'RECONCILIATION_REQUIRED' });
+  await assert.rejects(atm.createVisit(atmId, cookie, 'cash', randomUUID()), { code: 'RECONCILIATION_REQUIRED' });
+  assert.equal(store.count('donations'), 0);
+});
+for (const finish of ['screen-close', 'screen-done', 'wallet-done'] as const) {
+  test(`Interim ${finish} retires a mismatched closed ledger without donation and permits a new signed intake`, async () => {
+    process.env.KALASH_CASH_POLICY = 'interim-ledger';
+    const close = await mismatchedClose();
+    const oldLedger = store.read(sessionPath);
+    const oldCommand = store.read(`controllerCommands/cash-start-${cashSessionId}`);
+    const oldRaw = store.read(`atms/${atmId}/cashEvents/${close.deviceEventId}`);
+    assert.equal(store.read(visitPath).state, 'closed');
+    assert.equal(store.read(visitPath).cashHistoricalAuditWarning, true);
+    assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+    assert.equal((await cash.getControllerCashSession(atmId, auth)).session, null);
+    await assert.rejects(atm.createVisit(atmId, cookie, 'cash', randomUUID()), { code: 'ATM_BUSY' });
+    if (finish === 'screen-close') await atm.closeVisit(atmId, cookie, visitId);
+    else if (finish === 'screen-done') await atm.doneCashVisit(atmId, cookie, visitId);
+    else {
+      await assert.rejects(atm.doneOwnedCashVisit(visitId, other.address, 'temple-01'), { code: 'CASH_VISIT_NOT_OWNER' });
+      await atm.doneOwnedCashVisit(visitId, wallet.address, 'temple-01');
+    }
+    assert.deepEqual(store.read(sessionPath), oldLedger);
+    assert.deepEqual(store.read(`controllerCommands/cash-start-${cashSessionId}`), oldCommand);
+    assert.deepEqual(store.read(`atms/${atmId}/cashEvents/${close.deviceEventId}`), oldRaw);
+    assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, true);
+    assert.equal(store.read(`atms/${atmId}`).cashEnabled, true);
+    assert.equal(store.count('donations'), 0);
+    assert.equal(store.count('walletTempleTotals'), 0);
+    assert.equal(store.count('mintJobs'), 0);
+    const view = await atm.getAtm(atmId, cookie);
+    assert.equal(view.cashPolicy, 'interim-ledger');
+    assert.equal(view.cashReceptionAvailable, true);
+    const next = (await atm.createVisit(atmId, cookie, 'cash', randomUUID())).visit!;
+    await assert.rejects(atm.claimCashVisit(next.id, wallet.address, 'temple-01', '0'.repeat(48), '0x12'),
+      { code: 'CASH_CONSENT_INVALID' });
+    const consent = await atm.createCashConsentChallenge(next.id, wallet.address, 'temple-01');
+    const signature = await wallet.signMessage({ message: consent.message });
+    await atm.claimCashVisit(next.id, wallet.address, 'temple-01', consent.nonce, signature);
+    const command = (await atm.getControllerCashCommand(atmId, auth)).command!;
+    for (const state of ['received', 'validated', 'dispatching', 'observed', 'reported']) {
+      await atm.reportControllerCashCommand(atmId, auth, { commandId: command.commandId, state,
+        ...(state === 'observed' ? { deviceState: 'ACCEPTING', observedAt: Date.now() } : {}) });
+    }
+    assert.equal((await cash.getControllerCashSession(atmId, auth)).session?.state, 'accepting');
+    assert.equal((await atm.getVisit(next.id, 'temple-01', wallet.address)).cashAcceptanceEnabled, true);
+    await post({ ...makeEvent(5, { type: 'intake_started', data: { inventory: inventory(2) } }),
+      visitId: next.id, cashSessionId: command.cashSessionId });
+    assert.deepEqual(store.read(`cashSessions/${command.cashSessionId}`).ledger.reconciliationReasons, []);
+    assert.equal(store.count('controllerCommands'), 2);
+  });
+}
+test('Interim user action retires a preexisting strict reconciling closed mismatch without rewriting evidence', async () => {
+  await mismatchedClose();
+  const ledger = store.read(sessionPath);
+  assert.equal(store.read(visitPath).state, 'reconciling');
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  assert.deepEqual(store.read(sessionPath), ledger);
+  assert.equal(store.read(visitPath).state, 'closed');
+  assert.equal(store.read(`atms/${atmId}`).activeVisitId, null);
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, true);
+  assert.equal((await atm.getAtm(atmId, cookie)).cashReceptionAvailable, true);
+});
+for (const blocker of ['stale', 'disconnected', 'payout'] as const) {
+  test(`Interim historical retirement requires fresh physical readiness and excludes ${blocker}`, async () => {
+    await mismatchedClose();
+    process.env.KALASH_CASH_POLICY = 'interim-ledger';
+    const registered = store.read(`atms/${atmId}`);
+    store.records.set(`atms/${atmId}`, { ...registered,
+      ...(blocker === 'payout' ? { activePayoutId: randomUUID() } : {
+        controllerHealth: { ...registered.controllerHealth,
+          ...(blocker === 'stale' ? { receivedAt: Date.now() - 30_001 } : { usbConnected: false }) },
+      }),
+    });
+    await assert.rejects(atm.doneOwnedCashVisit(visitId, wallet.address, 'temple-01'), { code: 'CASH_CONTROLLER_NOT_READY' });
+    assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+    assert.equal((await atm.getAtm(atmId, cookie)).cashReceptionAvailable, false);
+  });
+}
+for (const blocker of ['fault', 'escrow', 'unknown-command', 'unrequested-close'] as const) {
+  test(`Interim ${blocker} remains operationally locked despite historical inventory mismatches`, async () => {
+    process.env.KALASH_CASH_POLICY = 'interim-ledger';
+    await start();
+    if (blocker === 'escrow') await post(makeEvent(2, { type: 'note_escrow', data: { ...note(), decision: 'accept' } }));
+    else await stored();
+    if (blocker !== 'unrequested-close') await atm.doneCashVisit(atmId, cookie, visitId);
+    if (blocker === 'unknown-command') {
+      const path = `controllerCommands/cash-start-${cashSessionId}`;
+      store.records.set(path, { ...store.read(path), state: 'unknown' });
+    }
+    const event = closeEvent(blocker === 'escrow' ? 3 : 4);
+    if (event.type === 'intake_closed') {
+      event.data.inventory = inventory(2);
+      if (blocker === 'fault') event.data.reason = 'fault';
+      if (blocker === 'escrow') event.data.escrowEmpty = false;
+    }
+    await post(event);
+    assert.equal(store.read(visitPath).state, 'reconciling');
+    assert.equal(store.read(`atms/${atmId}`).cashHistoricalReconciliationOnly, false);
+    await assert.rejects(atm.closeVisit(atmId, cookie, visitId), { code: 'RECONCILIATION_REQUIRED' });
+    await atm.doneCashVisit(atmId, cookie, visitId);
+    assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+    assert.equal(store.count('donations'), 0);
+  });
+}
+test('Interim late conflicting evidence reinstates the physical lock instead of masking an error as historical', async () => {
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  const close = await mismatchedClose();
+  await atm.closeVisit(atmId, cookie, visitId);
+  await assert.rejects(post({ ...close, occurredAt: close.occurredAt + 1 }), { code: 'CASH_EVENT_DUPLICATE_MISMATCH' });
+  assert.equal(store.read(`atms/${atmId}`).cashHistoricalReconciliationOnly, false);
+  assert.equal((await atm.getAtm(atmId, cookie)).cashReceptionAvailable, false);
+  await assert.rejects(atm.createVisit(atmId, cookie, 'cash', randomUUID()), { code: 'RECONCILIATION_REQUIRED' });
+});
+test('Interim HTTP exposes closed audit warning lifecycle and owner-authorized screen finish without donation', async () => {
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  await mismatchedClose();
+  const historical = await request(`/api/atm/${atmId}`, undefined, { Cookie: cookie });
+  assert.equal(historical.status, 200);
+  assert.equal(historical.data.cashPolicy, 'interim-ledger');
+  assert.equal(historical.data.visit.state, 'closed');
+  const foreign = await request(`/api/atm/${atmId}/visits/${visitId}/close`, {});
+  assert.equal(foreign.status, 401);
+  assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+  const finished = await request(`/api/atm/${atmId}/visits/${visitId}/close`, {}, { Cookie: cookie });
+  assert.equal(finished.status, 200);
+  assert.equal(finished.data.visit, null);
+  assert.equal(finished.data.cashReceptionAvailable, true);
+  assert.equal(store.count('donations'), 0);
+  const next = await request(`/api/atm/${atmId}/visits`, { mode: 'cash', requestId: randomUUID() }, { Cookie: cookie });
+  assert.equal(next.status, 201);
+  assert.equal(next.data.visit.state, 'awaiting_wallet');
+});
+test('Interim cannot downgrade a separate invalid physical report when a valid accounting-only close follows', async () => {
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  await start();
+  await stored();
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  await assert.rejects(post({ visitId: 'f'.repeat(64), cashSessionId, type: 'note_stored' }),
+    { code: 'INVALID_CASH_EVENT' });
+  const event = closeEvent();
+  if (event.type === 'intake_closed') event.data.inventory = inventory(2);
+  await post(event);
+  assert.equal(store.read(`atms/${atmId}`).cashPhysicalReconciliationRequired, true);
+  assert.equal(store.read(`atms/${atmId}`).cashHistoricalReconciliationOnly, false);
+  await assert.rejects(atm.closeVisit(atmId, cookie, visitId), { code: 'RECONCILIATION_REQUIRED' });
+  assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+  assert.equal(store.count('donations'), 0);
+});
+async function historicalPendingReturn() {
+  await start();
+  await post(makeEvent(2, { type: 'note_escrow', data: { ...note(), decision: 'return' } }));
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  const event = closeEvent(3, 0);
+  if (event.type === 'intake_closed') event.data.reason = 'fault';
+  await post(event);
+}
+test('strict closed unresolved RETURN cannot use inventory reporting to bypass reconciliation', async () => {
+  await historicalPendingReturn();
+  await assert.rejects(payout.reportPayoutInventory(atmId, auth, {
+    observedAt: Date.now(), deviceId: 'local-double', deviceState: 'DISABLED',
+    escrowEmpty: true, inventory: inventory(), rawSequence: 10,
+  }), { code: 'PAYOUT_INVENTORY_NOT_IDLE' });
+  assert.equal(store.read(`atms/${atmId}`).cashAuditReadback, undefined);
+  await assert.rejects(atm.closeVisit(atmId, cookie, visitId), { code: 'RECONCILIATION_REQUIRED' });
+});
+test('Interim authenticated bound idle audit readback permits user retirement of an old unresolved RETURN without fake outcome', async () => {
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  await historicalPendingReturn();
+  const before = store.read(sessionPath);
+  const raw = store.read(`atms/${atmId}/cashEvents/${streamId}:3`);
+  const command = store.read(`controllerCommands/cash-start-${cashSessionId}`);
+  await assert.rejects(atm.closeVisit(atmId, cookie, visitId), { code: 'RECONCILIATION_REQUIRED' });
+  const report = { observedAt: Date.now(), deviceId: 'local-double', deviceState: 'DISABLED',
+    escrowEmpty: true, inventory: inventory(), rawSequence: 10 };
+  await payout.reportPayoutInventory(atmId, auth, report);
+  assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+  assert.deepEqual(store.read(`atms/${atmId}`).cashAuditReadback, { visitId, cashSessionId, report });
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  assert.deepEqual(store.read(sessionPath), before);
+  assert.deepEqual(store.read(`atms/${atmId}/cashEvents/${streamId}:3`), raw);
+  assert.deepEqual(store.read(`controllerCommands/cash-start-${cashSessionId}`), command);
+  assert.equal(store.read(sessionPath).ledger.notes[0].returned, false);
+  assert.equal(store.read(sessionPath).ledger.notes[0].stored, false);
+  assert.equal(store.read(sessionPath).ledger.notes[0].credited, false);
+  assert.equal(store.read(`atms/${atmId}`).cashAuditReadback, null);
+  assert.deepEqual(store.read(visitPath).cashRetirementReadback, report);
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, true);
+  assert.equal((await atm.getAtm(atmId, cookie)).cashReceptionAvailable, true);
+  const next = (await atm.createVisit(atmId, cookie, 'cash', randomUUID())).visit!;
+  const challenge = await atm.createCashConsentChallenge(next.id, wallet.address, 'temple-01');
+  await atm.claimCashVisit(next.id, wallet.address, 'temple-01', challenge.nonce,
+    await wallet.signMessage({ message: challenge.message }));
+  assert.ok((await atm.getControllerCashCommand(atmId, auth)).command);
+  assert.equal(store.count('donations'), 0);
+  assert.equal(store.count('mintJobs'), 0);
+});
+for (const invalid of ['foreign-visit', 'foreign-session', 'foreign-device', 'stale', 'fault-reason', 'unknown-command'] as const) {
+  test(`Interim pending RETURN audit cannot retire using ${invalid} readback or state`, async () => {
+    process.env.KALASH_CASH_POLICY = 'interim-ledger';
+    await historicalPendingReturn();
+    const registered = store.read(`atms/${atmId}`);
+    store.records.set(`atms/${atmId}`, { ...registered, cashAuditReadback: {
+      visitId: invalid === 'foreign-visit' ? 'd'.repeat(64) : visitId,
+      cashSessionId: invalid === 'foreign-session' ? randomUUID() : cashSessionId,
+      report: { observedAt: invalid === 'stale' ? Date.now() - 30_001 : Date.now(),
+        deviceId: invalid === 'foreign-device' ? 'foreign-device' : 'local-double',
+        deviceState: 'DISABLED', escrowEmpty: true, inventory: inventory(), rawSequence: 10 },
+    } });
+    if (invalid === 'fault-reason') store.records.set(visitPath, {
+      ...store.read(visitPath), reconciliationReason: 'controller_command_failed',
+    });
+    if (invalid === 'unknown-command') {
+      const path = `controllerCommands/cash-start-${cashSessionId}`;
+      store.records.set(path, { ...store.read(path), state: 'unknown' });
+    }
+    await assert.rejects(atm.closeVisit(atmId, cookie, visitId), { code: 'RECONCILIATION_REQUIRED' });
+    assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+    assert.equal(store.count('donations'), 0);
+  });
+}
+for (const state of ['unknown', 'failed', 'precondition_failed', 'reported'] as const) {
+  test(`Interim terminal ${state} cash start is never retrieved or blindly replayed`, async () => {
+    process.env.KALASH_CASH_POLICY = 'interim-ledger';
+    store.records.set(visitPath, { ...store.read(visitPath), state: 'awaiting_device' });
+    const path = `controllerCommands/cash-start-${cashSessionId}`;
+    store.records.set(path, { ...store.read(path), state });
+    const before = store.read(path);
+    await assert.rejects(atm.getControllerCashCommand(atmId, auth), { code: 'CASH_COMMAND_UNAVAILABLE' });
+    await assert.rejects(atm.reportControllerCashCommand(atmId, auth, {
+      commandId: before.commandId, state: 'received',
+    }), { code: 'CASH_COMMAND_STATE_CONFLICT' });
+    assert.deepEqual(store.read(path), before);
+    assert.equal(store.count('controllerCommands'), 1);
+  });
+}
 const start = () => post(makeEvent(1, { type: 'intake_started', data: { inventory: inventory() } }));
 const note = (i = 1) => ({ noteKey: `note-${i}`, valuePaise: '10000', currency: 'INR' as const });
 async function stored(i = 1, seq = 2) {

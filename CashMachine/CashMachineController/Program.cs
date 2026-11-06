@@ -126,6 +126,7 @@ internal static partial class Program
 
     private static async Task<int> RunServerAsync(bool singleHundred = false)
     {
+        _ = ProductCashPolicy.InterimEnabled;
         var configuration = RestApiServerConfiguration.FromEnvironment();
         var freshPackageDirectory = Environment.GetEnvironmentVariable(
             VendorBootstrapCredentials.PackageDirectoryVariable);

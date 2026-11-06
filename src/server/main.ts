@@ -114,6 +114,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   if (request.method === 'GET' && path === '/api/health') return send(response, {
     status: 'ready', project, chainId: 84532, contractsDeployed: Boolean(publicConfig.vault),
     mintEnabled: process.env.MINT_ENABLED === 'true', sourceCommit: process.env.SOURCE_COMMIT ?? null,
+    cashPolicy: publicConfig.cashPolicy ?? 'strict',
   });
   if (request.method === 'GET' && path === '/api/config') return send(response, publicConfig);
   if (request.method === 'GET' && path === '/api/temples') return send(response, { temples });

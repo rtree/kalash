@@ -7,6 +7,10 @@ import { switchToKalashChain } from './walletNetwork.ts';
 
 type Api = <T>(url: string, init?: RequestInit, privateRequest?: boolean) => Promise<T>;
 interface AdminState {
+  cashPolicy?: 'strict' | 'interim-ledger';
+  recognizedCashPaise?: string;
+  actualPayoutPaise?: string;
+  differencePaise?: string;
   atmId: string; templeId: string; cashEnabled: boolean; activeReception: boolean;
   reconciliationRequired: boolean; controllerReady: boolean; cashFeeVaultAvailable: boolean;
   inventory: PayoutInventoryReport | null; invoice: CashFeeInvoice | null;
@@ -105,15 +109,28 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
   return <section className="reception-card">
     <p className="eyebrow">Temple Admin · Base Sepolia</p>
     <h1>Cash settlement and full payout</h1>
+    {config.cashPolicy === 'interim-ledger' && <p className="notice notice-info" role="status">
+      Interim mode: 3% of recognized ledger cash is settled first, then an administrator may approve all available Payout notes.
+    </p>}
     <p>ATM {atmId}. Connect and verify the explicitly registered temple administrator wallet using the header controls.</p>
     {error && <div className="notice notice-danger" role="alert">{error}</div>}
     {notice && <div className="notice notice-info" role="status">{notice}</div>}
     {!wallet ? <p>Administrator authentication is required. Opening this page or a QR does not authorize dispensing.</p> : state && <>
       <p>Cash setting: {state.cashEnabled ? 'ON (gated)' : 'OFF'}. Controller: {state.controllerReady ? 'ready' : 'unavailable'}.</p>
+      {state.cashPolicy === 'interim-ledger' && <div className="notice notice-info" role="status">
+        <strong>Interim cash policy</strong>
+        <p>Signed QR reception stays available despite historical ledger differences. Actual device errors still require attention.</p>
+        <p>The fee is 3% of recognized ledger cash. After fee confirmation, one administrator approval pays out every available note in the Payout compartment. Cashbox notes cannot be dispensed.</p>
+        {state.recognizedCashPaise !== undefined && <p>Recognized cash: {formatPaise(state.recognizedCashPaise)} INR.
+          {state.actualPayoutPaise !== undefined && <> Actual Cashout: {formatPaise(state.actualPayoutPaise)} INR.</>}
+          {state.differencePaise !== undefined && <> Difference: {formatPaise(state.differencePaise)} INR (retained in the audit history).</>}</p>}
+      </div>}
       {state.inventory && <p>Payout compartment: <strong>{formatPaise(payoutTotal(state.inventory.inventory))}</strong>.
         Cashbox is excluded. Observation: {new Date(state.inventory.observedAt).toLocaleTimeString()}.</p>}
       {state.activeReception && <p role="alert">Finish the current donation before settlement or payout.</p>}
-      {state.reconciliationRequired && <p role="alert">Operator reconciliation required. No automatic retry or new cash intake.</p>}
+      {state.reconciliationRequired && <p role="alert">{state.cashPolicy === 'interim-ledger'
+        ? 'Historical cash differences are retained. Cash intake resumes when the Controller confirms the device is available; unknown physical operations are never retried automatically.'
+        : 'Operator reconciliation required. No automatic retry or new cash intake.'}</p>}
       {!state.cashFeeVaultAvailable && <p role="alert">CashFeeVault is not deployed. Fee payment and payout remain unavailable.</p>}
       {invoice && <div>
         <h2>Exact cash fee invoice</h2>
@@ -130,7 +147,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
           })}>Verify existing payment · no resubmission</button>}
       </div>}
       <button className="button button-outline" disabled={busy || !state.cashFeeVaultAvailable || state.activeReception
-        || state.reconciliationRequired || Boolean(payoutActive) || Boolean(invoice && invoice.status !== 'paid')}
+        || (state.reconciliationRequired && state.cashPolicy !== 'interim-ledger') || Boolean(payoutActive) || Boolean(invoice && invoice.status !== 'paid')}
         onClick={() => void act(async () => {
           requestId.current ??= crypto.randomUUID();
           await api(`${base}/invoice`, { method: 'POST', body: JSON.stringify({ requestId: requestId.current }) }, true);

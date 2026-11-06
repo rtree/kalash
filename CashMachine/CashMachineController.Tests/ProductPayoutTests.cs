@@ -123,7 +123,129 @@ internal static class ProductPayoutTests
         await BezelWaitingAsync();
         await PartialReconciliationAsync();
         count += 3;
+        count += await PolicySafetyAsync();
         Console.WriteLine($"{count} payout tests passed (synthetic; hardware off).");
+    }
+
+    private static async Task<int> PolicySafetyAsync()
+    {
+        var original = Environment.GetEnvironmentVariable("KALASH_CASH_POLICY");
+        var count = 0;
+        try
+        {
+            foreach (var policy in new[] { null, "strict", "interim-ledger" })
+            {
+                Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", policy);
+                foreach (var amount in new[] { "20000", Before().Paise.ToString() })
+                {
+                    try
+                    {
+                        (Command() with { AmountPaise = amount }).Validate("atm-01", 1_800_000_001_000);
+                        throw new Exception("Non-recycler payout amount accepted.");
+                    }
+                    catch (InvalidDataException) { }
+                }
+                using (var fixture = await Fixture.Create("success"))
+                {
+                    await fixture.Owner.InitializeAsync(CancellationToken.None);
+                    var now = fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds();
+                    var session = Guid.NewGuid().ToString("D");
+                    var intake = new ProductCashIntake
+                    {
+                        Command = new($"cash-start-{session}", "start_cash", "pending", "atm-01",
+                            new string('b', 64), "temple-01", session, now + ProductTiming.HumanWindowMs, now),
+                        Baseline = Before(), EnabledValues = [20_000], Closed = true, Started = true,
+                        CloseReason = "fault", FinalInventory = Before(), DisableDispatchStarted = true,
+                        DisabledObserved = true, DisabledObservedAt = now
+                    };
+                    intake.Notes.Add(new() { Key = "historical-recognized", Value = 20_000, Currency = "INR",
+                        Decision = "accept", DispatchStarted = true, Stored = true, Credited = true });
+                    intake.Reasons.Add("inventory_mismatch");
+                    fixture.Owner.State.Intake = intake;
+                    fixture.Owner.State.CompletedSessions.Add(session);
+                    fixture.Owner.State.Locked = true;
+                    fixture.Owner.State.LockReasons.Add("inventory_mismatch");
+                    fixture.Central.CommandAvailable = false;
+                    await fixture.Owner.TickAsync(CancellationToken.None);
+                    if (policy != "interim-ledger")
+                        Check(fixture.Device.Dispatches == 0 && fixture.Central.Inventories.Count == 0
+                            && fixture.Owner.State.Locked, "strict historical ledger mismatch remains blocked");
+                    else
+                    {
+                        var inventory = fixture.Central.Inventories.Single();
+                        Check(ProductPayoutInventory.Same(inventory.Inventory, Before())
+                            && ProductPayoutInventory.Value(inventory.Inventory) == 10_000
+                            && intake.Notes.Single().Value == 20_000 && intake.Notes.Single().Credited,
+                            "publish actual recycler without rewriting recognized historical ledger");
+                        Check(fixture.Central.Operations.TakeLast(2).SequenceEqual(["GET command", "POST inventory"]),
+                            "command GET still precedes inventory publication");
+                        fixture.Central.CommandAvailable = true;
+                        fixture.Clock.Advance(5_000);
+                        await fixture.Owner.TickAsync(CancellationToken.None);
+                        Check(fixture.Device.Dispatches == 1, "fresh approval pays actual inventory, not recognized ledger");
+                        fixture.Device.Inventory = After("success");
+                        fixture.Device.Events.Enqueue([Event("CashEventResponse", "DISPENSED"),
+                            Event("DispenserTransactionEventResponse", "COMPLETED")]);
+                        fixture.Clock.Advance(200);
+                        await fixture.Owner.TickAsync(CancellationToken.None);
+                        fixture.Clock.Advance(200);
+                        await fixture.Owner.TickAsync(CancellationToken.None);
+                        Check(fixture.Owner.State.Payouts.Single().State == "reported"
+                            && ProductPayoutInventory.Completed(Before(), fixture.Central.Reports.Last().Evidence!.After),
+                            "interim completion uses exact actual inventory/counter delta");
+                    }
+                    Console.WriteLine($"PASS synthetic payout {policy} historical ledger policy");
+                    count++;
+                }
+                foreach (var failure in new[] { "unknown", "fault", "partial_value" })
+                {
+                    using var fixture = await Fixture.Create("success");
+                    await fixture.Owner.InitializeAsync(CancellationToken.None);
+                    if (failure == "unknown")
+                    {
+                        var old = fixture.Central.Command;
+                        fixture.Owner.State.Payouts.Add(new() { Command = old, Fingerprint = old.Fingerprint(),
+                            State = "unknown", DispatchAt = old.CreatedAt });
+                        fixture.Owner.State.Locked = true;
+                        fixture.Owner.State.LockReasons.Add("payout_operation_unknown");
+                        fixture.Central.Command = Command();
+                    }
+                    else
+                    {
+                        await fixture.Owner.TickAsync(CancellationToken.None);
+                        if (failure == "fault")
+                        {
+                            fixture.Device.Healthy = false;
+                            fixture.Device.Events.Enqueue([Event("DeviceStatusResponse", "ERROR")]);
+                        }
+                        else
+                            fixture.Device.Events.Enqueue([JsonSerializer.SerializeToElement(new
+                                { type = "CashEventResponse", eventTypeAsString = "DISPENSED",
+                                    value = 5_000, countryCode = "INR" }),
+                                Event("DispenserTransactionEventResponse", "COMPLETED")]);
+                    }
+                    fixture.Clock.Advance(200);
+                    await fixture.Owner.TickAsync(CancellationToken.None);
+                    fixture.Device.Healthy = true;
+                    fixture.Clock.Advance(5_000);
+                    await fixture.Owner.TickAsync(CancellationToken.None);
+                    Check(fixture.Owner.State.Locked && fixture.Owner.State.Payouts.Single().State == "unknown"
+                        && fixture.Device.Dispatches == (failure == "unknown" ? 0 : 1)
+                        && fixture.Central.Inventories.Count == 0,
+                        $"{policy} {failure} remains locked without replay or inventory publication");
+                    var saved = await fixture.Journal.LoadAsync(CancellationToken.None);
+                    Check(saved.Locked && saved.Payouts.Single().State == "unknown",
+                        $"{policy} {failure} persists actual fault/unknown evidence");
+                    Console.WriteLine($"PASS synthetic payout {policy} {failure} no retry");
+                    count++;
+                }
+                await PartialReconciliationAsync();
+                Console.WriteLine($"PASS synthetic payout {policy} explicit partial reconciliation no resend");
+                count++;
+            }
+            return count;
+        }
+        finally { Environment.SetEnvironmentVariable("KALASH_CASH_POLICY", original); }
     }
 
     private static async Task BezelWaitingAsync()
@@ -348,6 +470,7 @@ internal static class ProductPayoutTests
         public int Dispatches;
         public long Sequence;
         public string Summary = "DISABLED";
+        public bool Healthy = true;
         public CashInventory Inventory = Before();
         public Queue<JsonElement[]> Events = [];
         public Task<IReadOnlyList<CashRawSnapshot>> RecoverAsync(CancellationToken token) =>
@@ -357,7 +480,7 @@ internal static class ProductPayoutTests
             new(Summary, Events.Count > 0 ? Events.Dequeue() : [], clock.GetUtcNow().ToUnixTimeMilliseconds())));
         public Task<ProductDeviceReadback> ReadAsync(CancellationToken token) => Task.FromResult(
             new ProductDeviceReadback(mode == "baseline" ? After("success") : Inventory,
-                CashInventory.Denominations, mode != "escrow", true, 4));
+                CashInventory.Denominations, mode != "escrow", Healthy, 4));
         public async Task<ProductDeviceHealth> ReadHealthAsync(CancellationToken token) => new(true, true, true, await ReadAsync(token));
         public Task DispenseOnceAsync(long amountPaise, CancellationToken token)
         {
@@ -374,6 +497,9 @@ internal static class ProductPayoutTests
         IProductPayoutReconciliationCentral
     {
         public ProductPayoutCommand Command = ProductPayoutTests.Command();
+        public bool CommandAvailable = true;
+        public List<ProductPayoutInventoryReport> Inventories = [];
+        public List<string> Operations = [];
         public List<ProductPayoutReport> Reports = [];
         public bool FailDispatchAck;
         public CentralCashSession? Session;
@@ -387,13 +513,22 @@ internal static class ProductPayoutTests
         public Task<CashEventAck> PostCashEventAsync(CashEventEnvelope value, CancellationToken token) =>
             throw new Exception("Payout attempted donation event.");
         public Task ReportHealthAsync(ControllerHealthReport report, CancellationToken token) => Task.CompletedTask;
-        public Task<ProductPayoutCommand?> GetPayoutCommandAsync(CancellationToken token) => Task.FromResult<ProductPayoutCommand?>(Command);
+        public Task<ProductPayoutCommand?> GetPayoutCommandAsync(CancellationToken token)
+        {
+            Operations.Add("GET command");
+            return Task.FromResult<ProductPayoutCommand?>(CommandAvailable ? Command : null);
+        }
         public Task ReportPayoutAsync(ProductPayoutReport report, CancellationToken token)
         {
             if (FailDispatchAck && report.State == "dispatching") return Task.FromException(new TimeoutException());
             Reports.Add(report); return Task.CompletedTask;
         }
-        public Task ReportPayoutInventoryAsync(ProductPayoutInventoryReport report, CancellationToken token) => Task.CompletedTask;
+        public Task ReportPayoutInventoryAsync(ProductPayoutInventoryReport report, CancellationToken token)
+        {
+            Operations.Add("POST inventory");
+            Inventories.Add(report);
+            return Task.CompletedTask;
+        }
     }
     private sealed class Fixture : IDisposable
     {

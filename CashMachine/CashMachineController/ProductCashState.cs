@@ -14,6 +14,7 @@ public sealed class ProductCashNote
     public bool Stored { get; set; }
     public bool Returned { get; set; }
     public bool Credited { get; set; }
+    public string? AuditDisposition { get; set; }
 }
 
 public sealed class ProductCashIntake
@@ -42,7 +43,9 @@ public sealed class ProductCashIntake
     public long NoteSequence { get; set; }
     public bool SingleHundred { get; init; }
     public CashInventory? FinalInventory { get; set; }
-    [JsonIgnore] public ProductCashNote? Pending => Notes.SingleOrDefault(note => !note.Stored && !note.Returned);
+    public long? AuditRetiredAt { get; set; }
+    [JsonIgnore] public ProductCashNote? Pending => Notes.SingleOrDefault(note =>
+        !note.Stored && !note.Returned && note.AuditDisposition is null);
     [JsonIgnore] public long CommittedPaise => Notes.Where(note => note.Decision == "accept" && !note.Returned).Sum(note => note.Value);
     [JsonIgnore] public long CommittedNotes => Notes.LongCount(note => note.Decision == "accept" && !note.Returned);
 }
@@ -67,10 +70,13 @@ public sealed class ProductCashState
     public string? FailedStartRecoveryPhase { get; set; }
     public ProductFailedStartRecoveryReceipt? FailedStartRecovery { get; set; }
     public bool Locked { get; set; }
+    public bool HistoricalAuditRetired { get; set; }
     public List<string> LockReasons { get; init; } = [];
+    public List<string> AuditWarnings { get; init; } = [];
     public List<string> CompletedSessions { get; init; } = [];
     public List<CashEventEnvelope> Outbox { get; init; } = [];
     public ProductCashIntake? Intake { get; set; }
+    public List<ProductCashIntake> HistoricalIntakes { get; init; } = [];
     public List<ProductPayout> Payouts { get; init; } = [];
 
     public void Begin(CashStartCommand command, CashInventory baseline, long[] enabled)
@@ -83,6 +89,8 @@ public sealed class ProductCashState
             || (SingleHundred && (baseline.Paise + 10_000 > 100_000 || !enabled.SequenceEqual([10_000L])))
             || enabled.Length == 0 || enabled.Any(value => !CashInventory.Denominations.Contains(value)))
             throw new InvalidOperationException("Product cash preconditions prevent a new intake.");
+        if (Intake is { Closed: true, AuditRetiredAt: not null } retired)
+            HistoricalIntakes.Add(retired);
         Intake = new ProductCashIntake { Command = command, Baseline = baseline, EnabledValues = enabled, SingleHundred = SingleHundred };
     }
 
@@ -234,6 +242,41 @@ public sealed class ProductCashState
         CompletedSessions.Add(intake.Command.CashSessionId);
     }
 
+    internal bool RetireHistoricalIntakeAsAudit(long now)
+    {
+        var intake = Intake;
+        if (!Locked || intake is not { Closed: true, FinalInventory: not null, AuditRetiredAt: null }
+            || !CompletedSessions.Contains(intake.Command.CashSessionId) || LockReasons.Count == 0
+            || intake.Reasons.Count == 0
+            || LockReasons.Any(reason => !ProductCashPolicy.IsAuditableHistoricalReason(reason))
+            || intake.Reasons.Any(reason => !ProductCashPolicy.IsAuditableHistoricalReason(reason))
+            || intake.Notes.Any(note => note.Stored && note.Returned || note.Credited && !note.Stored))
+            return false;
+
+        var unresolved = intake.Notes.Where(note => !note.Stored && !note.Returned).ToArray();
+        if (unresolved.Length > 1 || unresolved.Any(note => note.Credited
+            || note.AuditDisposition is not null and not "unresolved_audit"))
+            return false;
+
+        foreach (var reason in LockReasons.Concat(intake.Reasons).Distinct(StringComparer.Ordinal))
+            if (!AuditWarnings.Contains(reason, StringComparer.Ordinal))
+                AuditWarnings.Add(reason);
+
+        foreach (var note in unresolved)
+        {
+            note.AuditDisposition = "unresolved_audit";
+            var warning = $"unresolved_note_audit:{note.Key}";
+            if (!AuditWarnings.Contains(warning, StringComparer.Ordinal))
+                AuditWarnings.Add(warning);
+        }
+
+        LockReasons.Clear();
+        Locked = false;
+        HistoricalAuditRetired = true;
+        intake.AuditRetiredAt = now;
+        return true;
+    }
+
     public void Acknowledge(CashEventAck ack)
     {
         if (Outbox.Count == 0 || !ack.Accepted || ack.StreamId != StreamId
@@ -290,6 +333,32 @@ public sealed class ProductCashJournal : IDisposable
                 || item.DeviceEventId != $"{state.StreamId}:{item.Sequence}").Any())
             throw new InvalidDataException("The product cash journal ordering is corrupt.");
         state.Intake?.Baseline.Validate();
+        state.Intake?.FinalInventory?.Validate();
+        foreach (var historical in state.HistoricalIntakes)
+        {
+            if (!historical.Closed || historical.AuditRetiredAt is null || historical.FinalInventory is null)
+                throw new InvalidDataException("Archived cash intakes must preserve their closed physical evidence.");
+            historical.Baseline.Validate();
+            historical.FinalInventory.Validate();
+        }
+        if (state.HistoricalIntakes.Select(intake => intake.Command.CashSessionId).Distinct(StringComparer.Ordinal).Count()
+            != state.HistoricalIntakes.Count)
+            throw new InvalidDataException("Historical cash session identities must be unique.");
+        if (state.HistoricalAuditRetired
+            && (state.AuditWarnings.Count == 0
+                || state.Intake?.AuditRetiredAt is null
+                    && !state.HistoricalIntakes.Any(intake => intake.AuditRetiredAt is not null)))
+            throw new InvalidDataException("Retired historical audit evidence is missing its closed intake.");
+        var historicalIntakes = state.HistoricalIntakes.AsEnumerable();
+        if (state.Intake is { } currentIntake)
+            historicalIntakes = historicalIntakes.Append(currentIntake);
+        foreach (var historical in historicalIntakes)
+            if (historical.Notes.Any(note =>
+                note.AuditDisposition is not null && note.AuditDisposition != "unresolved_audit"
+                || note.AuditDisposition == "unresolved_audit"
+                    && (note.Stored || note.Returned || note.Credited
+                        || !state.AuditWarnings.Contains($"unresolved_note_audit:{note.Key}", StringComparer.Ordinal))))
+                throw new InvalidDataException("An audit-only note must remain explicitly unresolved and non-credited.");
         foreach (var payout in state.Payouts) payout.ValidatePersisted();
         if (state.Payouts.Select(payout => payout.Command.CommandId).Distinct().Count() != state.Payouts.Count
             || state.Payouts.Select(payout => payout.Command.PayoutId).Distinct().Count() != state.Payouts.Count

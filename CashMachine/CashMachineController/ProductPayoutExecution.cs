@@ -46,7 +46,7 @@ public sealed partial class ProductCashExecutionOwner
     private bool PayoutBlocksIntake => State.Payouts.Any(payout =>
         !payout.Reconciled && payout.State is not ("reported" or "precondition_failed") || payout.Reports.Count > 0);
 
-    private bool PayoutSafe(ProductDeviceReadback readback) => !State.Locked && State.ManualEscrowConfigured
+    private bool PayoutSafe(ProductDeviceReadback readback) => !ProductCashPolicy.BlocksOperations(State) && State.ManualEscrowConfigured
         && !State.RouteVerificationRequired && State.Intake is not { Closed: false }
         && State.Outbox.Count == 0 && permission is null && !string.IsNullOrWhiteSpace(State.DeviceId)
         && latest?.DeviceState == "DISABLED" && lastOwnedPollAt is { } polled && Now - polled <= ProductTiming.StatusFreshnessMs
@@ -99,7 +99,7 @@ public sealed partial class ProductCashExecutionOwner
                     await ReconcilePayoutCoreAsync(authorization, unknown, transport, token);
                 return;
             }
-            if (State.Locked && ActivePayout is { } locked)
+            if (ProductCashPolicy.BlocksOperations(State) && ActivePayout is { } locked)
             {
                 await PayoutUnknownAsync(locked, "payout_device_event_unknown");
                 return;
@@ -133,7 +133,7 @@ public sealed partial class ProductCashExecutionOwner
                 await FlushPayoutReportsAsync(transport, token);
                 return;
             }
-            if (!allowStart || State.Locked || PayoutBlocksIntake || Now < nextPayoutPoll
+            if (!allowStart || ProductCashPolicy.BlocksOperations(State) || PayoutBlocksIntake || Now < nextPayoutPoll
                 || State.Intake is { Closed: false } || State.Outbox.Count != 0 || permission is not null) return;
             nextPayoutPoll = Now + 2_000;
             var readback = await device.ReadAsync(token);
