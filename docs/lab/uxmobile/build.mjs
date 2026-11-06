@@ -64,8 +64,9 @@ for (const input of Object.keys(result.metafile.inputs)) {
 }
 const notices = [];
 for (const [name, { directory, version }] of packages) {
-  const license = ['LICENSE', 'LICENSE.txt', 'LICENSE.md', 'license']
-    .map((file) => join(directory, file)).find(existsSync);
+  const license = ['LICENSE', 'LICENSE.txt', 'LICENSE.md', 'LICENCE', 'license']
+    .map((file) => join(directory, file)).find(existsSync)
+    ?? (name === 'encode-utf8' && version === '1.0.3' ? join(lab, 'encode-utf8.LICENSE.txt') : undefined);
   if (!license) throw new Error(`Missing license for ${name}`);
   notices.push(`${name}@${version}\n\n${await readFile(license, 'utf8')}`);
 }

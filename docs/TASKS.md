@@ -4,7 +4,7 @@
 
 - UX-mobile限定PoC（本人依頼、独立HTTPSサイトを選択）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／カメラpreviewを検証する。実機テストは本人。資料・実装は`docs/lab/uxmobile/`へ集約。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
-- PoC checkpoint（2026-11-06 04:57Z）：隔離static serverの自動テスト5件pass、skipなし。専用role未付与SAを作成。SDDの隔離方針を照合。本番trafficは`00016-w6k`のまま、PoCは未配備・実機未検証。次は画面統合・HTTPS配備。並行チームの`src/server/donations.ts`／`tests/api.test.mjs`変更は取り込まない。
+- PoC checkpoint（2026-11-06 05:05Z）：調査・画面を統合、scaffold `7b72c79`はpush確認済み。隔離unit/HTTP 37件pass・skipなし、QR-only buildとローカルUI確認済み（実QR読取ではない）。専用SAのproject roleなしを確認。encode-utf8の欠落license本文をupstreamから補完。SDD隔離方針と一致。次は実装保存→独立HTTPS配備、本人の実機試験待ち。並行チームの本体変更は取り込まない。
 - ゴール：M1 モバイル寄付。MetaMask内蔵Browserのapprove-only停滞を安全に解決し、新しい0.01 test USDC寄付→Central確認→Stamp→Collection再読込を本人のWallet承認で通す。その後M2写真共有へ戻る。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
@@ -18,8 +18,8 @@
 
 | ID | ゴール | 担当・範囲 | 依存 | 状態 | 完了条件・証跡 |
 |---|---|---|---|---|---|
-| UX-mobile-research | 限定PoC | 調査：上記research/manual-testのみ | なし | doing | 指定commitの2資料・公式仕様を照合し、一般QRリーダーの保証限界と本人の試験表を用意 |
-| UX-mobile-probe | 限定PoC | 実装：上記5ファイルのみ | なし | doing | Reownなしのinjected provider・QRリンク・camera preview、送信／撮影なし |
+| UX-mobile-research | 限定PoC | 調査：上記research/manual-testのみ | なし | verified | 指定commitの2資料・公式仕様を照合。link.metamask.ioを採用、一般QRリーダー保証不可。本人用試験表あり |
+| UX-mobile-probe | 限定PoC | 実装：上記5ファイルのみ | なし | verified（実装のみ） | Reownなし、明示接続2method限定、QRリンク、camera preview/停止・遅延対策。実MetaMask・実カメラはhuman-wait |
 | UX-mobile-integrate | 限定PoC | 統合：配信／配備／検証・共有文書・Git | UX-mobile-research、UX-mobile-probe | doing | 独立HTTPSでQRをPC表示、本人のスマホ確認をhuman-waitとして引継ぎ |
 | M1-entry | M1 | Integrator：AGENTS、仕様、依存ポリシー | なし | 完了 | 初期入力・preflight・公開手順を保存。初期lock検証539件、監査0件 |
 | M1-hosts | M1 | Integrator：ホスト・権限診断 | なし | 完了 | Windows開発、Cloud Build Linux、GCP/Auth/ADBの実態を記録 |

@@ -33,6 +33,8 @@
 build時の解決起点は既存AppKitの依存関係だが、AppKit/WalletConnect/SDK自体は
 bundleにも実行時にも入らず、buildが依存のallowlistを検証する。
 同梱ライセンスは公開サイトの`/third-party-notices.txt`。
+`encode-utf8@1.0.3`はMIT表記のみでlicense本文を同梱しないため、
+[upstreamの本文と固定参照](encode-utf8.LICENSE.txt)を補完する。
 
 ```powershell
 node scripts\check-policy.mjs

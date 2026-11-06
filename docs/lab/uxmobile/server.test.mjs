@@ -6,6 +6,15 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { createLabServer } from './server.mjs';
 
+test('missing build assets fail startup instead of serving a false-ready health check', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'kalash-uxmobile-missing-'));
+  try {
+    await assert.rejects(createLabServer({ root }), { code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('isolated HTTP service serves only explicit public assets, without APIs', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'kalash-uxmobile-http-'));
   t.after(() => rm(root, { recursive: true, force: true }));
