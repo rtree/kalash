@@ -29,7 +29,9 @@ internal static class Program
         await Run("accept loopback listeners and reject wildcard binding", VerifyLoopbackBinding);
         await Run("fail when no local listener appears", RejectMissingLoopbackBinding);
         await Run("initialize only with acceptor and auto-escrow disabled", OpenConnectionIsDisabled);
-        Console.WriteLine("16 CashMachineController tests passed.");
+        await Run("parse device model codes as numeric readbacks", ParseNumericDeviceReadback);
+        await Run("distinguish missing and wrong-type readback fields", DistinguishDeviceReadbackErrors);
+        Console.WriteLine("18 CashMachineController tests passed.");
         return 0;
     }
 
@@ -390,6 +392,50 @@ internal static class Program
         Check(
             response.RootElement.GetProperty("deviceID").GetString() == "synthetic-device-id",
             "The returned device ID was not preserved.");
+    }
+
+    private static Task ParseNumericDeviceReadback()
+    {
+        using var document = JsonDocument.Parse(
+            """{"deviceModel":2,"deviceType":3,"baseDeviceType":0,"firmware":"NVS2004321016000","dataset":"INR02006","deviceState":4,"deviceError":0,"dispenseState":0,"isOpen":true,"isStarted":true,"noteInEscrow":false}""");
+        var result = DeviceReadback.ParseCompleteCashDevice(document.RootElement);
+        Check(result.DeviceModel == 2 && result.DeviceType == 3 && result.BaseDeviceType == 0,
+            "Numeric model codes were not preserved.");
+        Check(result.Firmware == "NVS2004321016000" && result.Dataset == "INR02006",
+            "Firmware or dataset readback was not preserved.");
+        Check(result.IsOpen && result.IsStarted && !result.NoteInEscrow,
+            "Boolean device-state readbacks were not preserved.");
+        return Task.CompletedTask;
+    }
+
+    private static Task DistinguishDeviceReadbackErrors()
+    {
+        using var missing = JsonDocument.Parse(
+            """{"deviceType":3,"baseDeviceType":0,"firmware":"x","dataset":"y","deviceState":4,"deviceError":0,"dispenseState":0,"isOpen":true,"isStarted":true,"noteInEscrow":false}""");
+        var missingField = CaptureReadbackError(missing.RootElement);
+        Check(missingField.Contains("omitted field deviceModel", StringComparison.Ordinal),
+            "Missing field was not distinguished.");
+
+        using var wrongType = JsonDocument.Parse(
+            """{"deviceModel":"2","deviceType":3,"baseDeviceType":0,"firmware":"x","dataset":"y","deviceState":4,"deviceError":0,"dispenseState":0,"isOpen":true,"isStarted":true,"noteInEscrow":false}""");
+        var typeError = CaptureReadbackError(wrongType.RootElement);
+        Check(typeError.Contains("deviceModel has type String", StringComparison.Ordinal),
+            "Wrong field type was not distinguished.");
+        return Task.CompletedTask;
+    }
+
+    private static string CaptureReadbackError(JsonElement value)
+    {
+        try
+        {
+            _ = DeviceReadback.ParseCompleteCashDevice(value);
+        }
+        catch (InvalidDataException exception)
+        {
+            return exception.Message;
+        }
+
+        throw new InvalidOperationException("The invalid device readback was accepted.");
     }
 
     private static async Task Run(string name, Func<Task> test)

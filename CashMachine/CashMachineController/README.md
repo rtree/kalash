@@ -44,6 +44,15 @@ stops its own server child. It never accepts or dispenses a note. If device
 state is unresolved, it does not retry `OpenConnection` or stop the server
 child; follow the reported PID and reconcile the state first.
 
+`Reconcile-Local.ps1 -ServerPid <pid>` attaches only to the explicitly supplied
+PID after checking that it is the dedicated .NET server and sole owner of port
+5000. It performs authentication and read-only inventory/state calls plus one
+consuming status poll; it never sends a device-changing command.
+`Complete-Initialization-Local.ps1 -ServerPid <pid>` may be used only after
+that reconciliation. It rechecks DISABLED, empty escrow, identity, levels and
+counters, sends one DisconnectDevice, confirms the device list is empty, then
+stops that exact server PID. It refuses to stop if any check is unresolved.
+
 If `KALASH_ITL_JWT_KEY` is absent, the controller creates a fresh ephemeral
 signing key in memory for the server child; it is not persisted. The test runner
 does not start the manufacturer server. The only device-changing API exposed

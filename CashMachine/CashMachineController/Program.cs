@@ -17,7 +17,7 @@ internal static class Program
     {
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
-            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | run");
+            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | run");
             Console.WriteLine(
                 $"Inspect uses the unchanged vendor default credentials from the local Fresh package at {VendorBootstrapCredentials.PackageDirectoryVariable}; no password changes or persistence are performed.");
             Console.WriteLine("validate never starts a child; inspect performs read-only checks and stops its child.");
@@ -30,9 +30,9 @@ internal static class Program
             return ValidateConfiguration();
         }
 
-        if (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "run"))
+        if (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "run"))
         {
-            Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', or the explicit 'run' command.");
+            Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', 'reconcile', 'finish-initialization', or the explicit 'run' command.");
             return 2;
         }
 
@@ -50,6 +50,8 @@ internal static class Program
             {
                 "inspect" => await InspectReadinessAsync(),
                 "initialize" => await InitializeDeviceAsync(),
+                "reconcile" => await ReconcileExistingDeviceAsync(),
+                "finish-initialization" => await FinishInitializationAsync(),
                 _ => await RunServerAsync()
             };
         }
@@ -286,22 +288,25 @@ internal static class Program
                 $"Single poller observed {routePoll.SuccessfulRoutes} successful denomination-route results and DISABLED state.");
 
             using var complete = await api.GetCompleteCashDeviceAsync(deviceId);
-            var model = RequiredString(complete.RootElement, "deviceModel");
-            var firmware = RequiredString(complete.RootElement, "firmware");
-            var dataset = RequiredString(complete.RootElement, "dataset");
-            if (!string.Equals(model, "SPECTRAL_PAYOUT", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(firmware, "NVS2004321016000", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(dataset, "INR02006", StringComparison.OrdinalIgnoreCase))
+            var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
+            if (readback.DeviceModel != 2
+                || readback.DeviceType != 3
+                || readback.BaseDeviceType != 0
+                || !string.Equals(readback.Firmware, "NVS2004321016000", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(readback.Dataset, "INR02006", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
                     "The connected device identity differs from the authorized Spectral Payout / firmware / dataset. Acceptor remains disabled.");
             }
 
-            if (!TryGetBooleanProperty(complete.RootElement, "noteInEscrow", out var noteInEscrow)
-                || noteInEscrow)
+            if (!readback.IsOpen
+                || !readback.IsStarted
+                || readback.DeviceError != 0
+                || readback.DispenseState != 0
+                || readback.NoteInEscrow)
             {
                 throw new InvalidOperationException(
-                    "The device's escrow state is not confirmed empty. The owned server remains running; no cash command was sent.");
+                    "Device readiness, error, dispense, or escrow readback is not safe. The owned server remains running; no cash command was sent.");
             }
 
             using var levels = await api.GetAllLevelsAsync(deviceId);
@@ -324,7 +329,10 @@ internal static class Program
                 throw new InvalidDataException("GetCounters returned an unsupported response shape.");
             }
 
-            Console.WriteLine($"Device: {model}; firmware: {firmware}; dataset: {dataset}.");
+            Console.WriteLine(
+                $"Device model/type/base codes: {readback.DeviceModel}/{readback.DeviceType}/{readback.BaseDeviceType}; firmware: {readback.Firmware}; dataset: {readback.Dataset}; state code: {readback.DeviceState}.");
+            Console.WriteLine(
+                $"Device open/started: {readback.IsOpen}/{readback.IsStarted}; error={readback.DeviceError}; dispenseState={readback.DispenseState}; noteInEscrow={readback.NoteInEscrow}.");
             Console.WriteLine($"INR level rows: {levelSummary.RowCount}; readback route codes: {levelSummary.RouteCodes}.");
             Console.WriteLine("Counters and currency assignment were read successfully.");
             Console.WriteLine("Acceptor and automatic escrow acceptance were configured disabled; no cash command was sent.");
@@ -362,6 +370,204 @@ internal static class Program
         }
 
         Console.WriteLine("The device was disconnected with the acceptor disabled; the owned REST API Server child stopped normally.");
+        return 0;
+    }
+
+    private static async Task<int> ReconcileExistingDeviceAsync()
+    {
+        var configuration = RestApiServerConfiguration.FromEnvironment();
+        var expectedPidText = Environment.GetEnvironmentVariable("KALASH_ITL_EXPECTED_SERVER_PID");
+        if (!int.TryParse(expectedPidText, out var expectedPid) || expectedPid <= 0)
+        {
+            throw new ControllerConfigurationException(
+                "The local reconciliation runner did not provide a verified server PID.");
+        }
+
+        using var process = Process.GetProcessById(expectedPid);
+        var expectedDotnet = Path.GetFullPath(configuration.DotnetExecutable);
+        var imagePath = process.MainModule?.FileName;
+        if (process.HasExited
+            || !string.Equals(process.ProcessName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || imagePath is null
+            || !string.Equals(Path.GetFullPath(imagePath), expectedDotnet, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The specified server PID is no longer the expected local .NET host; refusing to attach.");
+        }
+
+        var listeners = IPGlobalProperties.GetIPGlobalProperties()
+            .GetActiveTcpListeners()
+            .Where(endpoint => endpoint.Port == configuration.Port)
+            .ToArray();
+        if (listeners.Length == 0 || listeners.Any(endpoint => !IPAddress.IsLoopback(endpoint.Address)))
+        {
+            throw new InvalidOperationException(
+                "The existing REST API does not have a loopback-only listener; refusing to attach.");
+        }
+
+        var freshPackageDirectory = Environment.GetEnvironmentVariable(
+            VendorBootstrapCredentials.PackageDirectoryVariable);
+        if (string.IsNullOrWhiteSpace(freshPackageDirectory))
+        {
+            throw new ControllerConfigurationException(
+                $"Set {VendorBootstrapCredentials.PackageDirectoryVariable} to the local Fresh ITL package.");
+        }
+
+        VendorBootstrapCredentials.VerifyTargetMatchesFreshPackage(
+            configuration.ServerDirectory,
+            freshPackageDirectory);
+        var bootstrapCredentials = VendorBootstrapCredentials.Load(freshPackageDirectory);
+        using var api = new ItlControllerClient(bootstrapCredentials.Username, bootstrapCredentials.Password);
+
+        Console.WriteLine($"Verified existing loopback listener ownership for PID {expectedPid}.");
+        await api.VerifyHostFilteringAsync();
+        await api.AuthenticateAsync();
+        Console.WriteLine("ITL API authentication succeeded; bearer token withheld.");
+
+        using var connectedDevices = await api.GetAllCashDevicesAsync();
+        if (connectedDevices.RootElement.ValueKind != JsonValueKind.Array
+            || connectedDevices.RootElement.GetArrayLength() != 1)
+        {
+            throw new InvalidDataException(
+                "Expected one connected device for reconciliation; no write command was sent.");
+        }
+
+        var connectedEntry = connectedDevices.RootElement[0];
+        var deviceId = GetConnectedDeviceId(connectedEntry);
+        using var complete = await api.GetCompleteCashDeviceAsync(deviceId);
+        using var levels = await api.GetAllLevelsAsync(deviceId);
+        using var counters = await api.GetCountersAsync(deviceId);
+        using var currency = await api.GetCurrencyAssignmentAsync(deviceId);
+        using var status = await api.GetDeviceStatusAsync(deviceId);
+
+        var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
+        var deviceState = FindStringProperty(status.RootElement, "deviceState", "state") ?? "unknown";
+        var eventTypes = DescribeEventTypes(status.RootElement);
+        var routeCodes = levels.RootElement.ValueKind == JsonValueKind.Array
+            ? SummarizeLevels(levels.RootElement).RouteCodes
+            : "unavailable";
+
+        Console.WriteLine(
+            $"Device model/type/base codes: {readback.DeviceModel}/{readback.DeviceType}/{readback.BaseDeviceType}; firmware={readback.Firmware}; dataset={readback.Dataset}.");
+        Console.WriteLine(
+            $"Identity field names: connected=[{DescribeIdentityFieldNames(connectedEntry)}]; complete=[{DescribeIdentityFieldNames(complete.RootElement)}].");
+        Console.WriteLine($"Complete response shape: {DescribeJsonShape(complete.RootElement)}.");
+        Console.WriteLine(
+            $"Complete state code={readback.DeviceState}; status state={deviceState}; open/started={readback.IsOpen}/{readback.IsStarted}; error={readback.DeviceError}; dispenseState={readback.DispenseState}; noteInEscrow={readback.NoteInEscrow}; readback route codes={routeCodes}.");
+        Console.WriteLine(
+            $"Levels={DescribeJsonCollection(levels.RootElement)}; counters={DescribeJsonCollection(counters.RootElement)}; currency={DescribeJsonCollection(currency.RootElement)}.");
+        Console.WriteLine($"Single poller consumed {eventTypes}.");
+        Console.WriteLine(
+            $"No device-changing command was sent. The existing REST API child PID {expectedPid} remains running for follow-up.");
+        return 0;
+    }
+
+    private static async Task<int> FinishInitializationAsync()
+    {
+        var configuration = RestApiServerConfiguration.FromEnvironment();
+        var expectedPidText = Environment.GetEnvironmentVariable("KALASH_ITL_EXPECTED_SERVER_PID");
+        if (!int.TryParse(expectedPidText, out var expectedPid) || expectedPid <= 0)
+        {
+            throw new ControllerConfigurationException(
+                "The local completion runner did not provide a verified server PID.");
+        }
+
+        using var process = Process.GetProcessById(expectedPid);
+        var expectedDotnet = Path.GetFullPath(configuration.DotnetExecutable);
+        var imagePath = process.MainModule?.FileName;
+        if (process.HasExited
+            || !string.Equals(process.ProcessName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || imagePath is null
+            || !string.Equals(Path.GetFullPath(imagePath), expectedDotnet, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The specified server PID is no longer the expected local .NET host; refusing to attach.");
+        }
+
+        var listeners = IPGlobalProperties.GetIPGlobalProperties()
+            .GetActiveTcpListeners()
+            .Where(endpoint => endpoint.Port == configuration.Port)
+            .ToArray();
+        if (listeners.Length == 0 || listeners.Any(endpoint => !IPAddress.IsLoopback(endpoint.Address)))
+        {
+            throw new InvalidOperationException(
+                "The existing REST API does not have a loopback-only listener; refusing to attach.");
+        }
+
+        var freshPackageDirectory = Environment.GetEnvironmentVariable(
+            VendorBootstrapCredentials.PackageDirectoryVariable);
+        if (string.IsNullOrWhiteSpace(freshPackageDirectory))
+        {
+            throw new ControllerConfigurationException(
+                $"Set {VendorBootstrapCredentials.PackageDirectoryVariable} to the local Fresh ITL package.");
+        }
+
+        VendorBootstrapCredentials.VerifyTargetMatchesFreshPackage(
+            configuration.ServerDirectory,
+            freshPackageDirectory);
+        var bootstrapCredentials = VendorBootstrapCredentials.Load(freshPackageDirectory);
+        using var api = new ItlControllerClient(bootstrapCredentials.Username, bootstrapCredentials.Password);
+        await api.VerifyHostFilteringAsync();
+        await api.AuthenticateAsync();
+
+        using var connectedDevices = await api.GetAllCashDevicesAsync();
+        if (connectedDevices.RootElement.ValueKind != JsonValueKind.Array
+            || connectedDevices.RootElement.GetArrayLength() != 1)
+        {
+            throw new InvalidDataException(
+                "Expected one connected device before completing initialization; no write command was sent.");
+        }
+
+        var deviceId = GetConnectedDeviceId(connectedDevices.RootElement[0]);
+        using var status = await api.GetDeviceStatusAsync(deviceId);
+        var currentDeviceState = FindStringProperty(status.RootElement, "deviceState", "state");
+        if (!string.Equals(currentDeviceState, "DISABLED", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Current device state is not DISABLED; DisconnectDevice was not sent.");
+        }
+
+        using var complete = await api.GetCompleteCashDeviceAsync(deviceId);
+        var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
+        if (readback.DeviceModel != 2
+            || readback.DeviceType != 3
+            || readback.BaseDeviceType != 0
+            || !string.Equals(readback.Firmware, "NVS2004321016000", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(readback.Dataset, "INR02006", StringComparison.OrdinalIgnoreCase)
+            || !readback.IsOpen
+            || !readback.IsStarted
+            || readback.DeviceError != 0
+            || readback.DispenseState != 0
+            || readback.NoteInEscrow)
+        {
+            throw new InvalidOperationException(
+                "Current numeric identity/state readback does not meet the authorized Spectral Payout safe-shutdown criteria.");
+        }
+
+        using var levels = await api.GetAllLevelsAsync(deviceId);
+        var levelSummary = SummarizeLevels(levels.RootElement);
+        using var counters = await api.GetCountersAsync(deviceId);
+        using var currency = await api.GetCurrencyAssignmentAsync(deviceId);
+        if (currency.RootElement.ValueKind is not (JsonValueKind.Array or JsonValueKind.Object)
+            || counters.RootElement.ValueKind is not (JsonValueKind.Array or JsonValueKind.Object))
+        {
+            throw new InvalidDataException(
+                "Inventory or counter readback is incomplete; DisconnectDevice was not sent.");
+        }
+
+        Console.WriteLine(
+            $"Verified numeric device codes {readback.DeviceModel}/{readback.DeviceType}/{readback.BaseDeviceType}, firmware/dataset, DISABLED, empty escrow, and {levelSummary.RowCount} INR levels; route readback codes={levelSummary.RouteCodes}.");
+
+        await api.DisconnectDeviceAsync(deviceId);
+        using var afterDisconnect = await api.GetAllCashDevicesAsync();
+        if (afterDisconnect.RootElement.ValueKind != JsonValueKind.Array
+            || afterDisconnect.RootElement.GetArrayLength() != 0)
+        {
+            throw new InvalidOperationException(
+                "DisconnectDevice returned but the device remains listed; keep the server running and reconcile without retrying.");
+        }
+
+        Console.WriteLine("DisconnectDevice succeeded; GetAllCashDevices is empty. No note was accepted or dispensed.");
         return 0;
     }
 
@@ -576,11 +782,181 @@ internal static class Program
         return false;
     }
 
+    private static string? FindStringProperty(JsonElement value, params string[] propertyNames)
+    {
+        foreach (var name in propertyNames)
+        {
+            if (TryGetStringProperty(value, name, out var result) && !string.IsNullOrWhiteSpace(result))
+            {
+                return result;
+            }
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in value.EnumerateObject())
+            {
+                var nested = FindStringProperty(property.Value, propertyNames);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in value.EnumerateArray())
+            {
+                var nested = FindStringProperty(item, propertyNames);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string DescribeEventTypes(JsonElement status)
+    {
+        if (!status.TryGetProperty("pollBuffer", out var pollBuffer)
+            || pollBuffer.ValueKind != JsonValueKind.Array)
+        {
+            return "no event-type list";
+        }
+
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in pollBuffer.EnumerateArray())
+        {
+            if (TryGetStringProperty(item, "type", out var type))
+            {
+                names.Add(type!);
+            }
+            else if (TryGetStringProperty(item, "eventTypeAsString", out var eventType))
+            {
+                names.Add(eventType!);
+            }
+        }
+
+        return names.Count == 0 ? "no pending events" : string.Join(", ", names);
+    }
+
+    private static string DescribeIdentityFieldNames(JsonElement value)
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectIdentityFieldNames(value, names, 0);
+        return names.Count == 0 ? "none" : string.Join(", ", names);
+    }
+
+    private static void CollectIdentityFieldNames(
+        JsonElement value,
+        ISet<string> names,
+        int depth)
+    {
+        if (depth > 4)
+        {
+            return;
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in value.EnumerateObject())
+            {
+                if (property.Name.Contains("model", StringComparison.OrdinalIgnoreCase)
+                    || property.Name.Contains("device", StringComparison.OrdinalIgnoreCase)
+                    || property.Name.Equals("firmware", StringComparison.OrdinalIgnoreCase)
+                    || property.Name.Equals("dataset", StringComparison.OrdinalIgnoreCase))
+                {
+                    names.Add(property.Name);
+                }
+
+                CollectIdentityFieldNames(property.Value, names, depth + 1);
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in value.EnumerateArray())
+            {
+                CollectIdentityFieldNames(item, names, depth + 1);
+            }
+        }
+    }
+
+    private static string DescribeJsonShape(JsonElement value)
+    {
+        var fields = new List<string>();
+        CollectJsonShape(value, string.Empty, fields, 0);
+        return fields.Count == 0 ? value.ValueKind.ToString() : string.Join(", ", fields);
+    }
+
+    private static void CollectJsonShape(
+        JsonElement value,
+        string prefix,
+        ICollection<string> fields,
+        int depth)
+    {
+        if (depth > 4 || fields.Count >= 80)
+        {
+            return;
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in value.EnumerateObject())
+            {
+                var path = string.IsNullOrEmpty(prefix) ? property.Name : $"{prefix}.{property.Name}";
+                fields.Add($"{path}:{property.Value.ValueKind}");
+                CollectJsonShape(property.Value, path, fields, depth + 1);
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.Array)
+        {
+            fields.Add($"{prefix}[]:{value.GetArrayLength()}");
+            if (value.GetArrayLength() > 0)
+            {
+                CollectJsonShape(value[0], $"{prefix}[]", fields, depth + 1);
+            }
+        }
+    }
+
+    private static string DescribeJsonCollection(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Array => $"{value.GetArrayLength()} row(s)",
+            JsonValueKind.Object => $"{value.EnumerateObject().Count()} field(s)",
+            _ => "invalid response"
+        };
+    }
+
     private static string RequiredString(JsonElement element, string propertyName)
     {
         return TryGetStringProperty(element, propertyName, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : throw new InvalidDataException($"The ITL response omitted {propertyName}.");
+    }
+
+    private static string GetConnectedDeviceId(JsonElement device)
+    {
+        if (device.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(device.GetString()))
+        {
+            return device.GetString()!;
+        }
+
+        foreach (var name in new[] { "deviceID", "id" })
+        {
+            if (TryGetStringProperty(device, name, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value!;
+            }
+        }
+
+        var shape = device.ValueKind == JsonValueKind.Object
+            ? string.Join(",", device.EnumerateObject().Select(property => property.Name))
+            : device.ValueKind.ToString();
+        throw new InvalidDataException(
+            $"The connected-device entry has an unrecognized shape ({shape}); no command was sent.");
     }
 
     private static bool TryGetBooleanProperty(JsonElement value, string propertyName, out bool result)

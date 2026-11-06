@@ -452,7 +452,7 @@ receives only platform environment variables plus the exact `AllowedHosts` and
 authentication and device readiness are separate checks and are never inferred
 from an open port.
 
-`ItlReadOnlyClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
+`ItlControllerClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
 tokens in memory, refreshes the token before expiry, and serializes each request.
 `ItlControllerClient` exposes authentication and non-consuming USB/device/
 inventory GETs plus only the specifically gated `OpenConnection`,
@@ -481,6 +481,14 @@ list is empty, and stop its child. An ambiguous OpenConnection or unresolved
 device state leaves the owned server child running with its PID reported; do
 not retry or kill it until reconciled. This sequence issues no cash acceptance
 or payout commands.
+
+`Reconcile-Local.ps1 -ServerPid <pid>` attaches to only that PID after verifying
+it runs the dedicated REST DLL and exclusively owns port 5000. Reconciliation
+performs GETs and one consuming `GetDeviceStatus` poll only. The separate
+`Complete-Initialization-Local.ps1 -ServerPid <pid>` requires a safe numeric
+device identity, disabled state, empty escrow, successful inventory reads, and
+an empty connected-device list after its single `DisconnectDevice`; only then
+does it stop that exact child PID.
 
 The vendor child receives `AllowedHosts=localhost;127.0.0.1;[::1]`, a per-run
 ephemeral JWT key, and warning-level application/Serilog filters. Its stdout
