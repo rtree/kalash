@@ -50,11 +50,13 @@ interface ControllerHealth {
 interface ControllerCommand {
   commandId: string;
   type: 'start_cash';
-  state: 'pending';
+  state: 'pending' | 'received' | 'validated' | 'dispatching' | 'observed'
+    | 'precondition_failed' | 'failed' | 'unknown' | 'reported';
   atmId: string;
   visitId: string;
   templeId: string;
   cashSessionId: string;
+  expiresAt: number;
   createdAt: number;
 }
 function atmReference(id: unknown) {
@@ -180,20 +182,118 @@ export async function getControllerCashCommand(atmId: string, authorization: str
     if (!visit || visit.atmId !== atm.id || visit.templeId !== atm.templeId || visit.mode !== 'cash'
       || visit.state !== 'awaiting_device' || !visit.cashSessionId || !visit.ownerWallet
       || !visit.cashConsentChallenge) return { command: null };
-    requireValue(atm.cashEnabled === true
-      && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
-    409, 'CASH_CONTROLLER_NOT_READY', 'A fresh authorized Controller readiness report is required.');
     const commandId = `cash-start-${visit.cashSessionId}`;
     const commandRef = db.collection('controllerCommands').doc(commandId);
     const commandSnapshot = await tx.get(commandRef);
     const command = commandSnapshot.data() as ControllerCommand | undefined;
+    if (command?.expiresAt !== undefined && command.expiresAt <= Date.now()) {
+      return { command: null };
+    }
+    requireValue(atm.cashEnabled === true
+      && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+    409, 'CASH_CONTROLLER_NOT_READY', 'A fresh authorized Controller readiness report is required.');
     requireValue(commandSnapshot.exists && command
       && command.commandId === commandId && command.type === 'start_cash'
-      && command.state === 'pending' && command.atmId === atm.id
+      && !['precondition_failed', 'unknown', 'reported'].includes(command.state)
+      && command.atmId === atm.id
       && command.visitId === visit.id && command.templeId === visit.templeId
       && command.cashSessionId === visit.cashSessionId,
     409, 'CASH_COMMAND_UNAVAILABLE', 'The authorized cash start command is missing or inconsistent.');
     return { command };
+  });
+}
+export async function reportControllerCashCommand(
+  atmId: string,
+  authorization: string | undefined,
+  body: Record<string, unknown>,
+) {
+  const token = authorization?.match(/^Bearer ([a-f0-9]{64})$/i)?.[1];
+  requireValue(token, 401, 'CONTROLLER_AUTH_REQUIRED', 'A registered Controller credential is required.');
+  const allowedFields = ['commandId', 'state', 'observedAt', 'deviceState', 'reason'];
+  requireValue(Object.keys(body).every((key) => allowedFields.includes(key))
+    && typeof body.commandId === 'string'
+    && typeof body.state === 'string'
+    && ['received', 'validated', 'dispatching', 'observed', 'reported', 'precondition_failed', 'failed', 'unknown'].includes(body.state)
+    && (body.observedAt === undefined || (typeof body.observedAt === 'number' && Number.isSafeInteger(body.observedAt)))
+    && (body.deviceState === undefined || (typeof body.deviceState === 'string' && body.deviceState.length <= 80))
+    && (body.reason === undefined || (typeof body.reason === 'string' && body.reason.length <= 160)),
+  400, 'INVALID_CASH_COMMAND_REPORT', 'The Controller command report is invalid.');
+  const atmRef = atmReference(atmId);
+  const commandRef = db.collection('controllerCommands').doc(body.commandId);
+  return db.runTransaction(async (tx) => {
+    const [atmSnapshot, commandSnapshot] = await Promise.all([tx.get(atmRef), tx.get(commandRef)]);
+    const atm = validAtm(atmSnapshot.data() as AtmRecord | undefined);
+    requireValue(credentialHash(token) === atm.credentialHash,
+      401, 'CONTROLLER_AUTH_REQUIRED', 'A registered Controller credential is required.');
+    const command = commandSnapshot.data() as ControllerCommand | undefined;
+    requireValue(commandSnapshot.exists && command && command.commandId === body.commandId
+      && command.atmId === atm.id && command.type === 'start_cash',
+    404, 'CASH_COMMAND_NOT_FOUND', 'Cash command was not found for this Controller.');
+    const visitRef = visitReference(command.visitId);
+    const visitSnapshot = await tx.get(visitRef);
+    const visit = visitSnapshot.data() as VisitRecord | undefined;
+    requireValue(visit && visit.atmId === atm.id && visit.templeId === command.templeId
+      && visit.cashSessionId === command.cashSessionId,
+    409, 'CASH_COMMAND_MISMATCH', 'Cash command no longer matches its reception.');
+    const next = body.state as ControllerCommand['state'];
+    const transitions: Record<string, string[]> = {
+      pending: ['received'],
+      received: ['validated', 'precondition_failed', 'failed', 'unknown'],
+      validated: ['dispatching', 'precondition_failed', 'failed', 'unknown'],
+      dispatching: ['observed', 'failed', 'unknown'],
+      observed: ['reported', 'unknown'],
+      precondition_failed: [],
+      failed: [],
+      unknown: [],
+      reported: [],
+    };
+    if (command.state === next) {
+      return { accepted: true, state: command.state };
+    }
+    requireValue(transitions[command.state]?.includes(next),
+      409, 'CASH_COMMAND_STATE_CONFLICT', 'Cash command state cannot move backwards or skip a required step.');
+    if (next === 'dispatching' || next === 'observed') {
+      requireValue(atm.activeVisitId === visit.id && visit.state === 'awaiting_device'
+        && command.expiresAt > Date.now() && visit.cashConsentChallenge
+        && atm.cashEnabled === true && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+      409, 'CASH_COMMAND_NOT_AUTHORIZED', 'Current signed reception authorization or Controller readiness is no longer valid.');
+    }
+    if (next === 'observed') {
+      requireValue(typeof body.observedAt === 'number' && Math.abs(Date.now() - body.observedAt) <= 30_000,
+        400, 'INVALID_CASH_COMMAND_REPORT', 'A recent device observation timestamp is required.');
+      requireValue(typeof body.deviceState === 'string' && body.deviceState.length > 0,
+        400, 'INVALID_CASH_COMMAND_REPORT', 'The observed device state is required.');
+      const deadline = Date.now() + 120_000;
+      tx.update(visitRef, {
+        state: 'accepting', cashDeadline: deadline, acceptingAt: Date.now(),
+        controllerDeviceState: body.deviceState,
+      });
+    } else if (next === 'unknown') {
+      tx.update(visitRef, {
+        state: 'reconciling',
+        reconciliationReason: typeof body.reason === 'string' ? body.reason : 'controller_command_unknown',
+      });
+    } else if (next === 'precondition_failed') {
+      tx.update(visitRef, {
+        state: 'reconciling',
+        reconciliationReason: typeof body.reason === 'string' ? body.reason : 'controller_precondition_failed',
+      });
+    } else if (next === 'failed') {
+      tx.update(visitRef, {
+        state: 'reconciling',
+        reconciliationReason: typeof body.reason === 'string' ? body.reason : 'controller_command_failed',
+      });
+    } else if (next === 'reported') {
+      requireValue(visit.state === 'accepting', 409, 'CASH_COMMAND_STATE_CONFLICT', 'Only an observed accepting command can be acknowledged.');
+    }
+    tx.update(commandRef, {
+      state: next,
+      ...(typeof body.observedAt === 'number' ? { observedAt: body.observedAt } : {}),
+      ...(typeof body.deviceState === 'string' ? { deviceState: body.deviceState } : {}),
+      ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
+      updatedAt: Date.now(),
+    });
+    return { accepted: true, state: next };
   });
 }
 export async function pairScreen(atmId: string, code: unknown) {
@@ -486,6 +586,7 @@ export async function claimCashVisit(
       visitId: id,
       templeId: visit.templeId,
       cashSessionId: visit.cashSessionId,
+      expiresAt: Math.min(visit.expiresAt, Date.now() + 120_000),
       createdAt: Date.now(),
     } satisfies ControllerCommand);
   });

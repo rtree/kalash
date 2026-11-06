@@ -339,16 +339,36 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
     visitId: createdState.visit.id,
     templeId: 'temple-01',
     cashSessionId,
+    expiresAt: command.expiresAt,
     createdAt: command.createdAt,
   });
+  assert.ok(command.expiresAt > Date.now());
   assert.equal((await request(`/api/controller/${second}/commands`, { token: '0'.repeat(64) })).status, 401);
+  const redelivered = (await (await request(`/api/controller/${second}/commands`, {
+    token: credential,
+  })).json()).command;
+  assert.deepEqual(redelivered, command, 'redelivery preserves the immutable command identity and expiry');
+  const report = (state, extra = {}) => request(
+    `/api/controller/${second}/commands/${command.commandId}`,
+    { method: 'POST', token: credential, body: { commandId: command.commandId, state, ...extra } },
+  );
+  assert.equal((await report('received')).status, 200);
+  assert.equal((await report('received')).status, 200, 'replayed state reports are idempotent');
+  assert.equal((await report('dispatching')).status, 409, 'dispatch cannot skip validation');
+  assert.equal((await report('validated')).status, 200);
+  assert.equal((await report('dispatching')).status, 200);
+  assert.equal((await report('observed', {
+    observedAt: Date.now(), deviceState: 'TEST_OBSERVATION',
+  })).status, 200);
+  assert.equal((await report('reported')).status, 200);
+  assert.equal((await report('reported')).status, 200, 'Central acknowledgements are idempotent');
   assert.deepEqual(
     (await (await request(`/api/controller/${second}/commands`, { token: credential })).json()).command,
-    command,
-    'redelivery preserves the same command ID and does not change visit state',
+    null,
+    'reported commands are no longer offered for execution',
   );
   const storedCommand = await db.collection('controllerCommands').doc(command.commandId).get();
-  assert.equal(storedCommand.get('state'), 'pending');
+  assert.equal(storedCommand.get('state'), 'reported');
   assert.equal(storedCommand.get('cashSessionId'), cashSessionId);
   assert.equal((await request(`/api/visits/${createdState.visit.id}/cash-claim`, {
     method: 'POST', token: tokens[0],
@@ -361,5 +381,5 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
     token: tokens[1],
   })).status, 403, 'another wallet cannot read the linked cash session');
   const screenState = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
-  assert.equal(screenState.cashAcceptanceEnabled, false, 'command delivery alone never claims device execution');
+  assert.equal(screenState.cashAcceptanceEnabled, true, 'only a Controller-reported observed device state activates acceptance');
 });

@@ -372,6 +372,12 @@ Controller can retrieve that same command from
 `GET /api/controller/:atmId/commands`; repeated reads do not mark it executed or
 enable acceptance. Controller-side persistence, preflight, execution and result
 reporting remain required before the ATM may show acceptance as active.
+Central accepts ordered idempotent command-state reports and changes the visit
+to `accepting` only after a Controller `observed` report with a device state and
+timestamp. The Windows command journal/poller core now models durable dispatch
+and refuses replay after a persisted `dispatching` state. It is not yet wired to
+the long-running Controller process or an ITL device adapter; no hardware
+command is enabled by this implementation.
 
 After cash confirmation, reserve onsite mint and permit only that donation's
 optional ATM photo. Finish/Skip/inactivity stops camera tracks, discards unposted

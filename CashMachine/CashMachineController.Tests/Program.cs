@@ -29,9 +29,13 @@ internal static class Program
         await Run("accept loopback listeners and reject wildcard binding", VerifyLoopbackBinding);
         await Run("fail when no local listener appears", RejectMissingLoopbackBinding);
         await Run("initialize only with acceptor and auto-escrow disabled", OpenConnectionIsDisabled);
+        await Run("cash command journal prevents duplicate execution", CashCommandExecutionIsIdempotent);
+        await Run("cash command mismatch and expired command are rejected", RejectInvalidCashCommands);
+        await Run("cash command dispatch outcome is never blindly retried", UnknownCashDispatchIsNotRetried);
+        await Run("cash command journal failure prevents device dispatch", JournalFailurePreventsDispatch);
         await Run("parse device model codes as numeric readbacks", ParseNumericDeviceReadback);
         await Run("distinguish missing and wrong-type readback fields", DistinguishDeviceReadbackErrors);
-        Console.WriteLine("18 CashMachineController tests passed.");
+        Console.WriteLine("22 CashMachineController tests passed.");
         return 0;
     }
 
@@ -394,6 +398,158 @@ internal static class Program
             "The returned device ID was not preserved.");
     }
 
+    private static async Task CashCommandExecutionIsIdempotent()
+    {
+        var command = CreateCashCommand();
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        try
+        {
+            var central = new FakeCashCommandCentral(command);
+            var device = new FakeCashStartDevice();
+            var processor = new CashStartCommandProcessor(
+                command.AtmId, central, device, new CashCommandJournal(root),
+                physicalAcceptanceAuthorized: true,
+                new FixedTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(command.CreatedAt + 100)));
+
+            await processor.ProcessAsync(command, CancellationToken.None);
+            await processor.ProcessAsync(command with { State = "received" }, CancellationToken.None);
+
+            Check(device.EnableCount == 1, "The same cash command enabled acceptance more than once.");
+            Check(device.PreflightCount == 1, "The same command was preflighted more than once after completion.");
+            Check(central.ReportedStates.SequenceEqual(
+                ["received", "validated", "dispatching", "observed", "reported"]),
+                "The cash command did not report the expected ordered state progression.");
+            var journal = await new CashCommandJournal(root).ReadAsync(command.CommandId, CancellationToken.None);
+            Check(journal?.State == "reported", "The completed command was not durably marked reported.");
+            Check(journal?.Observation?.DeviceState == "accepting", "The observed device state was not journaled.");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task RejectInvalidCashCommands()
+    {
+        var command = CreateCashCommand();
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        try
+        {
+            var central = new FakeCashCommandCentral(command);
+            var device = new FakeCashStartDevice();
+            var processor = new CashStartCommandProcessor(
+                command.AtmId, central, device, new CashCommandJournal(root),
+                physicalAcceptanceAuthorized: true,
+                new FixedTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(command.CreatedAt + 100)));
+            var foreignCommand = command with { AtmId = "atm-other" };
+            await ExpectInvalidDataAsync(() => processor.ProcessAsync(foreignCommand, CancellationToken.None));
+
+            await processor.ProcessAsync(command, CancellationToken.None);
+            var changedContent = command with { TempleId = "temple-02", State = "received" };
+            await ExpectInvalidDataAsync(() => processor.ProcessAsync(changedContent, CancellationToken.None));
+            Check(device.EnableCount == 1, "A foreign or changed command reached the device.");
+
+            var expired = command with { CommandId = $"cash-start-{Guid.NewGuid():D}", ExpiresAt = command.CreatedAt + 10 };
+            await ExpectInvalidDataAsync(() => processor.ProcessAsync(expired, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task UnknownCashDispatchIsNotRetried()
+    {
+        var command = CreateCashCommand();
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        try
+        {
+            var central = new FakeCashCommandCentral(command);
+            var device = new FakeCashStartDevice();
+            var journal = new CashCommandJournal(root);
+            var processor = new CashStartCommandProcessor(
+                command.AtmId, central, device, journal, physicalAcceptanceAuthorized: true,
+                new FixedTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(command.CreatedAt + 100)));
+
+            await journal.SaveAsync(new CashCommandJournalEntry
+            {
+                Command = command,
+                ContentHash = command.ContentHash(),
+                State = "dispatching",
+                UpdatedAt = DateTimeOffset.UtcNow
+            }, CancellationToken.None);
+            await processor.ProcessAsync(command, CancellationToken.None);
+            await processor.ProcessAsync(command with { State = "received" }, CancellationToken.None);
+
+            Check(device.EnableCount == 0, "A dispatching command was re-sent after restart.");
+            Check(device.DisableCount == 0, "The controller invented a safe-stop action without a known device state.");
+            Check(central.ReportedStates.Contains("unknown"), "The unknown outcome was not reported.");
+            Check((await journal.ReadAsync(command.CommandId, CancellationToken.None))?.State == "unknown",
+                "The ambiguous dispatch was not durably marked unknown.");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task JournalFailurePreventsDispatch()
+    {
+        var command = CreateCashCommand();
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var file = Path.Combine(root, "not-a-directory");
+        await File.WriteAllTextAsync(file, "occupied");
+        try
+        {
+            var device = new FakeCashStartDevice();
+            var processor = new CashStartCommandProcessor(
+                command.AtmId, new FakeCashCommandCentral(command), device,
+                new CashCommandJournal(file), physicalAcceptanceAuthorized: true,
+                new FixedTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(command.CreatedAt + 100)));
+            var failed = false;
+            try
+            {
+                await processor.ProcessAsync(command, CancellationToken.None);
+            }
+            catch (IOException)
+            {
+                failed = true;
+            }
+
+            Check(failed, "The journal write failure was not surfaced.");
+            Check(device.EnableCount == 0, "The device was enabled after a journal write failure.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static CashStartCommand CreateCashCommand()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return new CashStartCommand(
+            $"cash-start-{Guid.NewGuid():D}", "start_cash", "pending", "atm-test-01",
+            new string('a', 64), "temple-01", Guid.NewGuid().ToString("D"),
+            now + 60_000, now);
+    }
+
+    private static async Task ExpectInvalidDataAsync(Func<Task> action)
+    {
+        var rejected = false;
+        try
+        {
+            await action();
+        }
+        catch (InvalidDataException)
+        {
+            rejected = true;
+        }
+
+        Check(rejected, "An invalid cash command was accepted.");
+    }
+
     private static Task ParseNumericDeviceReadback()
     {
         using var document = JsonDocument.Parse(
@@ -465,6 +621,74 @@ internal static class Program
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    private sealed class FakeCashCommandCentral(CashStartCommand command) : ICashCommandCentral
+    {
+        public List<string> ReportedStates { get; } = [];
+
+        public Task<CashStartCommand?> GetCommandAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<CashStartCommand?>(command);
+        }
+
+        public Task ReportAsync(
+            string commandId,
+            string state,
+            string? reason,
+            CashCommandObservation? observation,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Check(commandId == command.CommandId, "A report used the wrong command ID.");
+            ReportedStates.Add(state);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeCashStartDevice : ICashStartDevice
+    {
+        public int PreflightCount { get; private set; }
+        public int EnableCount { get; private set; }
+        public int DisableCount { get; private set; }
+
+        public Task<CashDevicePreflight> CheckPreconditionsAsync(
+            CashStartCommand command,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreflightCount++;
+            return Task.FromResult(new CashDevicePreflight(true, "DISABLED", string.Empty));
+        }
+
+        public Task EnableAcceptorOnceAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnableCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task<CashCommandObservation?> WaitForAcceptingAsync(
+            string cashSessionId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<CashCommandObservation?>(
+                new CashCommandObservation("accepting", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        }
+
+        public Task DisableAcceptorOnceAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DisableCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private sealed class TestServerDirectory(string path) : IDisposable

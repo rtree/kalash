@@ -12,7 +12,7 @@ import {
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
-import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, getAtm, getControllerCashCommand, getVisit, pairScreen, reportControllerHealth, validateControllerCredential } from './atm.ts';
+import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, getAtm, getControllerCashCommand, getVisit, pairScreen, reportControllerCashCommand, reportControllerHealth, validateControllerCredential } from './atm.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -132,6 +132,16 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     rateLimit(request, `controller-command:${controllerCommandRoute[1]}`, 30);
     return send(response, await getControllerCashCommand(
       controllerCommandRoute[1]!, request.headers.authorization,
+    ));
+  }
+  const controllerCommandReportRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/commands\/([a-z0-9-]+)$/);
+  if (request.method === 'POST' && controllerCommandReportRoute) {
+    rateLimit(request, `controller-command:${controllerCommandReportRoute[1]}`, 30);
+    const body = await jsonBody(request);
+    requireValue(body.commandId === controllerCommandReportRoute[2],
+      400, 'INVALID_CASH_COMMAND_REPORT', 'The path and command IDs must match.');
+    return send(response, await reportControllerCashCommand(
+      controllerCommandReportRoute[1]!, request.headers.authorization, body,
     ));
   }
   const controllerRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/(pairing|health)$/);
