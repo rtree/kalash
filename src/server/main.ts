@@ -12,7 +12,7 @@ import {
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
-import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, getAtm, getVisit, pairScreen, reportControllerHealth, validateControllerCredential } from './atm.ts';
+import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, getAtm, getControllerCashCommand, getVisit, pairScreen, reportControllerHealth, validateControllerCredential } from './atm.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -126,6 +126,13 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   if (request.method === 'POST' && path === '/api/auth/verify') {
     const body = await jsonBody(request);
     return send(response, await verifyChallenge(body.nonce, body.signature));
+  }
+  const controllerCommandRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/commands$/);
+  if (request.method === 'GET' && controllerCommandRoute) {
+    rateLimit(request, `controller-command:${controllerCommandRoute[1]}`, 30);
+    return send(response, await getControllerCashCommand(
+      controllerCommandRoute[1]!, request.headers.authorization,
+    ));
   }
   const controllerRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/(pairing|health)$/);
   if (request.method === 'POST' && controllerRoute) {

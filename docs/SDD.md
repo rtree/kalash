@@ -366,6 +366,12 @@ No browser action or development timer can synthesize Ready, stored cash or
 confirmation. ITL commands remain disabled until device authentication, exclusive
 poller ownership, routing/inventory and owner attendance have been established.
 Use SPEC section 8 for durable commands/events and no-blind-retry semantics.
+After the one-use signed consent transaction, Central stores a deterministic
+pending `start_cash` command with the visit/session binding. The authenticated
+Controller can retrieve that same command from
+`GET /api/controller/:atmId/commands`; repeated reads do not mark it executed or
+enable acceptance. Controller-side persistence, preflight, execution and result
+reporting remain required before the ATM may show acceptance as active.
 
 After cash confirmation, reserve onsite mint and permit only that donation's
 optional ATM photo. Finish/Skip/inactivity stops camera tracks, discards unposted

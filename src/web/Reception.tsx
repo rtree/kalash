@@ -291,14 +291,14 @@ export function ReceptionPanel({
       ? 'This QR opens this cash session only. Sign the temple, ATM and session consent on your phone. No banknotes are accepted until the ATM explicitly shows Cash acceptance active.'
       : 'This QR opens the donation page only. Join this reception explicitly, then approve and donate on your phone. The ATM is not taking cash.'}</p>
     {visit && <>
-      <p>{visit.atmName} · {visit.mode === 'cash' ? 'Maximum 500 INR per cash session' : 'Base Sepolia · Maximum 1 USDC'}</p>
+      <p>{visit.atmName} · {visit.mode === 'cash' ? 'Maximum 400 INR per cash session' : 'Base Sepolia · Maximum 1 USDC'}</p>
       {visit.state === 'awaiting_wallet' && seconds > 0 ? <>
         <p role="timer">{visit.mode === 'cash' ? 'Consent QR' : 'Reception'} expires in {seconds} seconds</p>
         {!connected ? <button className="button button-primary" onClick={onConnect}>Connect MetaMask</button>
           : !wallet ? <button className="button button-primary" onClick={onVerify}>Verify wallet</button> : <>
             <label className="reception-consent"><input type="checkbox" checked={consent} disabled={joining || Boolean(error)} onChange={(event) => setConsent(event.target.checked)} />
               {visit.mode === 'cash'
-                ? `I authorize this one cash session for ${visit.templeName} at ${visit.atmName}, up to 500 INR.`
+                ? `I authorize this one cash session for ${visit.templeName} at ${visit.atmName}, up to 400 INR.`
                 : `I choose to join the Crypto donation for ${visit.templeName} at ${visit.atmName}. No banknotes will be accepted in this flow.`}</label>
             <button className="button button-primary button-wide" disabled={!consent || joining || Boolean(error)} onClick={() => void join()}>
               {joining ? 'Signing reception consent…' : visit.mode === 'cash' ? 'Authorize this cash session' : 'Join onsite Crypto donation'}

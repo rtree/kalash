@@ -1,6 +1,6 @@
 export const VISIT_TTL_MS = 120_000;
 export const CASH_ACCEPTANCE_MS = 120_000;
-export const CASH_LIMIT_PAISE = '50000';
+export const CASH_LIMIT_PAISE = '40000';
 export const ATM_PHOTO_IDLE_MS = 30_000;
 export const VISIT_REFERENCE = /^[a-f0-9]{64}$/;
 export const ATM_ID = /^[a-z0-9][a-z0-9-]{2,63}$/;

@@ -92,6 +92,8 @@ after(async () => {
     }
     const pairings = await db.collection('atmPairings').where('atmId', '==', id).get();
     for (const record of pairings.docs) await record.ref.delete();
+    const commands = await db.collection('controllerCommands').where('atmId', '==', id).get();
+    for (const record of commands.docs) await record.ref.delete();
     const cashChallenges = await db.collection('cashConsentChallenges').where('atmId', '==', id).get();
     for (const record of cashChallenges.docs) await record.ref.delete();
     const ref = db.collection('atms').doc(id);
@@ -177,7 +179,7 @@ test('real Firestore serializes Crypto reception creation, QR restoration and ex
   assert.equal(visit.state, 'awaiting_wallet');
   assert.equal(visit.mode, 'crypto');
   assert.equal(visit.cashAcceptanceEnabled, false);
-  assert.equal(visit.cashLimitPaise, '50000');
+  assert.equal(visit.cashLimitPaise, '40000');
   assert.equal(visit.templeId, 'temple-01');
   assert.equal(state.cryptoDonationEnabled, false);
   assert.equal(state.cashMachineStatus, 'disconnected');
@@ -289,6 +291,9 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
   assert.equal(readyAtm.cashMachineStatus, 'ready');
   assert.equal(readyAtm.cashReceptionAvailable, true);
   assert.equal(readyAtm.cashAcceptanceEnabled, false);
+  assert.deepEqual((await (await request(`/api/controller/${second}/commands`, {
+    token: credential,
+  })).json()).command, null, 'the Controller receives no command before a wallet consent exists');
 
   const created = await request(`/api/atm/${second}/visits`, {
     method: 'POST', screen: otherCookie, body: { mode: 'cash', requestId: randomUUID() },
@@ -308,7 +313,7 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
   const challenge = await response.json();
   assert.match(challenge.message, /Cash session:/);
   assert.match(challenge.message, /Purpose: cash/);
-  assert.equal(challenge.cashLimitPaise, '50000');
+  assert.equal(challenge.cashLimitPaise, '40000');
   const signature = await accounts[0].signMessage({ message: challenge.message });
   const claim = await request(`/api/visits/${createdState.visit.id}/cash-claim`, {
     method: 'POST', token: tokens[0],
@@ -323,6 +328,28 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
   assert.equal(linked.linkedToYou, true);
   assert.equal(linked.cashSessionId, cashSessionId);
   assert.equal(linked.cashAcceptanceEnabled, false, 'wallet consent alone must not start acceptance');
+  const commandResponse = await request(`/api/controller/${second}/commands`, { token: credential });
+  assert.equal(commandResponse.status, 200);
+  const command = (await commandResponse.json()).command;
+  assert.deepEqual(command, {
+    commandId: `cash-start-${cashSessionId}`,
+    type: 'start_cash',
+    state: 'pending',
+    atmId: second,
+    visitId: createdState.visit.id,
+    templeId: 'temple-01',
+    cashSessionId,
+    createdAt: command.createdAt,
+  });
+  assert.equal((await request(`/api/controller/${second}/commands`, { token: '0'.repeat(64) })).status, 401);
+  assert.deepEqual(
+    (await (await request(`/api/controller/${second}/commands`, { token: credential })).json()).command,
+    command,
+    'redelivery preserves the same command ID and does not change visit state',
+  );
+  const storedCommand = await db.collection('controllerCommands').doc(command.commandId).get();
+  assert.equal(storedCommand.get('state'), 'pending');
+  assert.equal(storedCommand.get('cashSessionId'), cashSessionId);
   assert.equal((await request(`/api/visits/${createdState.visit.id}/cash-claim`, {
     method: 'POST', token: tokens[0],
     body: { templeId: 'temple-01', nonce: challenge.nonce, signature },
@@ -334,5 +361,5 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
     token: tokens[1],
   })).status, 403, 'another wallet cannot read the linked cash session');
   const screenState = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
-  assert.equal(screenState.cashAcceptanceEnabled, false, 'the ATM remains non-accepting until a controller command');
+  assert.equal(screenState.cashAcceptanceEnabled, false, 'command delivery alone never claims device execution');
 });

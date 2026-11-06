@@ -50,5 +50,5 @@ test('QR expiry never closes a linked reception or implies cash success', () => 
   assert.equal(VISIT_TTL_MS, 120000);
   assert.equal(CASH_ACCEPTANCE_MS, 120000);
   assert.equal(ATM_PHOTO_IDLE_MS, 30000);
-  assert.equal(CASH_LIMIT_PAISE, '50000');
+  assert.equal(CASH_LIMIT_PAISE, '40000');
 });
