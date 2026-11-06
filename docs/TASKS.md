@@ -6,6 +6,8 @@
 - 成功条件：Controller/ITLの機器識別、route、在高/counter、disabled/empty escrowを実応答で確認。現金受付はCentral consent・有限時間・単一poller・STOREDと在高照合を人の立会い下で別途検証する。今回の初期化を現金収納成功と扱わない。
 - 今回の担当：Integratorが統合・既存Cryptoとの型境界・Web・共有SDD/TASKS・Git、Central担当が`src/cash.ts`・`src/server/atm.ts`・現金store/routesとその試験、Controller担当が製品受付ループ・永続状態/Outbox・ホスト接続とC#試験を担当。PoCと診断回収の既存差分は保持する。実環境の操作担当はIntegratorのみ。
 - 現在の障害：製品の紙幣イベント→Central台帳→Done確定の未接続と型エラーは解消、配備も完了。残る主障害は実機のACCEPTING／ESCROW→STORED／counter形状を署名済み受付で実証していないこと。実イベント→実Firestore寄付確定→mint receiptも未確認。製品gateとCentral現金受付は無効のまま、立ち会い・試験一枚・事前在高・回収方法を確認してから進む。
+- 今回の実機許可（2026-11-06 18:26Z以降）：本人が立ち会い、Controller起動・atm-01/temple-01の署名済み₹100一枚受付・Done・Base Sepolia Stamp発行を明示許可。本人が署名し、実Ready案内まで投入しない。収納札は機内保管し、後日の正規fee/admin Payoutまで回収しない。追加札・fee送金・Payoutは今回許可に含めない。実機操作はIntegratorのみ。Controller担当は起動/heartbeat接続、Central担当はread-only実DB/receipt証拠確認を準備。ADB端末なし（18:26Z）、phone操作は本人の実QR導線を維持。
+- 本人の別PCに既存ペアリング済みATMブラウザあり。再読込後「Choose how to give」を本人確認、その画面を使用する。Integratorが発行した新pairingコードは未交換で不要（新画面の再ペアリングを依頼しない）。機器port5000 listenerなし。次の技術確認はControllerの実readback→health→ATM Ready接続とmint予算。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
