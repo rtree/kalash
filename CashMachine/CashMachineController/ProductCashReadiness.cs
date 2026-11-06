@@ -3,7 +3,7 @@ namespace Kalash.CashMachineController;
 public sealed record ProductCashReadinessEvidence(
     string Version, string CommandId, string CashSessionId, string DeviceId,
     long DisabledObservedAt, long DisabledRawSequence, long EnableDispatchedAt,
-    long EnableAcknowledgedAt, long IdleObservedAt, long RawSequence, int DeviceStateCode,
+    long EnableAcknowledgedAt, long IdleObservedAt, long RawSequence, int? DeviceStateCode,
     bool ManualEscrow, bool RoutesVerified, bool EscrowEmpty, bool DeviceHealthy,
     CashInventory Baseline, CashInventory Inventory)
 {

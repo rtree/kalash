@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Kalash.CashMachineController;
 
 public sealed record ProductDeviceReadback(CashInventory Inventory, long[] EnabledValues, bool EscrowEmpty, bool Healthy,
-    int DeviceStateCode);
+    int? DeviceStateCode = null);
 public sealed record ProductDeviceHealth(bool UsbConnected, bool ConnectionOpen, bool DeviceStarted, ProductDeviceReadback Readback);
 
 public interface IProductCashDevice

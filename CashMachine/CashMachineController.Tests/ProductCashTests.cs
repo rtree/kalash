@@ -64,6 +64,7 @@ internal static class ProductCashTests
         await Run("fault latches and late STORED never resurrects credit", NoResurrection);
         await Run("close reconciles all counters and denomination levels", CloseMismatch);
         await Run("inventory wire fields and mandatory counters", InventoryContract);
+        await Run("legacy readback stays unknown rather than inventing a device state", LegacyReadback);
         await Run("outbox replay after lost receipt survives restart", OutboxRestart);
         await Run("journal ownership and exact ordered acknowledgements", JournalAndAck);
         await Run("consumed raw crash gap latches reconciliation", RawGap);
@@ -244,6 +245,28 @@ internal static class ProductCashTests
             Check(state.Locked && state.Outbox[^1].Type == "intake_closed", $"Close {mismatch} falsely confirmed.");
             Check(state.Outbox[^2].Type == "needs_reconciliation", "Reasons must precede close.");
         }
+        return Task.CompletedTask;
+    }
+
+    private static Task LegacyReadback()
+    {
+        var oldJson = JsonSerializer.Serialize(new
+        {
+            inventory = Inventory(), enabledValues = new long[] { 10_000 }, escrowEmpty = true, healthy = true
+        }, ProductCashJson.Options);
+        var readback = JsonSerializer.Deserialize<ProductDeviceReadback>(oldJson, ProductCashJson.Options)!;
+        Check(readback.DeviceStateCode is null, "Old readback must preserve unknown numeric state.");
+        Check(readback.DeviceStateCode != 4 && readback.DeviceStateCode != 5, "Unknown must not prove DISABLED or IDLE.");
+        var command = Command();
+        var now = command.CreatedAt + 10;
+        var evidence = new ProductCashReadinessEvidence("itl-idle-after-enable-v1",
+            command.CommandId, command.CashSessionId, "device", command.CreatedAt, 1,
+            command.CreatedAt + 1, command.CreatedAt + 2, now, 2, readback.DeviceStateCode,
+            true, true, true, true, Inventory(), Inventory());
+        var rejected = false;
+        try { evidence.Validate(command, "device", now); }
+        catch (InvalidDataException) { rejected = true; }
+        Check(rejected, "Historical unknown readback cannot authorize readiness.");
         return Task.CompletedTask;
     }
 

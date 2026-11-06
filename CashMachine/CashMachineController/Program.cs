@@ -87,6 +87,11 @@ internal static partial class Program
             Console.Error.WriteLine($"Controller readiness check timed out: {exception.Message}");
             return 1;
         }
+        catch (JsonException)
+        {
+            Console.Error.WriteLine("Controller persisted or received JSON has an incompatible schema; no automatic recovery or replay was attempted.");
+            return 1;
+        }
         catch (InvalidDataException exception)
         {
             Console.Error.WriteLine($"Controller readiness data is invalid: {exception.Message}");
