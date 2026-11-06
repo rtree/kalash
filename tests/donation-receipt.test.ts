@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import {
   encodeAbiParameters, encodeEventTopics, parseAbi, type Address, type Hex, type Log,
 } from 'viem';
-import { USDC, vaultAbi, type Donation } from '../src/shared.ts';
+import { USDC, vaultAbi, type CryptoDonation } from '../src/shared.ts';
 import { validateDonationReceiptEvidence } from '../src/server/donation-receipt.ts';
 
 const owner = '0x1111111111111111111111111111111111111111' as Address;
 const vault = '0x2222222222222222222222222222222222222222' as Address;
 const feeRecipient = '0x3333333333333333333333333333333333333333' as Address;
 const templeRecipient = '0x4444444444444444444444444444444444444444' as Address;
-const donation: Pick<Donation, 'id' | 'templeKey' | 'kind' | 'amount' | 'fee' | 'net' | 'recipient' | 'deadline'> = {
+const donation: Pick<CryptoDonation, 'id' | 'templeKey' | 'kind' | 'amount' | 'fee' | 'net' | 'recipient' | 'deadline'> = {
   id: `0x${'a'.repeat(64)}`,
   templeKey: `0x${'b'.repeat(64)}`,
   kind: 0,

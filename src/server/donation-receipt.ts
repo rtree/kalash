@@ -1,5 +1,5 @@
 import { getAddress, parseAbi, parseEventLogs, type Address, type Log } from 'viem';
-import { USDC, type Donation } from '../shared.ts';
+import { USDC, type CryptoDonation } from '../shared.ts';
 import { requireValue } from './errors.ts';
 
 const donatedAbi = parseAbi([
@@ -11,7 +11,7 @@ const transferAbi = parseAbi([
 
 export function validateDonationReceiptEvidence(
   receiptLogs: readonly Log[],
-  donation: Pick<Donation, 'id' | 'templeKey' | 'kind' | 'amount' | 'fee' | 'net' | 'recipient' | 'deadline'>,
+  donation: Pick<CryptoDonation, 'id' | 'templeKey' | 'kind' | 'amount' | 'fee' | 'net' | 'recipient' | 'deadline'>,
   owner: Address,
   vault: Address,
   feeRecipient: Address,

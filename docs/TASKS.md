@@ -4,7 +4,8 @@
 
 - 現在のゴール：M3-cash onsite cash reception。M5a onsite CryptoとM3-device disabled initializationはverified。先輩決定（2026-11-06）：現金はオフチェーンINR台帳、3% USDC feeは寺院が後払い、Stampは既存onsite kind=1。Stage Bの同意・有限受付・イベント照合・Stamp・ATM写真を実装し、自動試験後にだけ現金UIを有効化する。
 - 成功条件：Controller/ITLの機器識別、route、在高/counter、disabled/empty escrowを実応答で確認。現金受付はCentral consent・有限時間・単一poller・STOREDと在高照合を人の立会い下で別途検証する。今回の初期化を現金収納成功と扱わない。
-- 今回の担当：Integrator一人が本体Central／Web／Controller／テストとSPEC／SDD／TASKS・Gitを担当。PoCファイルと他担当の変更には触れない。
+- 今回の担当：Integratorが統合・既存Cryptoとの型境界・Web・共有SDD/TASKS・Git、Central担当が`src/cash.ts`・`src/server/atm.ts`・現金store/routesとその試験、Controller担当が製品受付ループ・永続状態/Outbox・ホスト接続とC#試験を担当。PoCと診断回収の既存差分は保持する。実環境の操作担当はIntegratorのみ。
+- 2026-11-06再開時の最初の障害：命令APIの配備済み記録はあるが、製品の紙幣イベント送信→Central台帳→Done確定が未接続。作業ツリーには契約・owned pollerの未統合差分があり、現金/crypto型の分離でtypecheckが失敗、`tests/reception.test.ts`は空。診断を追加するのではなく、この製品境界を接続して局所試験する。未配備・実紙幣未確認は別に保持。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
@@ -108,6 +109,9 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 16:09確認／今回再開約8分、M3-cash。実Central healthをread-only確認：ready、chain84532、source `666c5165f2cc9a8757c6cbb9cf348b0f7a39bace`。今回の製品イベント経路はこの稼働版には未配備。実API書込み・機器・署名・配備なし。
+- 最初の突破：未統合のcash/crypto型境界を接続。Crypto receipt/operationとcash台帳を分離し、cashはGETで発行状況を確認、INRと寺院後払いfeeを表示。`node scripts/check-policy.mjs`、typecheck、対象shared/receipt試験7/7成功・skip0。以後のATM変更と担当作業は統合試験待ち。SDD §2を更新。
+- 保存境界：Integratorの型・表示・文書を今回commit。Central担当はイベント台帳／Done／原子的確定、Controller担当は単一ループ／状態／Outboxを作業中。既存診断回収差分は別に保持し製品の成功扱いにしない。次：両担当を統合しexact contract・順序／再起動／照合異常を検証、実機は未確認のまま別途立ち会い条件を示す。
 - UTC 2026-11-06 10:26以降／再開約158分。本人優先順位：M5a onsite Crypto while cash is disabled → next M3 cash. SPEC/SDD/TASKSはこの分割と写真取り下げ後回しに一致。実稼働版は`00018-dgg`／image `central:dbb7efa`。
 - M5a実装：read-only healthによりmissing/stale/disconnected/readyを分類。ただしこの段階では状態に関係なくCash acceptanceはfalse。ATM screen pairing、短命deeplink受付、本人claim、現地kind=1 intent、同じreceipt verification/mint/points/Collectionを接続。Donation unknown中はATMをロックし、確定後だけ同じvisitを解除する。
 - `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm run typecheck`、`pnpm run build`成功。Focused unit suiteは12/12成功・skipなし。

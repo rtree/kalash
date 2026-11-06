@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAmount, parseDonationUnits, formatUsdc, donationPointUnits } from '../src/shared.ts';
+import { parseAmount, parseDonationUnits, formatUsdc, formatPaise, donationPointUnits } from '../src/shared.ts';
 
 test('money: default .01 exact fee/net and all cap/precision boundaries', () => {
   const amount = parseAmount('0.01');
@@ -30,4 +30,14 @@ test('onsite Crypto and remote donations use distinct deterministic point multip
   assert.equal(donationPointUnits('10000', 0), 10000n);
   assert.equal(donationPointUnits('10000', 1), 100000n);
   assert.equal(donationPointUnits('200000', 1), 2000000n);
+});
+
+test('cash uses paise for INR display and equivalent units for onsite points, not the Crypto payment cap', () => {
+  assert.equal(formatPaise('0'), '0.00');
+  assert.equal(formatPaise('1'), '0.01');
+  assert.equal(formatPaise('10000'), '100.00');
+  assert.equal(formatPaise('40000'), '400.00');
+  assert.equal(formatUsdc(40000n * 100n), '4.000000');
+  assert.equal(donationPointUnits(40000n * 100n, 1), 40000000n);
+  assert.throws(() => parseDonationUnits('4000000'));
 });

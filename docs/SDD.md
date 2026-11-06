@@ -78,6 +78,15 @@ Default fee `1`, temple net `9999`. Point units: USDC units times multiplier;
 10000 point units = 1 point. Remote multiplier 1; onsite multiplier 10.
 Browser cannot assign onsite kind or recipient.
 
+The above intent cap and 1 bps fee apply to Crypto only. Cash is a distinct
+`paymentMethod: cash` record: INR paise, converted units = paise * 100,
+onsite kind 1, `chainId`/`txHash` null, and a 3% temple fee marked unpaid.
+It has no Vault signature, approval, or payment receipt. Crypto operation,
+approval recovery and receipt endpoints reject cash records. Donor cash status
+and mint polling use the authenticated donation GET instead; mint remains a
+separate transaction. Cash history/progress displays INR, physical reconciliation
+and the temple's unpaid fee, never a fabricated token payment.
+
 Donation: intent -> submitting -> unknown/submitted -> confirmed or failed/expired.
 Missing receipt or hash means unknown/pending, never safe to resend.
 Mint: reserved -> prepared (signed bytes/hash persisted) -> submitted -> minted;

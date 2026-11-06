@@ -12,6 +12,7 @@ export type VisitState =
   | 'accepting'
   | 'closing'
   | 'reconciling'
+  | 'needs_reconciliation'
   | 'donation_pending'
   | 'confirmed'
   | 'expired'
@@ -31,6 +32,7 @@ export interface VisitDto {
   cashAcceptanceEnabled: boolean;
   cashLimitPaise: string;
   cashAcceptedPaise?: string;
+  cashDeadline?: number | null;
   donationState: 'pending' | 'confirmed' | 'failed' | null;
   donationId?: string | null;
 }
@@ -51,6 +53,11 @@ export interface AtmDto {
 }
 export function visitState(state: VisitState, expiresAt: number, now: number): VisitState {
   return state === 'awaiting_wallet' && expiresAt <= now ? 'expired' : state;
+}
+export function cashAccepting(visit: Pick<VisitDto, 'mode' | 'state' | 'cashAcceptanceEnabled' | 'cashDeadline'> | null | undefined, now: number): boolean {
+  return visit?.mode === 'cash' && visit.state === 'accepting'
+    && visit.cashAcceptanceEnabled && Number.isSafeInteger(visit.cashDeadline)
+    && visit.cashDeadline! > now;
 }
 export function cashMachineStatus(health: {
   receivedAt: number;

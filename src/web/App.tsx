@@ -8,8 +8,8 @@ import {
 import { parseAbi, type Address, type Hex } from 'viem';
 import { useAccount, useConnect, useDisconnect, usePublicClient, useSwitchChain, useWalletClient, useWriteContract } from 'wagmi';
 import {
-  CHAIN_ID, formatUsdc, parseAmount, parseDonationUnits, PHOTO_CONSENT_VERSION,
-  PHOTO_SIZE_TIERS, stampAbi, vaultAbi, type CollectionResponse, type Donation,
+  CHAIN_ID, formatUsdc, formatPaise, parseAmount, parseDonationUnits, PHOTO_CONSENT_VERSION,
+  PHOTO_SIZE_TIERS, stampAbi, vaultAbi, type CollectionResponse, type CryptoDonation, type Donation,
   type DonationStatus, type PhotoDto, type Temple,
 } from '../shared.ts';
 import type { Runtime } from './runtime.ts';
@@ -405,10 +405,12 @@ export function App({ runtime }: { runtime: Runtime }) {
         const txHash = pendingOperation?.donationId === donation.id && pendingOperation.operation === 'donate'
           ? pendingOperation.txHash
           : donation.txHash;
-        const latest = await api<Donation>(`/api/donations/${encodeURIComponent(donation.id)}/verify`, {
-          method: 'POST',
-          body: JSON.stringify(txHash ? { txHash } : {}),
-        }, true);
+        const latest = donation.paymentMethod === 'cash'
+          ? await api<Donation>(`/api/donations/${encodeURIComponent(donation.id)}`, {}, true)
+          : await api<Donation>(`/api/donations/${encodeURIComponent(donation.id)}/verify`, {
+            method: 'POST',
+            body: JSON.stringify(txHash ? { txHash } : {}),
+          }, true);
         if (active) {
           setDonation(latest);
           if (['confirmed', 'failed', 'expired'].includes(latest.status) && pendingOperation?.donationId === latest.id && pendingOperation.operation === 'donate') {
@@ -418,8 +420,11 @@ export function App({ runtime }: { runtime: Runtime }) {
         if (active && latest.mintStatus !== 'minted' && ['submitting', 'unknown', 'submitted', 'confirmed'].includes(latest.status)) {
           timer = setTimeout(poll, 2500);
         }
-      } catch {
-        if (active && attempts < POLL_LIMIT) timer = setTimeout(poll, 2500);
+      } catch (cause) {
+        if (active) {
+          setError(cause instanceof Error ? cause.message : 'Could not refresh the donation. No payment was retried.');
+          if (attempts < POLL_LIMIT) timer = setTimeout(poll, 2500);
+        }
       } finally {
         inFlight = false;
       }
@@ -545,7 +550,7 @@ export function App({ runtime }: { runtime: Runtime }) {
     if (chainId !== CHAIN_ID) await switchChainAsync(switchToKalashChain);
   };
 
-  const createOperation = async (target: Donation, operation: 'approve' | 'donate') => {
+  const createOperation = async (target: CryptoDonation, operation: 'approve' | 'donate') => {
     const attemptId = crypto.randomUUID();
     const next = { donationId: target.id, operation, attemptId } satisfies PendingOperation;
     persistPending(next);
@@ -562,10 +567,12 @@ export function App({ runtime }: { runtime: Runtime }) {
   };
 
   const verifyDonation = async (target: Donation, txHash?: Hex) => {
-    const result = await api<Donation>(`/api/donations/${encodeURIComponent(target.id)}/verify`, {
-      method: 'POST',
-      body: JSON.stringify(txHash ? { txHash } : {}),
-    }, true);
+    const result = target.paymentMethod === 'cash'
+      ? await api<Donation>(`/api/donations/${encodeURIComponent(target.id)}`, {}, true)
+      : await api<Donation>(`/api/donations/${encodeURIComponent(target.id)}/verify`, {
+        method: 'POST',
+        body: JSON.stringify(txHash ? { txHash } : {}),
+      }, true);
     setDonation(result);
     setRefreshVersion((version) => version + 1);
     if (result.mintStatus === 'minted' || ['confirmed', 'failed', 'expired'].includes(result.status)) {
@@ -573,12 +580,14 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
     if (result.mintStatus === 'minted') {
       setNotice('Central verified your donation and the stamp was minted.');
+    } else if (result.paymentMethod === 'cash') {
+      setNotice('Cash donation is confirmed. Its on-site stamp is still pending; no token payment is required.');
     } else {
       setNotice('Transaction sent. Central is still checking the chain; no second payment will be sent.');
     }
   };
 
-  const sendDonation = async (target: Donation) => {
+  const sendDonation = async (target: CryptoDonation) => {
     await ensureNetwork();
     const next = await createOperation(target, 'donate');
     try {
@@ -653,6 +662,9 @@ export function App({ runtime }: { runtime: Runtime }) {
         },
         true,
       );
+      if (intent.paymentMethod === 'cash') {
+        throw new Error('Cash donations do not use token approval or the Donation Vault. Restore the cash reception instead.');
+      }
       setDonation(intent);
       setCurrentDonationId(intent.id);
       localStorage.setItem(CURRENT_DONATION, intent.id);
@@ -704,7 +716,7 @@ export function App({ runtime }: { runtime: Runtime }) {
     } catch (cause) {
       if (isWalletRejection(cause)) {
         persistPending(null);
-        if (donation) setDonation({ ...donation, status: 'intent' });
+        if (donation && donation.paymentMethod !== 'cash') setDonation({ ...donation, status: 'intent' });
         setNotice('The wallet request was rejected before submission. No donation was sent.');
       } else {
         setError(cause instanceof Error ? cause.message : 'Donation could not be started.');
@@ -721,7 +733,7 @@ export function App({ runtime }: { runtime: Runtime }) {
     try {
       const hash = pendingOperation?.donationId === donation.id && pendingOperation.operation === 'donate'
         ? pendingOperation.txHash
-        : donation.txHash;
+        : donation.txHash ?? undefined;
       await verifyDonation(donation, hash);
       setRefreshVersion((version) => version + 1);
     } catch (cause) {
@@ -780,6 +792,7 @@ export function App({ runtime }: { runtime: Runtime }) {
         }) },
         true,
       );
+      if (resolved.paymentMethod === 'cash') throw new Error('Central returned a cash record for a Crypto approval. No wallet action was taken.');
       if (donation?.id === resolved.id) setDonation(resolved);
       setHistory((records) => records.map((record) => record.id === resolved.id ? resolved : record));
       if (pendingMatches) persistPending(null);
@@ -803,6 +816,7 @@ export function App({ runtime }: { runtime: Runtime }) {
     setBusy(true);
     setError('');
     try {
+      if (donation.paymentMethod === 'cash') throw new Error('Cash donations cannot resume a token payment.');
       const receipt = await publicClient.getTransactionReceipt({ hash: pendingOperation.txHash });
       if (receipt.status !== 'success') {
         persistPending(null);
@@ -1220,10 +1234,11 @@ function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore
     <div className={`donation-progress ${minted ? 'is-minted' : ''}`}>
       <div className={`status-pill ${statusTone(donation.status, donation.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(donation.status, donation.mintStatus)}</div>
       <ul className="progress-steps">
-        <li className={donation.status !== 'intent' && donation.status !== 'cancelled' ? 'complete' : 'current'}><span>1</span><div><strong>Wallet transaction</strong><small>{unknown ? 'Result unknown · check before taking another action' : donation.txHash ? `${donation.txHash.slice(0, 10)}…` : donation.status === 'cancelled' ? 'Approval-only attempt abandoned · no donation sent' : 'Not submitted'}</small></div></li>
-        <li className={donation.status === 'confirmed' || minted ? 'complete' : donation.status === 'submitted' ? 'current' : ''}><span>2</span><div><strong>Central verification</strong><small>{donation.status === 'confirmed' || minted ? 'Verified on Base Sepolia' : 'Waiting for Central'}</small></div></li>
+        <li className={donation.status !== 'intent' && donation.status !== 'cancelled' ? 'complete' : 'current'}><span>1</span><div><strong>{donation.paymentMethod === 'cash' ? 'Cash stored' : 'Wallet transaction'}</strong><small>{donation.paymentMethod === 'cash' ? `${formatPaise(donation.cashAmountPaise)} INR · no token payment` : unknown ? 'Result unknown · check before taking another action' : donation.txHash ? `${donation.txHash.slice(0, 10)}…` : donation.status === 'cancelled' ? 'Approval-only attempt abandoned · no donation sent' : 'Not submitted'}</small></div></li>
+        <li className={donation.status === 'confirmed' || minted ? 'complete' : donation.status === 'submitted' ? 'current' : ''}><span>2</span><div><strong>Central verification</strong><small>{donation.paymentMethod === 'cash' ? 'Device events and closing inventory reconciled' : donation.status === 'confirmed' || minted ? 'Verified on Base Sepolia' : 'Waiting for Central'}</small></div></li>
         <li className={minted ? 'complete' : donation.status === 'confirmed' ? 'current' : ''}><span>3</span><div><strong>Temple stamp</strong><small>{minted ? 'Minted on-chain' : donation.status === 'confirmed' ? 'Mint is pending' : 'Issued after verification'}</small></div></li>
       </ul>
+      {donation.paymentMethod === 'cash' && <p className="field-help">Temple fee: {formatUsdc(donation.fee)} USDC (3%), unpaid. This is the temple's later settlement, not a donor token charge. Payout remains unavailable.</p>}
       {unknown && <p className="field-help">An uncertain wallet result is never resent automatically. Use “Check with Central” first.</p>}
       {(donation.status !== 'intent' || pendingOperation?.donationId === donation.id) && !minted && (
         <button className="button button-secondary button-wide" onClick={onCheck} disabled={busy}>
@@ -1602,7 +1617,7 @@ function PendingDonation({ donation, temples }: { donation: Donation; temples: T
   return (
     <article className="pending-donation">
       <div className={`pending-state-icon ${statusTone(donation.status, donation.mintStatus)}`}>◷</div>
-      <div className="pending-copy"><strong>{temple?.name ?? 'Temple support'}</strong><span>{formatUsdc(donation.amount)} USDC · {donationStatusLabel(donation.status, donation.mintStatus)}</span></div>
+      <div className="pending-copy"><strong>{temple?.name ?? 'Temple support'}</strong><span>{donation.paymentMethod === 'cash' ? `${formatPaise(donation.cashAmountPaise)} INR` : `${formatUsdc(donation.amount)} USDC`} · {donationStatusLabel(donation.status, donation.mintStatus)}</span></div>
       <span className="pending-tag">Not counted</span>
     </article>
   );
@@ -1650,7 +1665,7 @@ function HistoryPage(props: {
                       <span className="history-dot" />
                       <div className="history-details">
                         <strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong>
-                        <span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span>
+                        <span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · {item.paymentMethod === 'cash' ? 'On-site cash' : item.kind === 1 ? 'On-site Crypto' : 'Remote support'}</span>
                         <span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span>
                         {item.status === 'intent' && approvalAttemptId && !item.donateAttemptId && !item.txHash && (
                           <div className="pending-box">
@@ -1673,7 +1688,7 @@ function HistoryPage(props: {
                           />
                         )}
                       </div>
-                      <strong className="history-amount">{formatUsdc(item.amount)}<small>USDC</small></strong>
+                      <strong className="history-amount">{item.paymentMethod === 'cash' ? formatPaise(item.cashAmountPaise) : formatUsdc(item.amount)}<small>{item.paymentMethod === 'cash' ? 'INR' : 'USDC'}</small></strong>
                     </article>
                   );
                 })}

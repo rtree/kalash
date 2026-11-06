@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import QRCode from 'qrcode';
-import { ATM_PHOTO_IDLE_MS, CASH_ACCEPTANCE_MS, CASH_LIMIT_PAISE, VISIT_TTL_MS, cashMachineStatus, metaMaskLink, templeTarget, visitState } from '../src/atm.ts';
+import { ATM_PHOTO_IDLE_MS, CASH_ACCEPTANCE_MS, CASH_LIMIT_PAISE, VISIT_TTL_MS, cashAccepting, cashMachineStatus, metaMaskLink, templeTarget, visitState, type VisitDto } from '../src/atm.ts';
 
 const origin = 'https://kalash-central-548318651344.asia-south1.run.app';
 const reference = 'a'.repeat(64);
@@ -51,4 +51,19 @@ test('QR expiry never closes a linked reception or implies cash success', () => 
   assert.equal(CASH_ACCEPTANCE_MS, 120000);
   assert.equal(ATM_PHOTO_IDLE_MS, 30000);
   assert.equal(CASH_LIMIT_PAISE, '40000');
+});
+
+test('cash UI requires explicit active state and an unexpired actual acceptance deadline', () => {
+  const visit = { mode: 'cash', state: 'accepting', cashAcceptanceEnabled: true, cashDeadline: 120000 } satisfies Pick<VisitDto, 'mode' | 'state' | 'cashAcceptanceEnabled' | 'cashDeadline'>;
+  assert.equal(cashAccepting(visit, 119999), true);
+  assert.equal(cashAccepting(visit, 120000), false);
+  assert.equal(cashAccepting(null, 0), false);
+  for (const deadline of [undefined, null, NaN, Infinity, 119999.5]) {
+    assert.equal(cashAccepting({ ...visit, cashDeadline: deadline }, 0), false);
+  }
+  for (const state of ['awaiting_wallet', 'awaiting_device', 'closing', 'reconciling', 'needs_reconciliation', 'closed', 'confirmed'] as const) {
+    assert.equal(cashAccepting({ ...visit, state }, 0), false);
+  }
+  assert.equal(cashAccepting({ ...visit, mode: 'crypto' }, 0), false);
+  assert.equal(cashAccepting({ ...visit, cashAcceptanceEnabled: false }, 0), false);
 });

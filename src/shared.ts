@@ -44,7 +44,7 @@ export interface Temple {
 }
 export type DonationStatus = 'intent' | 'submitting' | 'unknown' | 'submitted' | 'confirmed' | 'failed' | 'expired' | 'cancelled';
 export type MintStatus = 'reserved' | 'prepared' | 'submitted' | 'minted' | 'error';
-export interface Donation {
+export interface DonationBase {
   id: Hex;
   ownerWallet: Address;
   templeId: string;
@@ -55,17 +55,13 @@ export interface Donation {
   fee: string;
   net: string;
   recipient: Address;
-  deadline: number;
-  signature: Hex;
   status: DonationStatus;
   mintStatus?: MintStatus;
-  txHash?: Hex;
   mintTxHash?: Hex;
   tokenId?: string;
   createdAt: string;
   confirmedAt?: string;
   error?: string;
-  startBlock: string;
   donateAttemptId?: string;
   approvalAttemptId?: string;
   approvalResolution?: {
@@ -84,6 +80,26 @@ export interface Donation {
   expiredAt?: string;
   cancelledAt?: string;
 }
+export interface CryptoDonation extends DonationBase {
+  paymentMethod?: 'crypto';
+  chainId?: typeof CHAIN_ID;
+  deadline: number;
+  signature: Hex;
+  startBlock: string;
+  txHash?: Hex;
+}
+export interface CashDonation extends DonationBase {
+  paymentMethod: 'cash';
+  kind: 1;
+  onsiteVisitId: string;
+  cashSessionId: string;
+  cashAmountPaise: string;
+  cashFeeStatus: 'unpaid';
+  chainId: null;
+  txHash: null;
+  status: 'confirmed';
+}
+export type Donation = CryptoDonation | CashDonation;
 export interface PhotoDto {
   id: string;
   templeId: string;
@@ -127,6 +143,10 @@ export function parseAmount(input: unknown): bigint {
 export function formatUsdc(value: string | bigint): string {
   const amount = BigInt(value);
   return `${amount / 1000000n}.${(amount % 1000000n).toString().padStart(6, '0')}`;
+}
+export function formatPaise(value: string | bigint): string {
+  const amount = BigInt(value);
+  return `${amount / 100n}.${(amount % 100n).toString().padStart(2, '0')}`;
 }
 export function donationPointUnits(amount: string | bigint, kind: 0 | 1): bigint {
   return BigInt(amount) * (kind === 0 ? 1n : 10n);

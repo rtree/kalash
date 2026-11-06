@@ -5,7 +5,7 @@ import {
   type Address, type Hex, type TransactionReceipt,
 } from 'viem';
 import {
-  CHAIN_ID, USDC, donationPointUnits, donationTypes, parseAmount, vaultAbi, vaultFeeRecipientAbi, type Donation,
+  CHAIN_ID, USDC, donationPointUnits, donationTypes, parseAmount, vaultAbi, vaultFeeRecipientAbi, type CryptoDonation, type Donation,
 } from '../shared.ts';
 import { chain, db, deployment, minter } from './config.ts';
 import { temples } from './catalog.ts';
@@ -28,7 +28,7 @@ export async function ownedDonation(id: unknown, owner: Address): Promise<Donati
 }
 async function buildDonationIntent(
   owner: Address, templeId: unknown, input: unknown, kind: 0 | 1, onsiteVisitId?: string,
-): Promise<Donation> {
+): Promise<CryptoDonation> {
   requireValue(deployment, 503, 'CONTRACTS_NOT_DEPLOYED', 'Donation contracts have not been deployed.');
   const temple = temples.find((item) => item.id === templeId);
   requireValue(temple, 400, 'UNKNOWN_TEMPLE', 'Unknown temple.');
@@ -43,6 +43,7 @@ async function buildDonationIntent(
     .get();
   const stillValid = cancelledIntents.docs
     .map((doc) => doc.data() as Donation)
+    .filter((donation): donation is CryptoDonation => donation.paymentMethod !== 'cash')
     .filter((donation) => donation.approvalResolution?.outcome === 'cancelled' && donation.deadline > now)
     .sort((a, b) => a.deadline - b.deadline)[0];
   if (stillValid) {
@@ -58,15 +59,15 @@ async function buildDonationIntent(
     types: donationTypes, primaryType: 'Donation',
     message: { donationId: id, donor: owner, templeId: templeKey, kind, amount, deadline: BigInt(deadline) },
   });
-  const record: Donation = {
+  const record: CryptoDonation = {
     id, ownerWallet: owner, templeId: temple.id, templeKey, kind, ...(onsiteVisitId ? { onsiteVisitId } : {}), amount: amount.toString(),
     fee: (amount / 10000n).toString(), net: (amount - amount / 10000n).toString(),
-    recipient: temple.recipient, deadline, signature, status: 'intent',
+    recipient: temple.recipient, deadline, signature, status: 'intent', paymentMethod: 'crypto', chainId: CHAIN_ID,
     createdAt: new Date().toISOString(), startBlock: startBlock.toString(),
   };
   return record;
 }
-export async function createDonation(owner: Address, templeId: unknown, input: unknown): Promise<Donation> {
+export async function createDonation(owner: Address, templeId: unknown, input: unknown): Promise<CryptoDonation> {
   const record = await buildDonationIntent(owner, templeId, input, 0);
   await donationReference(record.id).create(record);
   return record;
@@ -85,7 +86,7 @@ export async function createOnsiteDonation(owner: Address, visitId: unknown, inp
   const existingRequest = await requestReference.get();
   if (existingRequest.exists) {
     const record = await ownedDonation(existingRequest.get('donationId'), owner);
-    requireValue(record.kind === 1 && record.onsiteVisitId === visitId && record.amount === requestedAmount,
+    requireValue(record.paymentMethod !== 'cash' && record.kind === 1 && record.onsiteVisitId === visitId && record.amount === requestedAmount,
       409, 'DONATION_REQUEST_MISMATCH', 'This request ID belongs to another onsite donation.');
     return record;
   }
@@ -93,7 +94,7 @@ export async function createOnsiteDonation(owner: Address, visitId: unknown, inp
   const visit = visitSnapshot.data();
   if (visit?.donationId) {
     const existing = await ownedDonation(visit.donationId, owner);
-    requireValue(existing.kind === 1 && existing.onsiteVisitId === visitId && existing.amount === requestedAmount,
+    requireValue(existing.paymentMethod !== 'cash' && existing.kind === 1 && existing.onsiteVisitId === visitId && existing.amount === requestedAmount,
       409, 'ONSITE_DONATION_EXISTS', 'This reception already has a different donation. Check it with Central before taking another action.');
     return existing;
   }
@@ -125,7 +126,7 @@ export async function createOnsiteDonation(owner: Address, visitId: unknown, inp
     tx.update(visitReference, { state: 'donation_pending', donationId: record.id, donationStartedAt: Date.now() });
   });
   const selected = await ownedDonation(selectedId, owner);
-  requireValue(selected.kind === 1 && selected.onsiteVisitId === visitId && selected.amount === requestedAmount,
+  requireValue(selected.paymentMethod !== 'cash' && selected.kind === 1 && selected.onsiteVisitId === visitId && selected.amount === requestedAmount,
     409, 'ONSITE_DONATION_MISMATCH', 'The reception already has a different donation. Do not send another.');
   return selected;
 }
@@ -138,6 +139,7 @@ export async function recordOperation(id: unknown, owner: Address, operation: un
     const snapshot = await transaction.get(reference);
     const data = snapshot.data() as Donation | undefined;
     requireValue(data?.ownerWallet.toLowerCase() === owner.toLowerCase(), 403, 'NOT_OWNER', 'Donation permission denied.');
+    requireValue(data.paymentMethod !== 'cash', 409, 'CASH_NOT_CRYPTO', 'Cash donations cannot create wallet operations.');
     requireValue(data.status !== 'cancelled' && data.status !== 'expired',
       409, 'INTENT_ABANDONED', 'This donation intent is no longer active.');
     const attempt = reference.collection('operations').doc(attemptId);
@@ -169,6 +171,7 @@ export async function resolveApprovalOnlyIntent(
     'Confirm that no wallet request is still open before resolving this approval-only attempt.');
   const reference = donationReference(id);
   const record = await ownedDonation(id, owner);
+  requireValue(record.paymentMethod !== 'cash', 409, 'CASH_NOT_CRYPTO', 'Cash donations have no token approval to resolve.');
   if ((record.status === 'cancelled' || record.status === 'expired')
     && record.approvalResolution?.attemptId === attemptId) return record;
   requireValue(record.status === 'intent'
@@ -275,7 +278,7 @@ export async function resolveApprovalOnlyIntent(
   });
   return ownedDonation(id, owner);
 }
-async function findReceipt(record: Donation, hint?: Hex): Promise<TransactionReceipt | null> {
+async function findReceipt(record: CryptoDonation, hint?: Hex): Promise<TransactionReceipt | null> {
   let hash = hint ?? record.txHash;
   if (!hash) {
     const latest = await chain.getBlockNumber();
@@ -304,6 +307,7 @@ export async function verifyDonation(id: unknown, owner: Address, hint: unknown)
   requireValue(hint === undefined || (typeof hint === 'string' && /^0x[0-9a-f]{64}$/i.test(hint)),
     400, 'INVALID_HASH', 'Invalid transaction hash.');
   const record = await ownedDonation(id, owner);
+  requireValue(record.paymentMethod !== 'cash', 409, 'CASH_NOT_CRYPTO', 'Cash donations are verified by the device ledger, not a payment receipt.');
   if (record.status === 'confirmed' || record.status === 'failed') return record;
   requireValue(record.donateAttemptId, 409, 'NO_OPERATION', 'No wallet donation operation has been registered.');
   const receipt = await findReceipt(record, hint as Hex | undefined);
