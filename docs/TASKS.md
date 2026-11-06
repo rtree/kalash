@@ -56,7 +56,7 @@
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
 | M3/NV200接続 | 現金受付の準備状態は未確認 | M5aではCashをfail-closedで無効にし、現地Cryptoを先に完成。現金受入・Controller実機連携は後続M3 | M5aでは機器操作不要。Cash実装時に準備状況を再確認 |
-| M3/ITL REST API | 非再配布.NET 8.0パッケージ44ファイルを専用ignored folderへコピーしSHA-256照合。`REST API Logs`は除外。`validate`は成功、vendor server未起動。Postman Route=3と提供メモRoute=1の不一致は継続 | Controller child環境でHost allowlist/JWT上書き。Manual v14・対象firmware/datasetでRoute不一致を解決するまで機器接続・route/acceptor/payout操作を行わない | バイナリ・設定・資格情報はGitへ入れない。実機・メーカーサーバーは未起動 |
+| M3/ITL REST API | 非再配布.NET 8.0パッケージ44ファイルを専用ignored folderへコピーしSHA-256照合。`REST API Logs`は除外。`validate`は一時的なテスト鍵で成功、vendor server未起動。Postman Route=3と提供メモRoute=1の不一致は継続 | Controller child環境でHost allowlist/JWT上書き。Manual v14・対象firmware/datasetでRoute不一致を解決するまで機器接続・route/acceptor/payout操作を行わない | バイナリ・設定・資格情報はGitへ入れない。実機・メーカーサーバーは未起動 |
 
 ## M1の検証証跡
 
@@ -114,7 +114,7 @@
 - M5a live donation `0xd25b42f9…dd2dfb`（visit `178d6d49…fbbc0`）：kind=1、10,000 USDC base units、Firestore confirmed/minted。Donation tx `0x24708f73…aaba69` successful/canonical、exact Vault `Donated` and USDC fee/net transfers matched. Mint tx `0x658b3e88…9584b` successful/canonical、matching `StampMinted` event。Firestore visit `confirmed`、ATM `activeVisitId` cleared、points include 10× onsite multiplier。本人はCollection reload後のOn-site Lotus Courtyard Stamp表示も確認。
 - M5a配備 revision `00018-dgg`／image `central:dbb7efa`。Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815` successful. Live API `pnpm run test:atm` 8/8 pass, no skips. Source `dbb7efa47df17107a6843f46961c5d55881712f9`。
 - 次：M5a完了。M3現金は別ゴールとして準備し、Cash command／実機service登録は実装・権限の確認後に別途行う。Cash試験は人の立ち会いを待つ。
-- M3準備：専用.NET 10 Controller hostとBearer付きread-only ITL clientを実装。9件のfake process/config/API tests pass。非再配布REST API runtimeを専用ignored folderへコピーし44ファイルのSHA-256一致と`validate`を確認。REST API logsは除外、server childは未起動。APIクライアントはread-only限定。Route=1/3不一致、保護されたdotnet/server/JWT設定、実機USB確認が残る。
+- M3準備：専用.NET 10 Controller hostとBearer付きread-only ITL clientを実装。9件のfake process/config/API tests pass。非再配布REST API runtimeを専用ignored folderへコピーし44ファイルのSHA-256一致と一時テスト鍵での`validate`を確認。REST API logsは除外、server childは未起動。APIクライアントはread-only限定。Route=1/3不一致、保護されたdotnet/server/JWT設定、実機USB確認が残る。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 
