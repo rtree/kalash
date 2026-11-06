@@ -8,3 +8,7 @@ dist/
 artifacts/
 *.log
 .tooling/
+CashMachine/CashMachineController/bin/
+CashMachine/CashMachineController/obj/
+CashMachine/RESTAPIServer/**
+!CashMachine/RESTAPIServer/README.md
