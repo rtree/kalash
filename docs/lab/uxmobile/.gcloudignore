@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!server.mjs
+!dist/
+!dist/**
+!.dockerignore
