@@ -6,6 +6,14 @@
 
 KALASH参照版：[`5bc559a`](https://github.com/rtree/kalash/tree/5bc559ada99a3e394c64e8d308c91f285cddb6cf)。ユーザー提供の過去メモは `ef6e807`・`apps/web-public/...` 構成で、今回の `src/web/...` 構成とは異なる。SIWE省略、操作資格情報、storage形式、approve復旧条件を混ぜない。
 
+## 0. 2026-11-06の方針更新：モバイルMetaMask内蔵＋PC
+
+ユーザーが、入口QRをMetaMask DApp deeplink形式にし、KALASHの前提を「モバイルMetaMask内蔵ブラウザ＋PC」に変更すると決定した。PCは既存のChrome＋MetaMask拡張を基準とする。本書のWalletConnect／外部ブラウザの解説は原理・旧経路の診断資料として残すが、Chrome＋WalletConnectの寄付完走を今回の対象環境のリリース条件にはしない。
+
+今回の端末・外部QRリーダーでは、PCのQR→MetaMask内蔵→指定Cloud Run URLのpath／query保持まで本人・検証チームが確認した。本体のカメラ起動・撮影・Upload／CommunityBoard掲載も本人報告あり。隔離PoCの明示接続・camera preview→停止は引用サマリでは残確認であり、本体のApprove成功やReown全面撤去を確認した報告ではない。
+
+[更新した導線設計](kalash-metamask-browser-journey.md)の§0に証拠、§3に採用するQR入口、§9に本筋の取り込み手順を記載した。元の調査時点より新しいこの方針を適用し、検証はPCのQR→スマホ→固定Cloud Run revision、試験中は再配備しない。
+
 ## 1. 原理：接続の方向、メッセージの方向、アプリ起動を分ける
 
 ### Chrome＋WalletConnect
@@ -73,7 +81,7 @@ SDKの固定版・構成が違うため、他アプリのconnector配列やpriva
 ## 3. 検証開始前に固定するもの
 
 - 端末／OS／Chrome／MetaMask版、正規origin、配備revision、ソースcommit、connector id/type、chainId、試験ケース番号。
-- PC拡張、Android内蔵、Android Chrome＋WalletConnect、iOS内蔵、iOS外部ブラウザを別経路とする。Android成功をiOS成功にしない。
+- 現在の主対象はPC MetaMask拡張とモバイルMetaMask内蔵。Androidの成功をiOS成功にしない。Chrome＋WalletConnect等を追加で調べる場合は補助経路のケースとして分離し、主対象のリリース条件と混ぜない。
 - 一台・一担当・一対象タブ。試験中に配備やSDK版を変えない。変更したらそのケースを同条件で再実行する。
 - WalletとCentralの既存pending操作を先に確認する。現在の本人操作とテストsigner操作を混ぜない。
 - testnet・許可額・spender・recipient・操作範囲を確認。本人の署名・撮影・公開の同意を自動化しない。
@@ -175,10 +183,11 @@ EIP-7702でコードを持つEOAと、コントラクトWalletを同一扱いし
 
 参照TASKSではSIWEはHTTP200と本人画面で確認済み。内蔵ブラウザのapprove要求表示が未完了。CentralのAbandonは状態を照合してintentを終了するAPIで、MetaMaskのSpendingCap承認ではない。[K1]
 
-1. 版と選択connectorを固定し、旧pendingを通常の復旧導線で照合する。
-2. 通常Donateを一度だけ操作し、G5→G6の境界で止まる場所を観測。promptが出ないからAbandonを反復しない。
-3. Reownを必須にしない内蔵ブラウザ導線を別ケースとして実装・検証する。具体案は [KALASH導線設計](kalash-metamask-browser-journey.md)。
-4. M2の写真試験は既存confirmed寄付を使って並行して進める。モバイルの新規寄付成功を写真の必須前提にしない。
+1. [KALASH導線設計](kalash-metamask-browser-journey.md)§9に従い、対応環境の決定とdeeplink QR入口を本体へ取り込む。成功済みのPoC入口・本体写真の記録を引き継ぐ。
+2. モバイル内蔵／PC拡張の選択providerを明確にし、接続・chain・SIWE・writeで同じ選択を使う。PoCの接続・preview停止確認は本体と別に閉じる。
+3. 本体の旧pendingを通常の復旧導線で照合し、許可済みの通常Donate一件のG5→G6境界を観測する。[Approve調査](metamask-mobile-usdc-approve-investigation.md)のnested拒否とprovider境界の不足を扱い、prompt不表示からAbandonを反復しない。
+4. M2は本人の撮影・Upload／Board成功を引き継ぎ、同意・停止・取り下げ等の残項目を確認する。写真のために新規寄付しない。
+5. Reownを主導線の必須条件から外す変更と全面削除を分ける。主経路のPC回帰と起動・設定依存を確認してから削除可否を決める。
 
 ## 9. 出典と証拠の範囲
 

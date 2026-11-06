@@ -86,13 +86,15 @@
 - 次の一手：MetaMask内蔵Browserを再読込し、Historyの古い期限切れintentを確認。HistoryのAbandon/resolve dialogはCentral状態確認だけで、MetaMask承認ではない。本人がno-requestを確認して期限切れintentを解決後、Donateを一度だけ開始し、MetaMaskの正確なUSDC approval requestを確認する。promptが出なければそこで停止して画面・wallet traceを確認し、再送やAbandonを重ねない。
 
 
-## モバイル導線の机上調査（文書ブランチ）
+## モバイル導線の採用方針（文書ブランチ）
 
-- UTC 2026-11-06T04:42:21Z。対象：M1 mobile／M2写真、およびM3/M5 QR導線の設計準備。参照版 `5bc559a`、その版のSDD §3/§6/§7とSPEC §4/§5を照合。現行設計の変更なし、提案は採用・実装前。
-- 成果：`docs/issue-penetrator/mobile-wallet-verification-playbook.md` と `docs/issue-penetrator/kalash-metamask-browser-journey.md`。公式MetaMask/WalletConnect資料、Uniswap/Aave公開実装を照合し、同一操作のゲートと内蔵ブラウザ優先導線を作成。この文書commitに含む。
-- 検証：調査担当による出典・API/返却形式・記述レビュー、相互リンク・Markdown差分確認。今回の実機操作・送金・撮影・配備・製品テストはなし。ソース例を実機成功扱いしない。
-- 制約：調査環境のHTTPプロキシ接続失敗により一般Web直接取得不可。GitHub connectorで公式原文と実装を取得。通常git push経路を使わず文書専用ブランチへGitHub APIで保存する。
-- 次の一手：実装担当が非秘密URLのdeeplinkとinjected経路を確認し、試験用QRのnative scanner返却・Cancel・復帰、既存confirmed寄付からcamera preview/破棄を確認する。本人の認証・署名・権限・公開同意は実機試験時に本人が行う。今回人の操作待ちはなし。主ブランチの既存進捗・未完了判定は変更しない。
+- UTC 2026-11-06 06:24:27。ユーザー決定を反映：KALASHはモバイルMetaMask内蔵ブラウザ＋PCを前提とし、入口QRをMetaMask DApp deeplink形式にする。PCは既存Chrome＋MetaMask拡張を基準。main参照 `67ab7ccce50fc960b5de1a1a10f5dcb9b038d227`。
+- 本人・検証チームの新証拠：PC QR→外部QRリーダー→MetaMask内蔵→Cloud Run指定URL、query保持が今回の環境で成功。本体のカメラ起動・撮影・Upload／CommunityBoard掲載も本人報告あり。PoC接続・camera preview→停止は引用サマリでは残確認。Approve／寄付／Reown全面撤去の成功には拡張しない。
+- 文書差分：`docs/issue-penetrator/kalash-metamask-browser-journey.md` の初期landing案を直接deeplink QRへ更新し、§9に本筋の担当・取り込み順・判定条件を追加。検証プレイブックとApprove調査にも方針・証拠を追記。今回の文書commitに含む。
+- SPEC Web／Wallet欄、main SDD §1/§2/§3/§7を照合。今回の仕様変更指示は決定済みだが、本筋のSPEC／SDD／製品コードには未反映。統合担当が既存のReown固定記述との関係と対応環境を反映し、現在のTASKSへ決定・証拠だけを取り込む。古い文書ブランチのTASKS／SDDを丸ごと上書きしない。
+- 取り込み順：QR入口→選択済みinjected providerをモバイル内蔵／PC拡張で統一→既存Approve課題→Reown主経路分離と全面削除の別判断。アプリ内QRスキャナーは入口採用の前提にしない。既存写真機能と本体の本人成功を引き継ぐ。
+- 検証：参照コード・PoCのdeeplink生成・記録を読み取り照合し、文書レビューとMarkdown／相互リンクを確認。調査担当による追加実機操作・撮影・公開・送金・製品変更・配備・製品テストはなし。PoCは `00002-j6c`／source `d9bf3ce0ed07` の本人結果を参照。
+- 次の一手：本筋の統合担当が導線文書§9に沿って反映する。検証担当はPCのQR→スマホ→固定Cloud Run試験サイトに統一し、実行中は再配備しない。今回の文書作業に本人操作待ちはなし。
 
 ## USDC approve不表示の原因調査（文書ブランチ）
 

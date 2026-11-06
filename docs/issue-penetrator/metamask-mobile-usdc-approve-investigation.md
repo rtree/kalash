@@ -4,6 +4,20 @@
 
 参照KALASH：[`7b72c796255f34ae75857dc867ef7f0211e3c1a5`](https://github.com/rtree/kalash/tree/7b72c796255f34ae75857dc867ef7f0211e3c1a5)。この版のTASKSが記録する稼働版は`00016-w6k`、source `1790e57`。最新コード、稼働版、当時の失敗操作を区別する。本書は文書専用ブランチに保存し、本体や別チームのUX PoCを変更しない。
 
+## 0. 追記：入口・写真の成功と本体への取り込み方針（2026-11-06）
+
+ユーザーは今回、**入口QRをMetaMask内蔵ブラウザで開くDApp deeplink形式にし、KALASHを「モバイルMetaMask内蔵ブラウザ＋PC」前提へ変更する**と決定した。PCは既存のChrome＋MetaMask拡張の経路を基準にする。
+
+- 本人・検証チームの報告では、PCのQR→外部QRリーダー→MetaMask内蔵→指定Cloud Run URLが成功し、queryも保持された。
+- 本体でカメラ起動・撮影・Upload／CommunityBoard掲載まで成功との本人報告がある。
+- 引用されたPoCサマリでは、同じスマホPoC画面の明示接続とcamera preview→停止は残確認。本体での写真成功と混同しない。
+
+これにより、deeplink入口と写真機能を使う方向へ進める。**本書のApprove不表示を解決済みとする証拠は増えていない。** QR到達、撮影、接続、SIWE、USDC approveはそれぞれ別の境界であり、以下の初発未特定・nested拒否の指摘を引き継ぐ。今回の本体にはまだReownがあり、全面撤去可否も別判断。
+
+本筋は「仕様・SDD・TASKSへ方針反映→deeplink QRを本体化→内蔵／PCの選択済みinjected providerへ統一→本書のApprove課題を解消→Reownの依存削除を別途判断」の順で取り込む。詳細と担当範囲は[導線設計§9](kalash-metamask-browser-journey.md#9-本筋のチームが取り込む順序)。アプリ内QRスキャナーの実装を入口採用の前提にしない。試験はPCのQR→スマホ→固定Cloud Run revisionを維持し、実行中は再配備しない。
+
+照合先：[main `67ab7cc` のTASKS](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/docs/TASKS.md)。以下の原因調査本文は従来の固定参照版 `7b72c796` に対する分析であり、今回の方針追記によって実機再現済みに変わるものではない。
+
 ## 1. 結論：直近の停止原因は特定できた。最初の停滞とは別
 
 **記録された直近のDonate再試行は、CentralがHTTP 409 `SIGNED_INTENT_STILL_VALID` を返したため、MetaMaskへの要求に到達していない。** この試行はリレー・NAT・MetaMaskの確認画面の不具合ではない。

@@ -1,10 +1,31 @@
 # KALASH：MetaMask内蔵ブラウザでQR・寄付・写真をつなぐ
 
-調査日：2026-11-06（JST）。[検証プレイブック](mobile-wallet-verification-playbook.md)のKALASH向け具体案。提案と実装済みを分け、実機の合格前に対応済みとは呼ばない。今回の作業は文書調査のみ。
+調査・更新日：2026-11-06（JST）。[検証プレイブック](mobile-wallet-verification-playbook.md)のKALASH向け導線と本体への取り込み方針。今回の更新は本人・検証チームの報告を反映した文書作業で、調査担当は追加の実機操作を行っていない。
+
+## 0. 今回決まった方針と、新たな実機結果
+
+**ユーザー決定：KALASHはモバイルMetaMask内蔵ブラウザとPCを前提にする。入口QRは、MetaMask内蔵ブラウザで目的のKALASHページを開くDApp deeplink形式にする。** 以下の初期案をこの決定に合わせて更新した。方針は決定済みであり、本体への反映・個々の受入結果は別に管理する。
+
+| 項目 | 最新の証拠と扱い |
+|---|---|
+| 外部QRからの入口 | 本人・検証チームが「PCのQR→スマホ外部QRリーダー→MetaMask内蔵ブラウザ→指定Cloud Run URL」を確認。今回の端末・リーダーではqueryも保持。入口の成功として採用する |
+| 本体の写真 | 本人が内蔵ブラウザでカメラ起動・撮影・Uploadを確認。検証チームはCommunityBoard掲載成功も別途記録。本体での本人実測として採用し、単なるAPI存在確認に戻さない |
+| 隔離PoCで残るもの | 引用されたサマリでは、同じスマホPoCページの明示接続と「カメラ開始→映像確認→停止」は残確認。本体の写真成功とは別ケース |
+| 本体のapprove／寄付 | 今回の成功報告には含まれない。[Approve原因調査](metamask-mobile-usdc-approve-investigation.md)の未解決範囲を引き継ぐ |
+| Reown全面撤去 | 今回の入口・写真成功では可否を確定しない。主導線のinjected化とパッケージ／設定削除を別変更にする |
+
+照合した本筋の記録は[main `67ab7cc` のTASKS](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/docs/TASKS.md)。05:23 UTCの本体写真の本人報告、06:00 UTCのPoC入口確認を記録している。PoCは `kalash-uxmobile-00002-j6c`、source `d9bf3ce0ed07`、到達先は `https://kalash-uxmobile-548318651344.asia-south1.run.app/?mode=phone&case=external-qr`。調査担当が写真・DB・実端末版を再検証したという意味ではない。
+
+対象環境は次のように整理する。
+
+- **モバイルの主経路：** MetaMask内蔵ブラウザ＋選択済みinjected provider。初期実績は今回のAndroid端末。iOS・別端末・別QRリーダーは未確認欄を持ち、Androidの成功を転記しない。
+- **PCの主経路：** PCブラウザ＋MetaMask拡張のinjected provider。既存のWindows Chrome実績を基準にし、他PCブラウザは別に対応状況を記録する。
+- **モバイルChrome等の外部ブラウザ：** KALASHを開いた人には「MetaMaskで開く」を案内する。Chrome＋WalletConnectでの寄付完走は今回の対象環境のリリース条件から外す。閲覧ページまで一律に閉める必要はない。
+- **今回の検証運用：** PCにQR表示→スマホ→Cloud Run試験サイトに統一し、試験中はrevisionを固定して再配備しない。開発PCのlocalhostをスマホ向け入口にしない。
 
 ## 1. 結論と採用条件
 
-**MetaMask内蔵ブラウザ＋選択済みinjected providerを主経路にする案は、公式APIと公開実装に根拠がある。** サイトを開くdeeplink、WalletのQRスキャナー、Webカメラを組み合わせられる。初回だけ外部ブラウザから移動し、その後は同じMetaMask内で認証・寄付・受付確認・写真公開を完結させる。
+**MetaMask内蔵ブラウザ＋選択済みinjected providerをモバイルの主経路として採用する。** deeplink入口とWebカメラには今回の実績がある。同じMetaMask内で認証・寄付・受付確認・写真公開をつなぐ。Wallet内のQRスキャナーは追加機能で、今回の外部QR入口の採用条件にはしない。
 
 ただし「内蔵なら必ず成功」ではない。provider準備、Wallet要求の競合、WebViewの権限・ライフサイクル、RPC、Centralの検証は残る。対象Androidで以下の受入ゲートを通し、その後iOSを別に確認する。
 
@@ -12,9 +33,9 @@ Reown AppKit（UI/adapter）とWalletConnect（外部Walletへの通信経路）
 
 MetaMask Connect SDKに替えるだけでは、この目的を満たしたとは言えない。公式architectureではmobile外部接続に暗号化relayを使う構成もある。狙うのはSDKの名前変更ではなく、同一アプリ内のinjected経路である。[D1–D4]
 
-## 2. 現在あるもの・まだないもの
+## 2. 初期調査の実装状況と今回の更新
 
-参照コード／記録：[`5bc559a`](https://github.com/rtree/kalash/tree/5bc559ada99a3e394c64e8d308c91f285cddb6cf)。稼働状況はこの版のTASKS記録であり、本調査でlive endpointを検証したものではない。
+初期コード／記録：[`5bc559a`](https://github.com/rtree/kalash/tree/5bc559ada99a3e394c64e8d308c91f285cddb6cf)。この表のコード評価はその版を基準とし、写真の実測更新は§0の報告を反映。最新の動作記録は本筋のTASKSを参照する。
 
 | 項目 | 確認できた状態 | 判断 |
 |---|---|---|
@@ -22,7 +43,7 @@ MetaMask Connect SDKに替えるだけでは、この目的を満たしたとは
 | 内蔵ブラウザのapprove／寄付 | approve画面が出ない原因を診断中。通常DonateとAbandonの混同を記録 | 未完了。経路変更だけで解決したとしない |
 | provider選択 | `connectWallet`が利用可能injectedを優先する処理あり | 基盤はある。実際に選ばれたconnectorを観測する |
 | Reown非設定分岐 | `runtime.ts`に`createConfig`＋`injected`分岐あり。ただしAppKit/WagmiAdapterは静的import | 通信上の独立とbundle依存の除去は別。通常設定ではAppKit初期化にも入るため、主経路の分離を明示的に設計・試験する |
-| 写真撮影 | `getUserMedia`実装と権限許可・操作ボタン表示の記録 | live preview・撮影から公開までの実機通しは未確認 |
+| 写真撮影 | 初期はAPI実装・権限・ボタンまで。今回、本人が本体のカメラ起動→撮影→Upload／CommunityBoard掲載成功を報告 | 本体での本人実測あり。PoCのcamera preview停止確認と、取り下げ等の未完了項目は別 |
 | 画像選択・公開 | 本人写真1枚のpublished記録、API試験の証拠あり | 本人写真を勝手に置換・削除して再試験しない |
 | Scan QR | `App.tsx`で「このreleaseでは未対応」というnoticeを出すのみ | QR decode・受付照合は新規実装が必要 |
 | ATMの現地受付／現金・現地Crypto | M3～M5は未着手の記録 | QRが読めても機器・台帳・参拝スタンプ完了にはならない |
@@ -31,34 +52,36 @@ MetaMask Connect SDKに替えるだけでは、この目的を満たしたとは
 
 ## 3. 入口を二つ用意する
 
-### A：初めての人 — ATMのQRから入る
+### A：主導線 — PC／ATMのQRからMetaMaskを直接開く
 
 ```text
-ATMに正規KALASH HTTPS URLのQR
-  → スマホ標準カメラで読み取り
-  → KALASHの受付案内ページ（寺院・受付内容を表示）
-  → 本人が「MetaMaskで開く」をタップ
-  → MetaMask内蔵ブラウザで同じ受付を取得
-  → 必要なら接続・chain確認・本人認証
-  → 寺院／端末／金額／期限／用途を確認して進む
+PC／ATMにMetaMask DApp deeplinkのQRを表示
+  → スマホの外部QRリーダーで読み取り
+  → MetaMask内蔵ブラウザ
+  → 指定したKALASHの寺院／受付ページ
+  → 内容を表示し、本人が接続・chain確認・本人認証
+  → 寄付／受付確認／写真へ進む
 ```
 
-最初のHTTPSページはWallet未接続でも案内を表示できるようにする。バックエンドの受付状態を変更するのは本人確認・明示同意後。自動リダイレクトを連打せず、MetaMask未導入・起動できない場合に手動で正規URLへ進む案内を残す。
+**入口QRのpayloadをdeeplinkそのものにする。** 通常HTTPSの案内ページを先に必ず開く初期案から変更する。今回成功したのはこの外部QR入口であり、KALASH内の「Scan QR」や `wallet_scanQRCode` の実装を先に完成させる必要はない。
 
-公式の現行deeplink形式は次のとおり。[D1]
+公式形式と本体向けの例：[D1]
 
 ```text
 https://link.metamask.io/dapp/{dappUrl}
 
-KALASHの既存寺院ページを開く例（提案・実機未試験）：
 https://link.metamask.io/dapp/kalash-central-548318651344.asia-south1.run.app/temples/temple-01
 ```
 
-これはページを開くリンクであり、接続・ログイン・送金を許可しない。公式にはQR化して読む導線と未導入時の案内もある。新規実装は現行公式形式を使い、古い`metamask.app.link`の動作を全端末で仮定しない。
+PoCの[buildDeepLink／phoneTarget](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/docs/lab/uxmobile/probe.mjs)が取り込み元になる。許可済みHTTPS targetからschemeを除き、escaped pathと許可したqueryを保って連結する実装。URL全体をもう一度encodeする変更はせず、既存の生成・到達例と照合する。query保持の実績は `mode=phone&case=external-qr` であり、任意のhash・特殊文字・受付パラメータまで確認済みとはしない。
 
-ATMのQRをdeeplinkそのものにする案も試せるが、初期案は正規HTTPSページを入口にして、利用者が行き先を確認してからWalletを開く。標準カメラのURL認識やOSのリンク関連付けで失敗しても説明・再開ができるため。
+本体ではPoC専用のtarget許可条件をそのまま使わず、正規KALASH originと対象route・許可パラメータの契約に置き換える。寺院ID／受付参照はサーバーで照合する。QRの隣に寺院・用途・行き先を表示し、deeplinkの展開先は公開HTTPSに限定する。
 
-### B：使い慣れた人 — MetaMask内のKALASHから読む
+補助導線として、一般ブラウザで来た人向けの「MetaMaskで開く」ボタンと正規URLの表示・コピーを残す。同じスマホ上で自分のQRを再スキャンさせない。MetaMask未導入／起動失敗時は導入・再開方法を表示し、自動リダイレクトを反復しない。PCは通常URLを開いて拡張から接続できる。
+
+このリンクが行うのはページ移動だけ。QR読取・ページ表示を接続・寄付・写真公開の承認にはしない。
+
+### B：追加導線 — MetaMask内のKALASHからATMのQRを読む
 
 ```text
 MetaMask内蔵ブラウザでKALASHを開く
@@ -69,7 +92,7 @@ MetaMask内蔵ブラウザでKALASHを開く
   → 内容確認 → 受付紐付け／寄付
 ```
 
-この導線は外部ブラウザへの往復を減らせる。MetaMaskアプリのホームにある一般QR機能の挙動と、KALASHから呼ぶQR APIの挙動は別に試験する。どんなQRでも内蔵ブラウザへ開くとは約束しない。
+この導線は追加の実装・検証対象で、Aの入口採用を待たせる条件ではない。MetaMaskアプリのホームにある一般QR機能の挙動と、KALASHから呼ぶQR APIの挙動は別に試験する。Aと同じdeeplink QRをアプリ内で読む場合は、許可したdeeplinkをunwrapして展開先の正規KALASH URLを検証する設計が必要。以下の既存regex例は通常HTTPSの受付URL用なので、そのままdeeplink QRに適用しない。
 
 ## 4. QRは四種類を混ぜない
 
@@ -134,7 +157,7 @@ QR検出後はスキャンを一時停止して二重処理を防ぎ、結果確
 
 ## 6. 自分の写真を撮る導線
 
-写真はQRスキャナーと別機能。MetaMask Mobileの公開テストにWebViewの`getUserMedia({video:true})` fixtureとAndroid/iOSのカメラ権限ケースがある。設計上可能な根拠はあるが、KALASHでの実機通し合格ではない。[D7]
+写真はQRスキャナーと別機能。今回、本人からKALASH本体でカメラ起動・撮影・Upload／CommunityBoard掲載の成功報告を得た（§0）。MetaMask Mobileの公開fixtureもAPIの根拠になる。[D7] 以下は既存機能を本体へ取り込む際の受入条件で、すべてを今回確認済みという意味ではない。成功した撮影・掲載を方針決定のためだけに繰り返さず、停止・離脱・取り下げ等の不足証拠を確認する。
 
 ```text
 confirmed寄付（既存Historyからでもよい）
@@ -164,16 +187,16 @@ confirmed寄付（既存Historyからでもよい）
 
 1. 起動時にinjected経路を初期化できる構造にする。Reown project API・relay・modal初期化完了を待たない。
 2. EIP-6963等で検出した実providerを選択し、アカウント取得・chain確認・SIWE・writeで同じ選択を使う。`isMetaMask`は他Walletも設定し得るので単独の認可根拠にしない。
-3. WalletConnectを残すなら「他のブラウザ／Walletで接続」の別選択にし、遅延読込する。injected失敗から無言でWCへ切り替えない。
+3. WalletConnectを残すなら任意の補助機能として分離・遅延読込し、今回の対象環境の必須導線にしない。モバイル外部ブラウザの主ボタンは「MetaMaskで開く」にする。injected失敗から無言でWCへ切り替えない。
 4. public RPCを明示し、Walletへの署名経路から分ける。Centralへの認証・保存・mintも維持。
 5. SDKを完全除去する変更と、主導線をinjectedにする変更を分けて検証する。Wagmi/Viem自体はReown relay必須ではない。
 6. テスト環境でReown/WC宛通信だけを遮断し、injectedの接続→SIWE→許可済み少額寄付→Central→Collectionが通ることを確認する。MetaMask自身のRPC等は遮断しない。別ケースでdeep link入口と手動URL入口も確認する。
 
 これで「Reownに依存しない主導線」という主張を実証できる。サイト・中央API・チェーンRPC・MetaMask本体・deeplink resolver等の依存まで消えるわけではない。
 
-## 8. 最小実機スパイクとリリース条件
+## 8. 検証項目と現在の優先順位
 
-アプリへ一度に全部入れず、以下の順に判定する。最初のQR・camera試験は送金も個人写真公開も不要。
+§0の成功記録を引き継ぐ。以下は機能別の受入表であり、未実装のアプリ内QRスキャナー（3・4）を先に終えないと本体へ進めないという順序ではない。本筋は入口統合・選択provider・Approveを優先し、PoCの残る接続／preview停止確認は同じ配備版で行う。cold/warmや別端末など、まだ記録のない条件だけを追加する。
 
 | 順番 | 試験 | 合格証拠 |
 |---|---|---|
@@ -191,9 +214,45 @@ AndroidとiOSは別々に記録。未検証のiOSを対応済みにしない。W
 
 ### チームへの短い依頼文
 
-> MetaMask内蔵ブラウザ＋injectedを主経路として検証してください。まず公式deeplinkで非秘密の寺院ページを開き、実connectorを確認。次にwallet_scanQRCodeの返却形式・キャンセル・復帰と、getUserMediaの実映像・破棄を送金なしで確認してください。Scan QRは現行未実装なので、新しい受付routeとCentralの期限・用途・本人拘束が必要です。Reown通信を遮断しても主経路が通ることを受入条件にし、M2写真は既存confirmed寄付から進めてください。
+> モバイルMetaMask内蔵ブラウザ＋PC MetaMask拡張を対応前提にし、入口QRをMetaMask DApp deeplink形式へ統合してください。外部QR→MetaMask→Cloud Runのquery保持、本体の撮影・Upload／CommunityBoard掲載は今回の本人実績として引き継いでください。PoCの接続・camera preview停止確認と、本体のApprove→寄付→Central→Stampは別の残タスクです。アプリ内Scan QRの実装やReown全面撤去を入口採用の前提にせず、§9の順で本体へ取り込んでください。
 
-## 9. 一次資料
+## 9. 本筋のチームが取り込む順序
+
+### 9.1 仕様・設計・進捗へ決定を反映する
+
+ユーザーの今回の指示を仕様変更の根拠として扱う。この方針について再承認を求める必要はない。本筋の統合担当が次を反映する。
+
+| 正本 | 反映内容 |
+|---|---|
+| SPECのWeb／Wallet欄・対応環境 | 日付付き変更として「モバイルMetaMask内蔵＋PC MetaMask拡張、入口はDApp deeplink QR」を記載。元のReown/AppKit固定記述との関係を明示し、SDK全面削除を決定済みにしない |
+| SDD §1/§7 | 対応環境、deeplink生成、対象URLの検証、実provider選択、外部ブラウザ案内、Reown任意化の方針を記載。ATM受付の新route／認可契約は実装時に§2/§3にも反映 |
+| TASKS | QR入口・provider接続・Approve／寄付・写真・Reown分離を分けて担当／版／証拠／未完了を記録。今回の本人成功報告とPoC残項目をそのまま区別する |
+
+この文書ブランチは古いmainを親にしている。**ブランチ全体や古いTASKS／SDDをmainへ丸ごと上書きしない。** 本筋の現在の作業ブランチへ `docs/issue-penetrator/` の更新文書を選択して取り込み、TASKSは必要な決定・証拠だけを現在の担当行へ反映する。別チームのPoC・本体コード・進捗を巻き戻さない。
+
+### 9.2 小さな変更単位で本体へ統合する
+
+| 順序 | 担当・変更範囲 | 取り込み内容・完了の境界 |
+|---|---|---|
+| 1 | UI／QR担当：本体の入口・QR表示 | PoCのdeeplink生成とquery保持の考え方を本体用URL契約へ移す。PC／ATMが表示する対象QRを切り替え、外部ブラウザには同じ行き先の「MetaMaskで開く」を出す。PoCサーバー・診断画面を本体に丸ごと移植しない |
+| 2 | Wallet担当：`src/web/runtime.ts`・接続UI | モバイル内蔵とPC拡張を選択済みinjectedへ統一。EIP-6963／遅い注入／複数拡張を扱い、接続・chain・SIWE・writeが同じ選択を使う。UA文字列だけでproviderを決めない。provider未検出時は再検出／MetaMask起動を案内する |
+| 3 | Wallet／Central担当：Approve障害 | [調査MD](metamask-mobile-usdc-approve-investigation.md)に沿って実provider境界とnested拒否を扱う。入口成功を障害解消にせず、同一donationIdでapprove→donate→Central→mint→再読込までを別に確認する |
+| 4 | M2担当：既存カメラ・写真機能 | 成功した本体の撮影・Upload／Board経路を維持。PoC preview実装を無条件に置き換えず、停止・離脱・取り下げ・運営者権限等の不足を既存M2タスクで埋める。写真確認のための新規寄付は不要 |
+| 5 | 統合担当：Reown依存の整理 | 主経路がReown初期化を待たず動く構成にする。全面削除の可否は別差分で依存利用箇所・起動設定・PC回帰を確認して決める |
+
+`runtime.ts`の[最新照合版](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/src/web/runtime.ts)はAppKit/WagmiAdapterの静的importと、`reownProjectId`有無によるconfig分岐を持つ。内蔵ブラウザで開くだけ、またはproject IDを空にするだけでは、本体全体の依存解消を確認したことにならない。config API、初期化、connector保存・復元、CSP、package/lock、残る呼び出し元を追ってから削除する。Wagmi/Viemは利用を続けられる。
+
+PoCの `createWalletProbe` は接続・chain観測用で、SIWE・送金・Central業務状態を実装していない。これを製品Wallet層の代わりにしない。参考にするのは入口生成・provider発見・明示操作・camera lifecycle等の局所設計であり、本体の認証・復旧・同一ID照合は維持する。
+
+### 9.3 取り込み後に区別して判定する
+
+- **入口採用の完了：** 本体用QRから正しい寺院／受付URLへ到達。今回のPoC query保持を証拠として引き継ぎ、本体で新しく追加するpath／queryだけを確認する。
+- **本体のWallet完了：** 対象のモバイル内蔵／PC拡張それぞれで接続・84532・SIWEが成立し、必要なapproveと寄付が同一IDでCentral・Stampまで確定。PCの既存成功も回帰の基準にする。
+- **M2の完了：** 本人による撮影・掲載成功に加え、元のM2が要求する同意・取り下げ等の未完了項目を閉じる。本体写真成功とPoC preview残確認を混ぜない。
+- **Reown非依存の完了：** Reown/WC通信・設定が主経路を止めないことを確認。パッケージ全面削除の完了とは別に記録する。
+- **検証の運用：** PCのQR→スマホ→固定Cloud Run revisionを使う。変更が必要になった場合は実行中ケースを閉じ、次のケース用に版を更新する。試験中の無断再配備はしない。
+
+## 10. 一次資料
 
 以下はGitHub connectorで本文確認した公式資料／ソース。固定版はストア配布版と同一とは限らない。
 
