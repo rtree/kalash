@@ -8,11 +8,11 @@ import { db, origin, publicConfig, project } from './config.ts';
 import { challenge, identity, verifyChallenge } from './authentication.ts';
 import { temples } from './catalog.ts';
 import {
-  createDonation, ownedDonation, recordOperation, resolveApprovalOnlyIntent, verifyDonation,
+  createDonation, createOnsiteDonation, ownedDonation, recordOperation, resolveApprovalOnlyIntent, verifyDonation,
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
-import { claimVisit, closeVisit, createPairing, createVisit, getAtm, getVisit, pairScreen, visitChallenge } from './atm.ts';
+import { claimVisit, closeVisit, createPairing, createVisit, getAtm, getVisit, pairScreen, reportControllerHealth } from './atm.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -127,12 +127,16 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     const body = await jsonBody(request);
     return send(response, await verifyChallenge(body.nonce, body.signature));
   }
-  const controllerPairing = path.match(/^\/api\/controller\/([a-z0-9-]+)\/pairing$/);
-  if (request.method === 'POST' && controllerPairing) {
-    rateLimit(request, 'atm-pairing', 10);
+  const controllerRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/(pairing|health)$/);
+  if (request.method === 'POST' && controllerRoute) {
     const body = await jsonBody(request);
-    requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Pairing takes no body fields.');
-    return send(response, await createPairing(controllerPairing[1]!, request.headers.authorization));
+    if (controllerRoute[2] === 'pairing') {
+      rateLimit(request, 'atm-pairing', 10);
+      requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Pairing takes no body fields.');
+      return send(response, await createPairing(controllerRoute[1]!, request.headers.authorization));
+    }
+    rateLimit(request, `controller-health:${controllerRoute[1]}`, 30);
+    return send(response, await reportControllerHealth(controllerRoute[1]!, request.headers.authorization, body));
   }
   const atmMatch = path.match(/^\/api\/atm\/([a-z0-9-]+)(?:\/(pair|visits)(?:\/([a-f0-9]{64})\/close)?)?$/);
   if (atmMatch) {
@@ -157,7 +161,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       }
     }
   }
-  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|challenge|claim))?$/);
+  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|claim|donation))?$/);
   if (request.method === 'GET' && visitMatch && !visitMatch[2]) {
     return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? ''));
   }
@@ -167,16 +171,17 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     if (request.method === 'GET' && visitMatch[2] === 'mine') {
       return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? '', owner));
     }
-    if (request.method === 'POST' && visitMatch[2] === 'challenge') {
-      const body = await jsonBody(request);
-      requireValue(Object.keys(body).every((key) => key === 'templeId'), 400, 'UNKNOWN_FIELD', 'Only the temple reference is accepted.');
-      return send(response, await visitChallenge(visitMatch[1]!, body.templeId, owner));
-    }
     if (request.method === 'POST' && visitMatch[2] === 'claim') {
       const body = await jsonBody(request);
-      requireValue(Object.keys(body).every((key) => ['templeId', 'nonce', 'signature', 'consent'].includes(key)),
-        400, 'UNKNOWN_FIELD', 'Only reception consent and its signature are accepted.');
-      return send(response, await claimVisit(visitMatch[1]!, owner, body));
+      requireValue(Object.keys(body).every((key) => ['templeId', 'consent'].includes(key)),
+        400, 'UNKNOWN_FIELD', 'Only the confirmed temple and explicit join consent are accepted.');
+      return send(response, await claimVisit(visitMatch[1]!, owner, body.templeId, body.consent));
+    }
+    if (request.method === 'POST' && visitMatch[2] === 'donation') {
+      const body = await jsonBody(request);
+      requireValue(Object.keys(body).every((key) => ['amount', 'requestId'].includes(key)),
+        400, 'UNKNOWN_FIELD', 'Only donation amount and stable request ID are accepted.');
+      return send(response, await createOnsiteDonation(owner, visitMatch[1]!, body.amount, body.requestId), 201);
     }
   }
   const eligibilityMatch = path.match(/^\/api\/photos\/eligibility\/(0x[0-9a-f]{64})$/i);

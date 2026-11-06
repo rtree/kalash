@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import QRCode from 'qrcode';
-import { ATM_PHOTO_IDLE_MS, CASH_ACCEPTANCE_MS, CASH_LIMIT_PAISE, VISIT_TTL_MS, metaMaskLink, templeTarget, visitState } from '../src/atm.ts';
+import { ATM_PHOTO_IDLE_MS, CASH_ACCEPTANCE_MS, CASH_LIMIT_PAISE, VISIT_TTL_MS, cashMachineStatus, metaMaskLink, templeTarget, visitState } from '../src/atm.ts';
 
 const origin = 'https://kalash-central-548318651344.asia-south1.run.app';
 const reference = 'a'.repeat(64);
@@ -37,7 +37,16 @@ test('QR expiry never closes a linked reception or implies cash success', () => 
   assert.equal(visitState('awaiting_wallet', 120000, 119999), 'awaiting_wallet');
   assert.equal(visitState('awaiting_wallet', 120000, 120000), 'expired');
   assert.equal(visitState('linked', 120000, 999999), 'linked');
+  assert.equal(visitState('donation_pending', 120000, 999999), 'donation_pending');
   assert.equal(visitState('closed', 120000, 0), 'closed');
+  assert.equal(cashMachineStatus(null, 120000), 'offline');
+  const unplugged = {
+    sequence: 1, receivedAt: 100000, usbConnected: false, connectionOpen: false,
+    deviceStarted: false, routesVerified: false, pollerOwned: true,
+  };
+  assert.equal(cashMachineStatus(unplugged, 105000), 'disconnected');
+  assert.equal(cashMachineStatus(unplugged, 116000), 'offline');
+  assert.equal(cashMachineStatus({ ...unplugged, usbConnected: true, connectionOpen: true, deviceStarted: true, routesVerified: true }, 105000), 'ready');
   assert.equal(VISIT_TTL_MS, 120000);
   assert.equal(CASH_ACCEPTANCE_MS, 120000);
   assert.equal(ATM_PHOTO_IDLE_MS, 30000);

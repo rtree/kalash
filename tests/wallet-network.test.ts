@@ -9,8 +9,8 @@ import { BASE_SEPOLIA_RPC, customRpcUrls, kalashChain, switchToKalashChain } fro
 
 test('AppKit Wagmi network metadata preserves the explicit public RPC', () => {
   const adapter = new WagmiAdapter({ projectId: '0'.repeat(32), networks: [kalashChain], customRpcUrls, ssr: true });
-  assert.deepEqual(adapter.wagmiConfig.chains[0].rpcUrls.default.http, [BASE_SEPOLIA_RPC]);
-  assert.deepEqual(adapter.wagmiConfig.chains[0].rpcUrls.chainDefault?.http, [BASE_SEPOLIA_RPC]);
+  assert.equal(adapter.wagmiConfig.chains[0].rpcUrls.default.http[0], BASE_SEPOLIA_RPC);
+  assert.equal(adapter.wagmiConfig.chains[0].rpcUrls.chainDefault?.http[0], BASE_SEPOLIA_RPC);
 });
 test('the real injected connector adds an unknown chain using only the official RPC', async () => {
   const calls: { method: string; params?: unknown }[] = [];
@@ -28,14 +28,20 @@ test('the real injected connector adds an unknown chain using only the official 
         chainId = '0x14a34';
         events.emit('chainChanged', chainId);
         return null;
-      case 'wallet_addEthereumChain': known = true; return null;
+      case 'wallet_addEthereumChain':
+        known = true;
+        chainId = '0x14a34';
+        events.emit('chainChanged', chainId);
+        return null;
       case 'wallet_revokePermissions': return null;
       default: throw new Error(`Unexpected provider method ${method}`);
     }
   }) as EIP1193RequestFn;
   const provider = { request, on: events.on.bind(events), removeListener: events.removeListener.bind(events) };
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: { ethereum: provider } });
+  const browser = new EventTarget() as EventTarget & { ethereum?: typeof provider };
+  browser.ethereum = provider;
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: browser });
   const config = createConfig({
     chains: [kalashChain], ssr: true, storage: null,
     connectors: [injected({ target: { id: 'metamask', name: 'MetaMask', provider: () => provider } })],

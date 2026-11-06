@@ -49,7 +49,8 @@ export interface Donation {
   ownerWallet: Address;
   templeId: string;
   templeKey: Hex;
-  kind: 0;
+  kind: 0 | 1;
+  onsiteVisitId?: string;
   amount: string;
   fee: string;
   net: string;
@@ -126,6 +127,9 @@ export function parseAmount(input: unknown): bigint {
 export function formatUsdc(value: string | bigint): string {
   const amount = BigInt(value);
   return `${amount / 1000000n}.${(amount % 1000000n).toString().padStart(6, '0')}`;
+}
+export function donationPointUnits(amount: string | bigint, kind: 0 | 1): bigint {
+  return BigInt(amount) * (kind === 0 ? 1n : 10n);
 }
 export function parseDonationUnits(input: unknown): bigint {
   if (typeof input !== 'string' || !/^[1-9]\d*$/.test(input)) {

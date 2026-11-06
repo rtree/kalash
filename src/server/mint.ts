@@ -17,7 +17,7 @@ interface MintJob {
   donationId: Hex;
   ownerWallet: Address;
   templeKey: Hex;
-  kind: 0;
+  kind: 0 | 1;
   day: string;
   status: 'reserved' | 'prepared' | 'submitted' | 'minted' | 'error';
   rawTransaction?: Hex;

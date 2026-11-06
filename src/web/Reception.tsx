@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { metaMaskLink, templeTarget, VISIT_REFERENCE, type AtmDto, type VisitDto } from '../atm.ts';
+import { formatUsdc } from '../shared.ts';
 
 type Api = <T>(path: string, init?: RequestInit, privateRequest?: boolean) => Promise<T>;
-type OwnerVisit = VisitDto & { linkedToYou: boolean };
+type OwnerVisit = VisitDto & { linkedToYou: boolean; donationId?: string | null };
 class ReceptionError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
@@ -114,7 +115,7 @@ export function AtmPage({ atmId }: { atmId: string }) {
     <main className="atm-main">
       <p className="eyebrow">{atm?.name ?? atmId}</p>
       <h1>{atm?.templeName ?? 'Connect this temple screen'}</h1>
-      <div className="notice notice-info" role="status">Reception setup only. Cash acceptance is not enabled. Do not insert banknotes.</div>
+      <div className="notice notice-info" role="status">Crypto is available. Cash is disabled because the cash-machine workflow is not enabled. Do not insert banknotes.</div>
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
         event.preventDefault();
@@ -132,49 +133,67 @@ export function AtmPage({ atmId }: { atmId: string }) {
       </form> : !atm ? <button className="button button-outline" onClick={() => void refresh()}>Restore screen</button>
         : !atm.visit ? <section className="reception-card">
           <h2>Choose how to give</h2>
+          <p>Cash machine: <strong>{atm.cashMachineStatus}</strong>. {atm.cashDisabledReason}</p>
           <div className="atm-methods">
-            <button className="button button-outline" disabled>Crypto donation<br /><small>Available with M5</small></button>
-            <button className="button button-primary" disabled={busy} onClick={() => void act(async () => {
+            <button className="button button-primary" disabled={busy || !atm.cryptoDonationEnabled} onClick={() => void act(async () => {
               requestId.current ??= crypto.randomUUID();
-              setAtm(await screenApi<AtmDto>(`${base}/visits`, { mode: 'cash', requestId: requestId.current }));
+              setAtm(await screenApi<AtmDto>(`${base}/visits`, { mode: 'crypto', requestId: requestId.current }));
               requestId.current = null;
-            })}>Cash reception<br /><small>Connect a wallet only</small></button>
+            })}>Donate with Crypto<br /><small>Continue on your phone</small></button>
+            <button className="button button-outline" disabled aria-describedby="cash-unavailable">
+              Cash donation<br /><small id="cash-unavailable">{atm.cashDisabledReason}</small>
+            </button>
           </div>
-          <p>Cash maximum: INR 500. Hardware readiness, acceptance and reconciliation must be connected before any banknotes are accepted.</p>
+          <p>No cash operation or device command is sent by this screen.</p>
         </section> : <section className="reception-card">
           {waiting ? <>
-            <h2>Connect on your phone</h2>
-            <p>Cash reception for {atm.templeName}. Scan using an external QR reader to open MetaMask.</p>
+            <h2>Continue your Crypto donation on your phone</h2>
+            <p>Onsite Crypto reception for {atm.templeName}. Scan using an external QR reader to open MetaMask.</p>
             <p role="timer">QR expires in {seconds} seconds</p>
             {atm.deepLink && <QrCanvas text={atm.deepLink} />}
             {atm.qrUnavailableReason && <p role="alert">{atm.qrUnavailableReason}</p>}
             <p className="reception-target">{atm.targetUrl}</p>
-            <p>Reading this QR does not link a wallet or start the cash machine. Confirm the reception on your phone.</p>
+            <p>Reading this QR does not link a wallet or submit a transaction. Join the onsite donation on your phone.</p>
           </> : atm.visit.state === 'linked' ? <>
-            <h2>Wallet linked</h2><p>The same reception is saved on Central. No donation has been made.</p>
-            <p>Hardware setup is required before accepting cash. Do not insert banknotes.</p>
+            <h2>Wallet linked</h2><p>The same onsite Crypto reception is saved on Central. Continue with amount and wallet confirmation on your phone.</p>
+            <p>No donation has been submitted yet. Cash remains disabled.</p>
+          </> : atm.visit.state === 'donation_pending' ? <>
+            <h2>{atm.visit.donationState === 'failed' ? 'Donation not confirmed' : 'Confirming donation'}</h2>
+            <p>Central will release this ATM only after it verifies the same donation. Do not retry from the ATM.</p>
           </> : <><h2>Reception expired or closed</h2><p>No cash acceptance was started. Close this reception before creating another QR.</p></>}
-          <button className="button button-outline button-wide" disabled={busy} onClick={() => void act(async () => {
+          <button className="button button-outline button-wide" disabled={busy || (atm.visit.state === 'donation_pending' && atm.visit.donationState !== 'failed')} onClick={() => void act(async () => {
             setAtm(await screenApi<AtmDto>(`${base}/visits/${atm.visit!.id}/close`, {}));
             requestId.current = null;
-          })}>Close reception (no cash started)</button>
+          })}>Close reception</button>
         </section>}
       <a className="text-button" href={atm ? `/board/${atm.templeId}` : '/temples'}>View community board</a>
     </main>
   </div>;
 }
-export function ReceptionPanel({ reference, templeId, wallet, api, onConnect, onVerify, signMessage, onCollection }: {
-  reference: string; templeId: string; wallet: string | null; api: Api;
-  onConnect: () => void; onVerify: () => void; signMessage: (message: string) => Promise<string>; onCollection: () => void;
+export function ReceptionPanel({
+  reference, templeId, wallet, connected, api, onConnect, onVerify,
+  amountOptions, amount, setAmount, customAmount, setCustomAmount, amountError, amountUnits, feeUnits, netUnits,
+  busy, onDonate, onRestoreDonation, onCollection,
+}: {
+  reference: string; templeId: string; wallet: string | null; connected: boolean; api: Api;
+  onConnect: () => void; onVerify: () => void;
+  amountOptions: string[]; amount: string; setAmount: (value: string) => void;
+  customAmount: string; setCustomAmount: (value: string) => void; amountError: string;
+  amountUnits: bigint; feeUnits: bigint; netUnits: bigint;
+  busy: boolean;
+  onDonate: (visitId: string, requestId: string) => void; onRestoreDonation: (donationId: string) => Promise<void>;
+  onCollection: () => void;
 }) {
   const [visit, setVisit] = useState<OwnerVisit | null>(null);
   const [error, setError] = useState('');
   const [consent, setConsent] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [now, setNow] = useState(Date.now());
   const operation = useRef(false);
   const version = useRef(0);
   const readVersion = useRef(0);
+  const restoredDonation = useRef<string | null>(null);
+  const donationRequestId = useRef<string | null>(null);
   const base = `/api/visits/${reference}`;
   useEffect(() => {
     let active = true;
@@ -189,7 +208,16 @@ export function ReceptionPanel({ reference, templeId, wallet, api, onConnect, on
       const currentRead = ++readVersion.current;
       try {
         const result = await api<OwnerVisit>(`${base}${wallet ? '/mine' : ''}?templeId=${encodeURIComponent(templeId)}`, {}, Boolean(wallet));
-        if (active && generation === version.current && currentRead === readVersion.current && !operation.current) { setVisit(result); setError(''); }
+        if (active && generation === version.current && currentRead === readVersion.current && !operation.current) {
+          setVisit(result);
+          setError('');
+          if (result.donationId && result.donationId !== restoredDonation.current) {
+            restoredDonation.current = result.donationId;
+            void onRestoreDonation(result.donationId).catch(() => {
+              if (restoredDonation.current === result.donationId) restoredDonation.current = null;
+            });
+          }
+        }
       } catch (cause) {
         if (active && generation === version.current && currentRead === readVersion.current) setError(cause instanceof Error ? cause.message : 'Could not restore this reception.');
       } finally { inFlight = false; }
@@ -200,47 +228,78 @@ export function ReceptionPanel({ reference, templeId, wallet, api, onConnect, on
     const foreground = () => { if (!document.hidden) void load(); };
     document.addEventListener('visibilitychange', foreground);
     return () => { active = false; version.current++; clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', foreground); };
-  }, [api, reference, templeId, wallet, base]);
+  }, [api, onRestoreDonation, reference, templeId, wallet, base]);
   const join = async () => {
     if (operation.current) return;
     operation.current = true;
     readVersion.current++;
     const generation = version.current;
-    setBusy(true);
+    setJoining(true);
     setError('');
     try {
-      const challenge = await api<{ nonce: string; message: string }>(`${base}/challenge`, {
-        method: 'POST', body: JSON.stringify({ templeId }),
-      }, true);
-      const signature = await signMessage(challenge.message);
-      if (generation !== version.current) throw new Error('Wallet or reception changed. No claim was submitted.');
       const result = await api<OwnerVisit>(`${base}/claim`, {
-        method: 'POST', body: JSON.stringify({ templeId, nonce: challenge.nonce, signature, consent }),
+        method: 'POST', body: JSON.stringify({ templeId, consent }),
       }, true);
       if (generation === version.current) setVisit(result);
     } catch (cause) {
       if (generation === version.current) setError(cause instanceof Error ? cause.message : 'Reception was not linked. Restore its state before retrying.');
-    } finally { operation.current = false; setBusy(false); }
+    } finally { operation.current = false; setJoining(false); }
   };
   const seconds = visit ? Math.max(0, Math.ceil((visit.expiresAt - now) / 1000)) : 0;
   return <section className="reception-card reception-phone">
-    <p className="eyebrow">ONSITE CASH RECEPTION</p>
+    <p className="eyebrow">ONSITE CRYPTO DONATION</p>
     <h1>{visit?.templeName ?? 'Check the ATM reception'}</h1>
     {error && <div className="notice notice-danger" role="alert">{error}</div>}
-    <p>Cash acceptance is not enabled yet. Do not insert banknotes. This step only links your wallet; it does not send tokens or create a donation.</p>
+    <p>This QR opens the donation page only. Join this reception explicitly, then approve and donate on your phone. The ATM is not taking cash.</p>
     {visit && <>
-      <p>{visit.atmName} · Maximum INR 500</p>
+      <p>{visit.atmName} · Base Sepolia · Maximum 1 USDC</p>
       {visit.state === 'awaiting_wallet' && seconds > 0 ? <>
         <p role="timer">Reception expires in {seconds} seconds</p>
-        {!wallet ? <div className="reception-actions">
-          <button className="button button-outline" onClick={onConnect}>Connect MetaMask</button>
-          <button className="button button-primary" onClick={onVerify}>Verify wallet</button>
-        </div> : <>
-          <label className="reception-consent"><input type="checkbox" checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} />I confirm this temple, ATM and cash reception. I will not insert cash until the machine is ready.</label>
-          <button className="button button-primary button-wide" disabled={!consent || busy || Boolean(error)} onClick={() => void join()}>{busy ? 'Confirm in MetaMask...' : 'Sign and link this cash reception'}</button>
-        </>}
-      </> : visit.state === 'linked' ? <h2>{visit.linkedToYou ? 'Your wallet is linked' : 'This reception is already linked'}</h2>
-        : <p>This reception is expired or closed. Ask the ATM for a new QR; no cash has been accepted.</p>}
+        {!connected ? <button className="button button-primary" onClick={onConnect}>Connect MetaMask</button>
+          : !wallet ? <button className="button button-primary" onClick={onVerify}>Verify wallet</button> : <>
+            <label className="reception-consent"><input type="checkbox" checked={consent} disabled={joining || Boolean(error)} onChange={(event) => setConsent(event.target.checked)} />
+              I choose to join the Crypto donation for {visit.templeName} at {visit.atmName}. No banknotes will be accepted in this flow.</label>
+            <button className="button button-primary button-wide" disabled={!consent || joining || Boolean(error)} onClick={() => void join()}>
+              {joining ? 'Joining reception…' : 'Join onsite Crypto donation'}
+            </button>
+          </>}
+      </> : visit.state === 'linked' && visit.linkedToYou ? <>
+        <h2>You're linked to this temple visit</h2>
+        <div className="amount-options" role="group" aria-label="Onsite donation amount">
+          {amountOptions.map((option) => <button className={amount === option && !customAmount ? 'selected' : ''} key={option} onClick={() => setAmount(option)}>{option}<small>USDC</small></button>)}
+        </div>
+        <label className="field-label" htmlFor="onsite-custom-amount">Or enter another amount</label>
+        <div className={`currency-input ${amountError && customAmount ? 'input-error' : ''}`}>
+          <span>$</span><input id="onsite-custom-amount" inputMode="decimal" value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} placeholder="0.01" /><span className="currency-code">USDC</span>
+        </div>
+        {amountError && customAmount && <p className="inline-error" role="alert">{amountError}</p>}
+        <div className="amount-summary">
+          <div><span>Your donation</span><strong>{formatUsdc(amountUnits)} USDC</strong></div>
+          <div><span>Central fee</span><span>{formatUsdc(feeUnits)} USDC</span></div>
+          <div className="summary-total"><span>Temple receives</span><strong>{formatUsdc(netUnits)} USDC</strong></div>
+        </div>
+        <p>Onsite donations earn On-site Visit stamps after Central confirms the transaction. Your wallet shows the approval and donation requests.</p>
+        <button className="button button-primary button-wide" disabled={busy || Boolean(amountError)}
+          onClick={() => { donationRequestId.current ??= crypto.randomUUID(); onDonate(reference, donationRequestId.current); }}>
+          {busy ? 'Please wait…' : `Donate ${formatUsdc(amountUnits)} USDC`}
+        </button>
+      </> : visit.state === 'donation_pending' ? visit.donationState === 'failed' ? <>
+        <h2>Donation not confirmed</h2>
+        <p>Central reports this transaction did not confirm. The ATM will not start another donation from this reception.</p>
+      </> : <>
+        <h2>Checking the same donation</h2>
+        <p>Central has this reception's donation. No second transaction will be started automatically.</p>
+        {visit.donationId && <button className="button button-outline" disabled={busy} onClick={() => void onRestoreDonation(visit.donationId!)}>Restore donation status</button>}
+      </> : visit.state === 'confirmed' ? <>
+        <h2>Donation confirmed</h2>
+      </> : visit.state === 'linked' && !wallet ? <>
+        <h2>This reception is linked</h2>
+        <p>Connect and verify the same wallet that joined this temple visit to continue.</p>
+        <button className="button button-outline" onClick={connected ? onVerify : onConnect}>{connected ? 'Verify wallet' : 'Connect MetaMask'}</button>
+      </> : visit.state === 'linked' ? <>
+        <h2>This reception is already linked</h2>
+        <p>It belongs to another wallet. Ask the ATM to close it before starting another.</p>
+      </> : <p>This reception expired or closed. Ask the ATM for a new Crypto QR.</p>}
     </>}
     <button className="text-button" onClick={onCollection}>View collection</button>
   </section>;

@@ -181,7 +181,9 @@ test('real Collection points equal exactly confirmed gross donations, excluding 
     assert.ok(!ids.has(donation.id), 'donationId cannot appear twice in persisted history');
     ids.add(donation.id);
     if (donation.status !== 'confirmed') continue;
-    expected[donation.templeId] = (expected[donation.templeId] ?? 0n) + BigInt(donation.amount);
+    assert.ok(donation.kind === 0 || donation.kind === 1);
+    expected[donation.templeId] = (expected[donation.templeId] ?? 0n)
+      + BigInt(donation.amount) * BigInt(donation.kind === 0 ? 1 : 10);
     assert.equal(donation.fee, (BigInt(donation.amount) / 10000n).toString());
     if (donation.mintStatus === 'minted') {
       assert.equal(donation.tokenId, BigInt(donation.id).toString());

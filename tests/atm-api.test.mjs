@@ -17,6 +17,7 @@ let cookie;
 let otherCookie;
 let usedPairCode;
 let visit;
+let donationId;
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 async function request(path, { method = 'GET', body, token, screen, requestOrigin = origin } = {}) {
   return fetch(`${origin}${path}`, {
@@ -75,10 +76,21 @@ before(async () => {
 after(async () => {
   if (!db) return;
   for (const id of [fixture, second]) {
-    for (const name of ['visits', 'visitChallenges', 'atmPairings']) {
-      const records = await db.collection(name).where('atmId', '==', id).get();
-      for (const record of records.docs) await record.ref.delete();
+    const visits = await db.collection('visits').where('atmId', '==', id).get();
+    for (const record of visits.docs) {
+      const requestRecords = await record.ref.collection('donationRequests').get();
+      for (const request of requestRecords.docs) await request.ref.delete();
+      const linkedDonation = record.get('donationId');
+      if (linkedDonation) {
+        const donation = db.collection('donations').doc(linkedDonation);
+        const operations = await donation.collection('operations').get();
+        for (const operation of operations.docs) await operation.ref.delete();
+        await donation.delete();
+      }
+      await record.ref.delete();
     }
+    const pairings = await db.collection('atmPairings').where('atmId', '==', id).get();
+    for (const record of pairings.docs) await record.ref.delete();
     const ref = db.collection('atms').doc(id);
     const requests = await ref.collection('requests').get();
     for (const record of requests.docs) await record.ref.delete();
@@ -91,35 +103,80 @@ test('real ATM APIs require device/screen authority, origin and single-use pairi
   assert.equal((await request(`/api/controller/${fixture}/pairing`, { method: 'POST', token: '0'.repeat(64), body: {} })).status, 401);
   assert.equal((await request(`/api/atm/${fixture}/pair`, { method: 'POST', body: { code: usedPairCode } })).status, 401);
   assert.equal((await request(`/api/atm/${fixture}`, { screen: otherCookie })).status, 401);
+  const noHeartbeat = await (await request(`/api/atm/${fixture}`, { screen: cookie })).json();
+  assert.equal(noHeartbeat.cashMachineStatus, 'offline');
+  assert.equal(noHeartbeat.cashAcceptanceEnabled, false);
+  assert.equal(noHeartbeat.cryptoDonationEnabled, true);
+  assert.match(noHeartbeat.cashDisabledReason, /health is unavailable or stale/);
   assert.equal((await request(`/api/atm/${fixture}/visits`, {
-    method: 'POST', screen: cookie, requestOrigin: 'https://other.invalid', body: { mode: 'cash', requestId: randomUUID() },
+    method: 'POST', screen: cookie, requestOrigin: 'https://other.invalid', body: { mode: 'crypto', requestId: randomUUID() },
   })).status, 403);
   assert.equal((await request(`/api/atm/${fixture}/visits`, {
-    method: 'POST', screen: cookie, body: { mode: 'cash', requestId: randomUUID(), templeId: 'temple-02' },
+    method: 'POST', screen: cookie, body: { mode: 'crypto', requestId: randomUUID(), templeId: 'temple-02' },
   })).status, 400);
   assert.equal((await request(`/api/atm/${fixture}/visits`, {
-    method: 'POST', screen: cookie, body: { mode: 'crypto', requestId: randomUUID() },
+    method: 'POST', screen: cookie, body: { mode: 'cash', requestId: randomUUID() },
   })).status, 409);
+  assert.equal((await request(`/api/controller/${fixture}/health`, {
+    method: 'POST', body: { sequence: 1, reportedAt: Date.now(), usbConnected: false },
+  })).status, 401);
+  const health = {
+    sequence: 1, reportedAt: Date.now(), usbConnected: false, connectionOpen: false,
+    deviceStarted: false, routesVerified: false, pollerOwned: true, deviceId: null,
+  };
+  assert.equal((await request(`/api/controller/${fixture}/health`, {
+    method: 'POST', token: credential, body: health,
+  })).status, 200);
+  assert.equal((await request(`/api/controller/${fixture}/health`, {
+    method: 'POST', token: credential, body: health,
+  })).status, 200, 'a retried health report is idempotent');
+  assert.equal((await request(`/api/controller/${fixture}/health`, {
+    method: 'POST', token: credential, body: { ...health, sequence: 1, usbConnected: true },
+  })).status, 409, 'an older contradictory health report cannot overwrite the latest state');
+  const status = await (await request(`/api/atm/${fixture}`, { screen: cookie })).json();
+  assert.equal(status.cashMachineStatus, 'disconnected');
+  assert.equal(status.cashAcceptanceEnabled, false);
+  assert.equal(status.cryptoDonationEnabled, true);
+  assert.match(status.cashDisabledReason, /Crypto remains available/);
+  await db.collection('atms').doc(fixture).update({ 'controllerHealth.receivedAt': Date.now() - 16000 });
+  const stale = await (await request(`/api/atm/${fixture}`, { screen: cookie })).json();
+  assert.equal(stale.cashMachineStatus, 'offline');
+  assert.equal(stale.cashAcceptanceEnabled, false);
+  assert.equal(stale.cryptoDonationEnabled, true);
+  const ready = await request(`/api/controller/${fixture}/health`, {
+    method: 'POST', token: credential, body: {
+      sequence: 2, reportedAt: Date.now(), usbConnected: true, connectionOpen: true,
+      deviceStarted: true, routesVerified: true, pollerOwned: true, deviceId: 'test-device',
+    },
+  });
+  assert.equal(ready.status, 200);
+  const readyState = await (await request(`/api/atm/${fixture}`, { screen: cookie })).json();
+  assert.equal(readyState.cashMachineStatus, 'ready');
+  assert.equal(readyState.cashAcceptanceEnabled, false, 'M5a never enables cash even when device health is ready');
+  assert.equal(readyState.cryptoDonationEnabled, true);
 });
-test('real Firestore serializes ATM reception creation and restores the same request after reload', async () => {
-  const requestId = randomUUID();
-  const results = await Promise.all([requestId, randomUUID()].map((id) => request(`/api/atm/${fixture}/visits`, {
-    method: 'POST', screen: cookie, body: { mode: 'cash', requestId: id },
+test('real Firestore serializes Crypto reception creation, QR restoration and expiry', async () => {
+  const requestIds = [randomUUID(), randomUUID()];
+  const results = await Promise.all(requestIds.map((requestId) => request(`/api/atm/${fixture}/visits`, {
+    method: 'POST', screen: cookie, body: { mode: 'crypto', requestId },
   })));
   assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
   const winner = results.findIndex((result) => result.status === 201);
   const state = await results[winner].json();
   visit = state.visit;
   assert.equal(visit.state, 'awaiting_wallet');
+  assert.equal(visit.mode, 'crypto');
   assert.equal(visit.cashAcceptanceEnabled, false);
   assert.equal(visit.cashLimitPaise, '50000');
   assert.equal(visit.templeId, 'temple-01');
+  assert.equal(state.cryptoDonationEnabled, false);
+  assert.equal(state.cashMachineStatus, 'disconnected');
   assert.ok(visit.expiresAt > Date.now() && visit.expiresAt <= Date.now() + 120000);
   const stored = await db.collection('visits').doc(visit.id).get();
-  assert.equal(stored.get('cashSessionId'), visit.cashSessionId);
+  assert.equal(stored.get('cashSessionId'), null);
   const creation = await db.collection('atms').doc(fixture).collection('requests').where('visitId', '==', visit.id).get();
   const replay = await request(`/api/atm/${fixture}/visits`, {
-    method: 'POST', screen: cookie, body: { mode: 'cash', requestId: creation.docs[0].id },
+    method: 'POST', screen: cookie, body: { mode: 'crypto', requestId: creation.docs[0].id },
   });
   assert.equal(replay.status, 201);
   assert.equal((await replay.json()).visit.id, visit.id);
@@ -136,19 +193,27 @@ test('real Firestore serializes ATM reception creation and restores the same req
   for (const key of ['ownerWallet', 'credentialHash', 'screenHash', 'signature']) assert.equal(publicView[key], undefined);
   assert.equal((await request(`/api/visits/${visit.id}?templeId=temple-02`)).status, 404);
   assert.equal((await request(`/api/atm/${second}/visits/${visit.id}/close`, { method: 'POST', screen: otherCookie, body: {} })).status, 403);
+  await db.collection('visits').doc(visit.id).update({ expiresAt: Date.now() - 1 });
+  assert.equal((await request(`/api/visits/${visit.id}/claim`, {
+    method: 'POST', token: tokens[0], body: { templeId: 'temple-01', consent: true },
+  })).status, 409);
+  const next = await request(`/api/atm/${fixture}/visits`, {
+    method: 'POST', screen: cookie, body: { mode: 'crypto', requestId: randomUUID() },
+  });
+  assert.equal(next.status, 201);
+  const fresh = (await next.json()).visit;
+  assert.notEqual(fresh.id, visit.id);
+  assert.equal((await db.collection('visits').doc(visit.id).get()).get('state'), 'expired');
+  visit = fresh;
 });
-test('cash claims bind the signed reception, serialize competing owners and never start cash', async () => {
+test('onsite Crypto claim and intent bind the authenticated wallet and never enable Cash', async () => {
   const bodies = [];
   for (let index = 0; index < accounts.length; index++) {
-    const result = await request(`/api/visits/${visit.id}/challenge`, { method: 'POST', token: tokens[index], body: { templeId: 'temple-01' } });
-    assert.equal(result.status, 200);
-    const challenge = await result.json();
-    for (const binding of [fixture, visit.id, visit.cashSessionId, 'temple-01', 'Chain ID: 84532', new URL(origin).host]) {
-      assert.ok(challenge.message.includes(binding), `missing reception binding ${binding}`);
-    }
-    bodies.push({ templeId: 'temple-01', nonce: challenge.nonce, signature: await accounts[index].signMessage({ message: challenge.message }), consent: true });
+    bodies.push({ templeId: 'temple-01', consent: true });
   }
-  assert.equal((await request(`/api/visits/${visit.id}/claim`, { method: 'POST', token: tokens[1], body: bodies[0] })).status, 403);
+  assert.equal((await request(`/api/visits/${visit.id}/claim`, {
+    method: 'POST', token: tokens[0], body: { templeId: 'temple-02', consent: true },
+  })).status, 404);
   assert.equal((await request(`/api/visits/${visit.id}/claim`, { method: 'POST', token: tokens[0], body: { ...bodies[0], consent: false } })).status, 400);
   const results = await Promise.all(bodies.map((body, index) => request(`/api/visits/${visit.id}/claim`, {
     method: 'POST', token: tokens[index], body,
@@ -159,26 +224,43 @@ test('cash claims bind the signed reception, serialize competing owners and neve
   assert.equal(duplicate.status, 200);
   assert.equal((await duplicate.json()).linkedToYou, true);
   assert.equal((await request(`/api/visits/${visit.id}/mine?templeId=temple-01`, { token: tokens[1 - winner] })).status, 403);
-  const stored = await db.collection('visits').doc(visit.id).get();
-  assert.equal(stored.get('state'), 'linked');
-  assert.equal(stored.get('ownerWallet'), accounts[winner].address);
-  assert.equal(stored.get('commandId'), undefined);
-  assert.equal(stored.get('donationId'), undefined);
-  assert.equal((await request(`/api/atm/${fixture}/visits/${visit.id}/close`, { method: 'POST', screen: cookie, body: {} })).status, 200);
-  assert.equal((await db.collection('visits').doc(visit.id).get()).get('state'), 'closed');
-});
-test('expired QR cannot be claimed, and a fresh QR never reuses or deletes its reception', async () => {
-  const response = await request(`/api/atm/${fixture}/visits`, { method: 'POST', screen: cookie, body: { mode: 'cash', requestId: randomUUID() } });
-  assert.equal(response.status, 201);
-  const expired = (await response.json()).visit;
-  await db.collection('visits').doc(expired.id).update({ expiresAt: Date.now() - 1 });
-  assert.equal((await request(`/api/visits/${expired.id}/challenge`, {
-    method: 'POST', token: tokens[0], body: { templeId: 'temple-01' },
+  assert.equal((await request('/api/donations', {
+    method: 'POST', token: tokens[winner], body: { templeId: 'temple-01', amount: '0.01', kind: 1, visitId: visit.id },
+  })).status, 400, 'remote API never allows a caller to self-select onsite kind');
+  const requestId = randomUUID();
+  const create = () => request(`/api/visits/${visit.id}/donation`, {
+    method: 'POST', token: tokens[winner], body: { amount: '0.01', requestId },
+  });
+  const [first, concurrent] = await Promise.all([create(), create()]);
+  assert.equal(first.status, 201);
+  assert.equal(concurrent.status, 201);
+  const intent = await first.json();
+  const replay = await concurrent.json();
+  donationId = intent.id;
+  assert.equal(intent.kind, 1);
+  assert.equal(intent.onsiteVisitId, visit.id);
+  assert.equal(intent.amount, '10000');
+  assert.equal(intent.fee, '1');
+  assert.equal(intent.net, '9999');
+  assert.equal(replay.id, intent.id);
+  assert.equal(intent.txHash, undefined, 'creating an intent does not submit a wallet transaction');
+  assert.equal((await request(`/api/visits/${visit.id}/donation`, {
+    method: 'POST', token: tokens[1 - winner], body: { amount: '0.01', requestId: randomUUID() },
+  })).status, 403);
+  assert.equal((await request(`/api/visits/${visit.id}/donation`, {
+    method: 'POST', token: tokens[winner], body: { amount: '0.1', requestId: randomUUID() },
   })).status, 409);
-  const next = await request(`/api/atm/${fixture}/visits`, { method: 'POST', screen: cookie, body: { mode: 'cash', requestId: randomUUID() } });
-  assert.equal(next.status, 201);
-  const fresh = (await next.json()).visit;
-  assert.notEqual(fresh.id, expired.id);
-  assert.equal((await db.collection('visits').doc(expired.id).get()).get('state'), 'expired');
-  assert.equal((await request(`/api/atm/${fixture}/visits/${fresh.id}/close`, { method: 'POST', screen: cookie, body: {} })).status, 200);
+  const stored = await db.collection('visits').doc(visit.id).get();
+  assert.equal(stored.get('state'), 'donation_pending');
+  assert.equal(stored.get('ownerWallet'), accounts[winner].address);
+  assert.equal(stored.get('donationId'), intent.id);
+  assert.equal((await db.collection('donations').doc(intent.id).get()).get('kind'), 1);
+  const atm = await (await request(`/api/atm/${fixture}`, { screen: cookie })).json();
+  assert.equal(atm.visit.state, 'donation_pending');
+  assert.equal(atm.visit.donationState, 'pending');
+  assert.equal(atm.cashAcceptanceEnabled, false);
+  assert.equal(atm.cryptoDonationEnabled, false);
+  assert.equal((await request(`/api/atm/${fixture}/visits/${visit.id}/close`, {
+    method: 'POST', screen: cookie, body: {},
+  })).status, 409, 'a registered donation cannot be abandoned from the ATM screen');
 });

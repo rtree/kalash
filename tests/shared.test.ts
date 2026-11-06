@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAmount, parseDonationUnits, formatUsdc } from '../src/shared.ts';
+import { parseAmount, parseDonationUnits, formatUsdc, donationPointUnits } from '../src/shared.ts';
 
 test('money: default .01 exact fee/net and all cap/precision boundaries', () => {
   const amount = parseAmount('0.01');
@@ -24,4 +24,10 @@ test('Central donation amounts remain base units in wallet calls and displays', 
   for (const invalid of ['0', '01', '0.01', '1.000000', '1000001', '-1', '1e4', '', 10000, null]) {
     assert.throws(() => parseDonationUnits(invalid));
   }
+});
+
+test('onsite Crypto and remote donations use distinct deterministic point multipliers', () => {
+  assert.equal(donationPointUnits('10000', 0), 10000n);
+  assert.equal(donationPointUnits('10000', 1), 100000n);
+  assert.equal(donationPointUnits('200000', 1), 2000000n);
 });

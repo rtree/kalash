@@ -596,7 +596,7 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
   };
 
-  const startDonation = async () => {
+  const startDonation = async (onsite?: { visitId: string; requestId: string }) => {
     setError('');
     setNotice('');
     if (!selectedTemple) return;
@@ -628,12 +628,19 @@ export function App({ runtime }: { runtime: Runtime }) {
         && donation.status === 'intent'
         && !pendingOperation
         && donation.templeId === selectedTemple.id
+        && (onsite ? donation.kind === 1 && donation.onsiteVisitId === onsite.visitId : donation.kind === 0)
         && donation.amount === amountUnits.toString()
         && donation.deadline > Math.floor(Date.now() / 1000);
-      const intent = reuseIntent ? donation : await api<Donation>('/api/donations', {
-        method: 'POST',
-        body: JSON.stringify({ templeId: selectedTemple.id, amount: chosenAmount }),
-      }, true);
+      const intent = reuseIntent ? donation : await api<Donation>(
+        onsite ? `/api/visits/${encodeURIComponent(onsite.visitId)}/donation` : '/api/donations',
+        {
+          method: 'POST',
+          body: JSON.stringify(onsite
+            ? { amount: chosenAmount, requestId: onsite.requestId }
+            : { templeId: selectedTemple.id, amount: chosenAmount }),
+        },
+        true,
+      );
       setDonation(intent);
       setCurrentDonationId(intent.id);
       localStorage.setItem(CURRENT_DONATION, intent.id);
@@ -726,6 +733,16 @@ export function App({ runtime }: { runtime: Runtime }) {
       setBusy(false);
     }
   };
+  const restoreVisitDonation = useCallback(async (id: string) => {
+    const restored = await api<Donation>(`/api/donations/${encodeURIComponent(id)}`, {}, true);
+    if (!receptionReference || restored.kind !== 1 || restored.onsiteVisitId !== receptionReference) {
+      throw new Error('This donation does not belong to the open onsite reception.');
+    }
+    setDonation(restored);
+    setCurrentDonationId(restored.id);
+    localStorage.setItem(CURRENT_DONATION, restored.id);
+    setRefreshVersion((version) => version + 1);
+  }, [api, receptionReference]);
 
   const resolveApprovalOnly = async (
     target: Donation | null = donation,
@@ -871,22 +888,41 @@ export function App({ runtime }: { runtime: Runtime }) {
         {error && <div className="notice notice-danger" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
         {notice && <div className="notice notice-info" role="status"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}>×</button></div>}
 
-        {currentTemple && (receptionReference === null || VISIT_REFERENCE.test(receptionReference)) && <PhoneEntry
+        {currentTemple && receptionReference === null && <PhoneEntry
           origin={config.origin} templeId={currentTemple.id} reference={receptionReference ?? undefined}
         />}
         {currentTemple && receptionReference !== null ? (
-          <ReceptionPanel
-            key={`${currentTemple.id}:${receptionReference}`}
-            reference={receptionReference} templeId={currentTemple.id} wallet={walletReady ? authenticatedWallet : null}
-            api={api} onConnect={() => void connectWallet()} onVerify={signInWallet}
-            signMessage={async (message) => {
-              await ensureNetwork();
-              const signingClient = (await refreshWalletClient()).data;
-              if (!signingClient || !address) throw new Error('Reconnect MetaMask before signing this reception.');
-              return signingClient.signMessage({ account: address, message });
-            }}
-            onCollection={() => navigate('/collection')}
-          />
+          <>
+            <ReceptionPanel
+              key={`${currentTemple.id}:${receptionReference}`}
+              reference={receptionReference} templeId={currentTemple.id} wallet={walletReady ? authenticatedWallet : null}
+              connected={isConnected}
+              api={api} onConnect={() => void connectWallet()} onVerify={signInWallet}
+              amountOptions={AMOUNTS}
+              amount={amount}
+              setAmount={(value) => { setCustomAmount(''); setAmount(value); }}
+              customAmount={customAmount}
+              setCustomAmount={setCustomAmount}
+              amountError={amountError}
+              amountUnits={amountUnits}
+              feeUnits={feeUnits}
+              netUnits={netUnits}
+              busy={busy}
+              onDonate={(visitId, requestId) => void startDonation({ visitId, requestId })}
+              onRestoreDonation={restoreVisitDonation}
+              onCollection={() => navigate('/collection')}
+            />
+            {donation?.kind === 1 && donation.onsiteVisitId === receptionReference && <DonationProgress
+              donation={donation}
+              pendingOperation={pendingOperation?.donationId === donation.id ? pendingOperation : null}
+              busy={busy}
+              onCheck={() => void checkCentral()}
+              onRestore={() => void restoreDonation()}
+              onCollection={() => { setRefreshVersion((version) => version + 1); navigate('/collection'); }}
+              photoEligibility={photoEligibility}
+              onUploadPhoto={publishPhoto}
+            />}
+          </>
         ) : detailRoute && currentTemple ? (
           <TempleDetail
             temple={currentTemple}
@@ -1413,9 +1449,10 @@ function CollectionPage(props: {
     const map = new Map<string, number>();
     const counted = new Set<string>();
     for (const donation of props.donations) {
-      if (donation.mintStatus === 'minted' && donation.kind === 0 && !counted.has(donation.id)) {
+      if (donation.mintStatus === 'minted' && !counted.has(donation.id)) {
         counted.add(donation.id);
-        map.set(donation.templeId, (map.get(donation.templeId) ?? 0) + 1);
+        const key = `${donation.kind}:${donation.templeId}`;
+        map.set(key, (map.get(key) ?? 0) + 1);
       }
     }
     return map;
@@ -1445,8 +1482,8 @@ function CollectionPage(props: {
           {activeTab === 'photos' && <p className="photo-library-note">Your shared photos are managed here. To browse community photos, open a temple and choose “View community photo board”.</p>}
           {activeTab === 'stamps' ? (
             <>
-              <StampBook title="Remote support" subtitle="A stamp for every successful online donation" temples={props.temples} counts={counts} emptyLabel="No remote stamps yet" />
-              <StampBook title="On-site visits" subtitle="Earned during an in-person visit" temples={props.temples} counts={new Map()} onsiteOnly emptyLabel="On-site stamps will appear after a verified visit" />
+              <StampBook title="Remote support" subtitle="A stamp for every successful online donation" temples={props.temples} counts={new Map([...counts].filter(([key]) => key.startsWith('0:')).map(([key, count]) => [key.slice(2), count]))} emptyLabel="No remote stamps yet" />
+              <StampBook title="On-site visits" subtitle="Earned during an in-person visit" temples={props.temples} counts={new Map([...counts].filter(([key]) => key.startsWith('1:')).map(([key, count]) => [key.slice(2), count]))} onsiteOnly emptyLabel="On-site stamps will appear after a verified visit" />
               {pending.length > 0 && (
                 <section className="pending-section">
                   <div className="section-title-row"><div><h2>Still in progress</h2><p>These are not counted as stamps.</p></div><button className="text-button" onClick={props.onResume}>Resume current donation</button></div>

@@ -285,11 +285,47 @@ Before activating Cloud Run minter, local `MINT_ENABLED` is set false; lease sti
 protects rollout overlaps. Canonical deployed HTTPS origin:
 `https://kalash-central-548318651344.asia-south1.run.app`.
 
-## 8. M3 ATM reception and cash boundary
+## 8. ATM reception milestones: disconnected Crypto first, Cash next
 
-The shared reception is also the future M5 entry; M5 payment is not enabled just
-because a QR can be displayed. Only the registered `temple-01` ATM supports onsite
-reception. Other temples remain remote-only.
+Only the registered `temple-01` ATM supports onsite reception. Other temples remain
+remote-only. A verified USB disconnect is a supported state: onsite Crypto can
+proceed while Cash is visibly disabled. Unknown, stale or absent Controller/device
+health also fails closed for Cash; it must never block the Crypto option.
+
+### 8.1 M5a onsite Crypto while the cash machine is disconnected
+
+ATM screen: Crypto -> Central reception QR -> phone MetaMask opens the same
+temple detail -> connect/SIWE if needed -> explicit Join -> amount/approve/donate
+on the phone -> Central verifies success receipt and immutable `Donated` event ->
+ATM returns to idle. The ATM does not wait for mint or photos. The phone retains
+its donation result and can visit Collection or share an optional photo.
+
+An onsite Crypto intent is `kind=1`, bound to the claimed `visitSessionId`,
+verified wallet and registered temple; no query flag or caller-supplied kind can
+set it. Donation receipt matching, operation registration, mint reservation,
+Collection deduplication and points reuse M1. Onsite crypto points use multiplier
+10. The normal Pilgrim `POST /api/donations` remains `kind=0`; only the
+authenticated, claimed visit endpoint may create `kind=1`.
+
+The QR reference is for discovery, not payment authority. QR view never claims
+the visit. SIWE identifies the wallet, but a separate explicit Join action binds
+that wallet to this one visit. Claim is atomic/idempotent; another wallet,
+temple, ATM, expired visit or replay is rejected. Public visit responses contain
+no owner wallet, donation hash or device credential.
+
+Central/ATM state is polled every 2 seconds and restored after browser visibility
+or reload. After the donation has a canonically verified `confirmed` state, the
+ATM clears only that active visit and returns to idle. `unknown`, `submitting`,
+`submitted` or other unresolved outcomes keep the ATM occupied and reuse the
+same donation ID. Failed/expired outcomes require explicit recovery; timers and
+screen refreshes never synthesize success or resubmit.
+
+The successful receipt-only slice must report Cash disabled when the Controller
+heartbeat is absent/stale or ITL reports no attached USB device. During M5a,
+Cash remains unavailable even if a controller is present: the cash workflow is
+the next M3 goal, not a feature flag in this release.
+
+### 8.2 M3 onsite cash (next goal after M5a)
 
 Central owns `visitSessionId`, `atmId`, `templeId`, purpose (`cash`/`crypto`), expiry,
 state, verified owner and the eventual `cashSessionId`/`donationId`. A random public
@@ -334,31 +370,44 @@ After cash confirmation, reserve onsite mint and permit only that donation's
 optional ATM photo. Finish/Skip/inactivity stops camera tracks, discards unposted
 preview, clears identity and revokes photo authority. Published photos remain.
 Successful mints refresh Collection silently; pending mints do not increase counts.
-M5 crypto will reuse this reception, use phone amount/signing/photos and release
-the ATM after Central confirms the donation, without waiting for mint/photos.
+### M5a API and rollout gate
 
-### Reception slice API and rollout gate
-
-The initial M3 slice implements registration only: `awaiting_wallet -> linked`,
-or `expired/closed`. Responses explicitly set `cashAcceptanceEnabled=false` and
-`cryptoDonationEnabled=false`. The UI must say no banknotes may be inserted.
-It creates no cash command, donation, points, mint job or photo authority.
-Controller/device execution is a later M3 step, not a configurable bypass.
+The M5a slice implements crypto visits and receipt verification while Cash
+remains disabled. Responses explicitly state the Cash availability/reason and
+do not accept Cash visits. The phone creates a donation only after an authenticated
+explicit claim. No cash command, simulated device readiness or synthetic donation
+confirmation may be created.
 
 - `POST /api/controller/:atmId/pairing`: ATM-bound Controller bearer -> 120-second,
   single-use pairing code. Only a SHA-256 digest is stored.
 - `POST /api/atm/:atmId/pair`: exchange code for an 8-hour `HttpOnly; SameSite=Strict`
   cookie, scoped to this ATM API path; `Secure` on HTTPS. Replacement invalidates
   the old screen and preserves the active reception.
-- `GET /api/atm/:atmId`, `POST .../visits` (`mode`, stable `requestId`),
+- `GET /api/atm/:atmId`, `POST .../visits` (`mode=crypto`, stable `requestId`),
   `POST .../visits/:reference/close`: screen-authorized state/create/close.
   Atomic ATM pointer and request record enforce one reception and no duplicate
   creation. Close is forbidden if a cash command is attached.
 - `GET /api/visits/:reference?templeId=...`: public context only, no owner wallet,
   signatures or device credentials. `/mine` additionally requires wallet identity.
-- `POST .../challenge`, `POST .../claim`: wallet-authenticated, explicit cash
-  reception signature/consent. Transactionally consume challenge and claim once.
-  Foreign-owner, wrong-temple, replay into another reception and late claim fail.
+- `POST /api/visits/:reference/claim`: authenticated wallet + explicit Join
+  consent; transactionally claim once.
+- `POST /api/visits/:reference/donation`: only the claimed wallet can create the
+  single, idempotent kind=1 intent for this visit. Central receipt verification
+  remains the only path to confirmation and mint.
+- `POST /api/controller/:atmId/health`: authenticated, ordered read-only heartbeat
+  from the registered Windows Controller, including USB/device/router status.
+  Stale/missing or disconnected state disables Cash; it never disables Crypto.
+  Controller must not call consuming event-poll endpoints for this health report.
+  Report every 10 seconds or less; status older than 15 seconds is offline.
+
+The follow-up M3 cash goal extends this contract with the already specified
+one-use cash-consent signature, Controller Ready, finite acceptance, ordered
+STORED events, inventory reconciliation, stamp and optional ATM photo. No
+CashDevice command is enabled by M5a.
+
+The authenticated hardware heartbeat has not yet been integrated or verified.
+Until a fresh readiness report is received, Central reports hardware as
+offline/unknown and the ATM remains Crypto-only.
 
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
 an explicit QR-unavailable reason instead of manufacturing a mobile link.

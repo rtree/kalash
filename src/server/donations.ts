@@ -5,7 +5,7 @@ import {
   type Address, type Hex, type TransactionReceipt,
 } from 'viem';
 import {
-  CHAIN_ID, USDC, donationTypes, parseAmount, vaultAbi, vaultFeeRecipientAbi, type Donation,
+  CHAIN_ID, USDC, donationPointUnits, donationTypes, parseAmount, vaultAbi, vaultFeeRecipientAbi, type Donation,
 } from '../shared.ts';
 import { chain, db, deployment, minter } from './config.ts';
 import { temples } from './catalog.ts';
@@ -26,7 +26,9 @@ export async function ownedDonation(id: unknown, owner: Address): Promise<Donati
   requireValue(record.ownerWallet.toLowerCase() === owner.toLowerCase(), 403, 'NOT_OWNER', 'This donation belongs to another wallet.');
   return record;
 }
-export async function createDonation(owner: Address, templeId: unknown, input: unknown): Promise<Donation> {
+async function buildDonationIntent(
+  owner: Address, templeId: unknown, input: unknown, kind: 0 | 1, onsiteVisitId?: string,
+): Promise<Donation> {
   requireValue(deployment, 503, 'CONTRACTS_NOT_DEPLOYED', 'Donation contracts have not been deployed.');
   const temple = temples.find((item) => item.id === templeId);
   requireValue(temple, 400, 'UNKNOWN_TEMPLE', 'Unknown temple.');
@@ -54,16 +56,78 @@ export async function createDonation(owner: Address, templeId: unknown, input: u
   const signature = await minter.signTypedData({
     domain: { name: 'KALASH Donation', version: '1', chainId: CHAIN_ID, verifyingContract: deployment.vault },
     types: donationTypes, primaryType: 'Donation',
-    message: { donationId: id, donor: owner, templeId: templeKey, kind: 0, amount, deadline: BigInt(deadline) },
+    message: { donationId: id, donor: owner, templeId: templeKey, kind, amount, deadline: BigInt(deadline) },
   });
   const record: Donation = {
-    id, ownerWallet: owner, templeId: temple.id, templeKey, kind: 0, amount: amount.toString(),
+    id, ownerWallet: owner, templeId: temple.id, templeKey, kind, ...(onsiteVisitId ? { onsiteVisitId } : {}), amount: amount.toString(),
     fee: (amount / 10000n).toString(), net: (amount - amount / 10000n).toString(),
     recipient: temple.recipient, deadline, signature, status: 'intent',
     createdAt: new Date().toISOString(), startBlock: startBlock.toString(),
   };
-  await donationReference(id).create(record);
   return record;
+}
+export async function createDonation(owner: Address, templeId: unknown, input: unknown): Promise<Donation> {
+  const record = await buildDonationIntent(owner, templeId, input, 0);
+  await donationReference(record.id).create(record);
+  return record;
+}
+export async function createOnsiteDonation(owner: Address, visitId: unknown, input: unknown, requestId: unknown): Promise<Donation> {
+  requireValue(typeof visitId === 'string' && /^([a-f0-9]{64})$/.test(visitId),
+    400, 'INVALID_VISIT', 'Invalid onsite reception reference.');
+  requireValue(typeof requestId === 'string' && /^[a-f0-9-]{36}$/.test(requestId),
+    400, 'INVALID_REQUEST_ID', 'A stable onsite donation request ID is required.');
+  let requestedAmount: string;
+  try { requestedAmount = parseAmount(input).toString(); } catch (error) {
+    throw new HttpError(400, 'INVALID_AMOUNT', error instanceof Error ? error.message : 'Invalid amount.');
+  }
+  const visitReference = db.collection('visits').doc(visitId);
+  const requestReference = visitReference.collection('donationRequests').doc(requestId);
+  const existingRequest = await requestReference.get();
+  if (existingRequest.exists) {
+    const record = await ownedDonation(existingRequest.get('donationId'), owner);
+    requireValue(record.kind === 1 && record.onsiteVisitId === visitId && record.amount === requestedAmount,
+      409, 'DONATION_REQUEST_MISMATCH', 'This request ID belongs to another onsite donation.');
+    return record;
+  }
+  const visitSnapshot = await visitReference.get();
+  const visit = visitSnapshot.data();
+  if (visit?.donationId) {
+    const existing = await ownedDonation(visit.donationId, owner);
+    requireValue(existing.kind === 1 && existing.onsiteVisitId === visitId && existing.amount === requestedAmount,
+      409, 'ONSITE_DONATION_EXISTS', 'This reception already has a different donation. Check it with Central before taking another action.');
+    return existing;
+  }
+  requireValue(visit?.mode === 'crypto' && visit.state === 'linked'
+    && typeof visit.templeId === 'string' && typeof visit.ownerWallet === 'string'
+    && visit.ownerWallet.toLowerCase() === owner.toLowerCase(),
+  403, 'ONSITE_VISIT_NOT_CLAIMED', 'Verify your wallet and explicitly join this onsite Crypto reception first.');
+  const record = await buildDonationIntent(owner, visit.templeId, input, 1, visitId);
+  const donationRef = donationReference(record.id);
+  let selectedId = record.id;
+  await db.runTransaction(async (tx) => {
+    const [currentSnapshot, requestSnapshot] = await Promise.all([
+      tx.get(visitReference), tx.get(requestReference),
+    ]);
+    const current = currentSnapshot.data();
+    if (requestSnapshot.exists) {
+      selectedId = requestSnapshot.get('donationId');
+      return;
+    }
+    if (current?.donationId) {
+      selectedId = current.donationId;
+      return;
+    }
+    requireValue(current?.state === 'linked' && current.mode === 'crypto'
+      && current.templeId === visit.templeId && current.ownerWallet?.toLowerCase() === owner.toLowerCase(),
+    409, 'ONSITE_VISIT_CHANGED', 'The onsite reception changed. Restore it before donating.');
+    tx.create(donationRef, record);
+    tx.create(requestReference, { donationId: record.id, amount: record.amount, createdAt: new Date().toISOString() });
+    tx.update(visitReference, { state: 'donation_pending', donationId: record.id, donationStartedAt: Date.now() });
+  });
+  const selected = await ownedDonation(selectedId, owner);
+  requireValue(selected.kind === 1 && selected.onsiteVisitId === visitId && selected.amount === requestedAmount,
+    409, 'ONSITE_DONATION_MISMATCH', 'The reception already has a different donation. Do not send another.');
+  return selected;
 }
 export async function recordOperation(id: unknown, owner: Address, operation: unknown, attemptId: unknown) {
   requireValue(operation === 'approve' || operation === 'donate', 400, 'INVALID_OPERATION', 'Unknown wallet operation.');
@@ -259,7 +323,7 @@ export async function verifyDonation(id: unknown, owner: Address, hint: unknown)
   if (directDonation) {
     const expectedInput = encodeFunctionData({
       abi: vaultAbi, functionName: 'donate',
-      args: [record.id, record.templeKey, 0, BigInt(record.amount), BigInt(record.deadline), record.signature],
+      args: [record.id, record.templeKey, record.kind, BigInt(record.amount), BigInt(record.deadline), record.signature],
     });
     requireValue(transaction.input.toLowerCase() === expectedInput.toLowerCase(),
       400, 'CALL_MISMATCH', 'Transaction calldata does not match the immutable intent.');
@@ -297,10 +361,10 @@ export async function verifyDonation(id: unknown, owner: Address, hint: unknown)
     });
     tx.set(totalReference, {
       wallet: owner.toLowerCase(), templeId: record.templeId,
-      points: (BigInt(total.get('points') ?? '0') + BigInt(record.amount)).toString(),
+      points: (BigInt(total.get('points') ?? '0') + donationPointUnits(record.amount, record.kind)).toString(),
     });
     tx.create(jobReference, {
-      donationId: record.id, ownerWallet: owner, templeKey: record.templeKey, kind: 0,
+      donationId: record.id, ownerWallet: owner, templeKey: record.templeKey, kind: record.kind,
       day: (block.timestamp / 86400n).toString(), status: 'reserved', createdAt: new Date().toISOString(),
     });
   });

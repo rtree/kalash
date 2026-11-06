@@ -5,7 +5,8 @@ export const ATM_PHOTO_IDLE_MS = 30_000;
 export const VISIT_REFERENCE = /^[a-f0-9]{64}$/;
 export const ATM_ID = /^[a-z0-9][a-z0-9-]{2,63}$/;
 export type VisitMode = 'cash' | 'crypto';
-export type VisitState = 'awaiting_wallet' | 'linked' | 'expired' | 'closed';
+export type VisitState = 'awaiting_wallet' | 'linked' | 'donation_pending' | 'confirmed' | 'expired' | 'closed';
+export type CashMachineStatus = 'unknown' | 'offline' | 'disconnected' | 'ready';
 
 export interface VisitDto {
   id: string;
@@ -16,9 +17,11 @@ export interface VisitDto {
   mode: VisitMode;
   state: VisitState;
   expiresAt: number;
-  cashSessionId: string | null;
+  cashSessionId: null;
   cashAcceptanceEnabled: false;
   cashLimitPaise: string;
+  donationState: 'pending' | 'confirmed' | 'failed' | null;
+  donationId?: string | null;
 }
 export interface AtmDto {
   id: string;
@@ -29,11 +32,31 @@ export interface AtmDto {
   targetUrl: string | null;
   deepLink: string | null;
   qrUnavailableReason: string | null;
+  cashMachineStatus: CashMachineStatus;
+  cashDisabledReason: string;
   cashAcceptanceEnabled: false;
-  cryptoDonationEnabled: false;
+  cryptoDonationEnabled: boolean;
 }
 export function visitState(state: VisitState, expiresAt: number, now: number): VisitState {
   return state === 'awaiting_wallet' && expiresAt <= now ? 'expired' : state;
+}
+export function cashMachineStatus(health: {
+  receivedAt: number;
+  sequence: number;
+  usbConnected: boolean;
+  connectionOpen: boolean;
+  deviceStarted: boolean;
+  routesVerified: boolean;
+  pollerOwned: boolean;
+} | null, now: number): CashMachineStatus {
+  if (!health || !Number.isSafeInteger(health.sequence) || health.sequence < 1
+    || !Number.isFinite(health.receivedAt)
+    || now - health.receivedAt > 15_000 || health.receivedAt > now + 5_000) {
+    return 'offline';
+  }
+  if (!health.usbConnected || !health.connectionOpen || !health.deviceStarted
+    || !health.routesVerified || !health.pollerOwned) return 'disconnected';
+  return 'ready';
 }
 export function templeTarget(origin: string, templeId: string, reference?: string): string {
   const base = new URL(origin);

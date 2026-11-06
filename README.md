@@ -56,12 +56,14 @@ Cloud Run deployment and verified URLs are recorded in TASKS.
 Manufacturer files, keys, `.env`, device logs and photos must remain outside
 Git and build contexts. Cash and payout features are not implied by M1.
 
-## M3 ATM reception (cash acceptance disabled)
+## M5a onsite Crypto ATM (Cash disabled)
 
-The deployed `/atm/atm-01` screen supports a short-lived MetaMask deeplink QR,
-wallet-bound cash-reception consent and state restoration. It does **not** enable
-the acceptor or confirm a cash donation. Never insert banknotes during this phase.
-Onsite crypto remains disabled until M5. Photo withdrawal follow-up is deferred.
+The deployed `/atm/atm-01` screen supports authorized screen pairing, a short-lived
+MetaMask deeplink QR, explicit wallet/visit binding and Central state restoration.
+Only Crypto is selectable. Cash remains disabled whether the Controller is offline,
+the USB/NV200 is disconnected, or health is stale. Never insert banknotes during
+this phase. The subsequent M3 goal will add actual Cash acceptance and reconciliation.
+Photo withdrawal follow-up is deferred.
 
 On the registered Windows Controller, using the existing ACL-protected
 `%LOCALAPPDATA%\KALASH\secrets` directory and authorized ADC:
@@ -75,10 +77,16 @@ node scripts\pair-atm.mjs
 
 Read the saved pairing code locally and enter it on `/atm/atm-01` within 120
 seconds; do not share the code or credential file. A replacement pairing preserves
-the reception and revokes the previous screen. Select Cash reception, scan the
-QR with the phone's external reader, verify the displayed temple/ATM in MetaMask,
-then explicitly sign reception consent. This is not a token approval or payment.
-Closing this registration is allowed only before any cash command exists.
+the reception and revokes the previous screen. Select Crypto donation, scan the
+QR with the phone's external reader, verify the temple/ATM in MetaMask, verify the
+wallet and explicitly join. Approval and donation remain separate wallet requests.
+No CashDevice operation is called.
+
+The registered Controller's `POST /api/controller/:atmId/health` endpoint accepts
+sequenced, authenticated, read-only USB/open/start/routes/poller status. Report at
+least every 10 seconds; a report older than 15 seconds or any missing readiness
+condition makes the cash status offline/disconnected. Health reports never enable
+cash during M5a.
 
 `pnpm run test:atm` includes real Central/Firebase/Firestore API tests (no skips),
 isolated test ATMs/wallets, concurrency/expiry/authorization tests and injected

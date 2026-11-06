@@ -2,8 +2,8 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M3 寺院ATM共通受付・現地現金寄付。2026-11-06の本人指示で写真取り下げの追加作業を後回しにし、決定済みの三経路UXをSPEC／SDDへ反映して着手。M1 mobile donation・写真撮影／掲載は成功済みのまま維持する。
-- 成功条件：認可ATMのdeeplink QR→MetaMask→寺院・ATM・用途を確認して本人claim→Controller Ready→実紙幣収納→Done／期限で停止・照合→参拝mint・任意ATM写真。機器未接続や模擬試験を実収納成功に数えない。
+- 現在のゴール：M5a 現地Crypto ATM連携。本人の指示により、NV200のUSB未接続を安全な試験状態としてCashを無効化し、Cryptoのみ選べるパターンを完成する。次の独立ゴールはM3現地現金。写真取り下げは後回し。M1寄付・本人写真掲載は成功済みのまま維持。
+- 成功条件：認可ATMのdeeplink QR→MetaMask→SIWE／明示visit claim→電話でamount・必要時approve・kind=1 donate→Central confirmed/minted→Collection再読込とATM初期画面復帰。未接続／不明時Cash無効・Crypto有効。模擬状態やUI表示を実寄付・Stampの成功証拠にしない。
 - 今回の担当：Integrator一人が本体Central／Web／Controller／テストとSPEC／SDD／TASKS・Gitを担当。PoCファイルと他担当の変更には触れない。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
@@ -14,7 +14,7 @@
 - Cloud Run：revision `kalash-central-00016-w6k`、health ready・Base Sepolia・mint有効、source `1790e57`。History recovery、expired-signature guard、Provider approval trace、walletClient preflightを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：RPC自動追加の固定とATMの認可・短命受付・deeplink QR・本人claimを実装／検証。ITL認証・機器Readyは別ゲートとして診断する。成功済みの寄付や本人写真を再送／再公開しない。
+- 次の作業：M5a実装をcommitしCloud Build/Cloud Runへ反映、実Central APIとMetaMask deeplink経路を検証する。Cash commandは作らない。成功済みの寄付や本人写真を再送／再公開しない。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -34,11 +34,12 @@
 | M1-deploy | M1 | Integrator：Cloud Run | M1-api、M1-ui | 完了 | 実オリジン、runtime SA、Health、mint loop確認 |
 | M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCのMetaMaskに加え、Android MetaMask内蔵Browserでも0.01 USDC approval→Donate→Central確認→Stamp/Collection再読込を本人確認。receipt canonical、Vault `Donated` event、mint receiptを照合 |
 | M2 | M2 | Integrator：写真・ボード | M1-e2e | human-wait（後回し） | 写真共有→Devotee board表示は本人／API確認済み。2026-11-06本人指示で取り下げ追加作業は後続へ。既存本人withdrawは維持。残るcamera/size検証も未完として保持 |
-| M3-rpc | M3 | Integrator：runtime／Wallet切替・局所テスト | M1-e2e | doing | public read／SDK metadata／実際のadd-chain requestを公式RPCへ固定。既存Wallet設定との違いも表示 |
-| M3-reception | M3 | Integrator：Central／ATM・Pilgrim UI／APIテスト | M1-e2e | doing | 端末認可・一受付排他・deeplink QR・本人署名claim・期限／再読込／二重claim拒否。現金開始権限をQRに載せない |
-| M3-device | M3 | Integrator：Windows Controller/ITL | M3-reception | todo | 資格情報・単一ポーラー・接続／経路／在高を確認し、実Ready→有限受付→収納／終了照合を同じIDへ |
-| M3-finish | M3 | Integrator：Central／ATM写真／Collection | M3-device | todo | 照合済み実収納だけを確定・mint予約。寄付限定ATM写真・Finish／Skip／無操作cleanup・静かなCollection更新 |
-| M3 | M3 | Integrator：ATM／Windows Controller/ITL | M3-reception、M3-device、M3-finish | doing | QR紐付け、実紙幣収納、受付終了・台帳照合・Stamp・ATM写真。M2後回しを全体完了とは扱わない |
+| M5a-device-state | M5a | Integrator：ATM/Central read-only readiness | M1-e2e | doing | Controller heartbeat/USB disconnect/default unknownでCash disabled・Crypto available。局所health判定を実装。実Central API未検証、現金命令なし |
+| M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | doing | explicit visit claim→kind=1 intent→通常receipt検証・Stamp→ATM reset、同じIDで冪等。コード／型チェック済み、実Central API未検証 |
+| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | todo | UI/APIの未接続時Crypto only、固定URL MetaMask経路、0.01 USDC onsite test、Central/receipt/mint/Collection、ATM画面復帰 |
+| M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | doing | onsite Crypto end-to-end。Cash disabledのまま。次のM3を完了したとは扱わない |
+| M3-device | M3（次） | Integrator：CashMachineController/ITL | M5a | todo | USB接続後、認証・poller所有・接続／経路／在高・実Readyを確認 |
+| M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
@@ -51,7 +52,7 @@
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
-| M3/M4 ITL | 2026-11-06再開後、既存の保護された端末設定を使用しAuthenticate HTTP200、GetAllCashDevices／GetConnectedUSBDevices HTTP200。USB検出配列0件。消費型status取得・接続／受入／払い出し命令は未実行 | 既存接続IDの非消費型詳細・USB接続／既存Controller所有を確認。共通受付は独立して進める | 電源・USB／VM割当が必要な場合だけ依頼。紙幣・払い出しは別途立ち会い |
+| M3/NV200接続 | 現金受付の準備状態は未確認 | M5aではCashをfail-closedで無効にし、現地Cryptoを先に完成。現金受入・Controller実機連携は後続M3 | M5aでは機器操作不要。Cash実装時に準備状況を再確認 |
 
 ## M1の検証証跡
 
@@ -101,11 +102,11 @@
 
 ## 最新チェックポイント
 
-- UTC 2026-11-06 08:26以降／再開約42分。対象M3-rpc／M3-reception。最終UX文書`e93a8c7`をpush確認。途中の本人WIP `04bfb51`／`cd26ae8`に作業差分が保存されたため保持。稼働版は引き続き`00016-w6k`／source `1790e57`、新コードは未配備。
-- SPEC §3／4／9とSDD §7／8を更新。Cashの署名拘束・一受付排他・端末ペアリング・不透明deeplink参照・2秒pollを実装中。受付のみの段階を明示し、cash acceptance=false。寄付・mint・写真権限・機器成功は作らない。本人写真と既存送金に変更なし。
-- RPC metadata／SDK customRpcUrls／SIWE前・Donate前のadd-chainパラメータを固定。実injected connector requestの局所テストを追加。受付APIの実Firebase/Firestore・競合／期限／別人・別ATM試験を追加（この時点では未実行）。
-- 依存：qrcode既存1.5.3を直接依存化、型1.5.5のみ追加。変更前policy合格、旧569件の再照合合格、pnpm scripts無効で取得。新570件のregistry再照合がtimeoutしたためbuild/testをまだ実行せず、パッケージ名・100件ごとの進捗を出して診断中。証拠が揃うまでpolicyを迂回しない。
-- ITLは認証200・USB一覧0件。.NET10対応を確認。約10分の保存間隔を超えた間は実装とregistry照合を進行、機器・資金操作なし。次：依存照合→typecheck／局所・実API→UI→配備。USBの実機ゲートは独立して残す。
+- UTC 2026-11-06 10:02以降／再開約138分。本人優先順位：M5a onsite Crypto while cash is disabled → next M3 cash. SPEC/SDD/TASKSはこの分割と写真取り下げ後回しに一致。実稼働版は引き続き`00016-w6k`／`1790e57`。
+- M5a実装：read-only healthによりmissing/stale/disconnected/readyを分類。ただしこの段階では状態に関係なくCash acceptanceはfalse。ATM screen pairing、短命deeplink受付、本人claim、現地kind=1 intent、同じreceipt verification/mint/points/Collectionを接続。Donation unknown中はATMをロックし、確定後だけ同じvisitを解除する。
+- `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm exec tsc --noEmit`と`pnpm run build`成功。`atm.test.ts`、`shared.test.ts`、`donation-receipt.test.ts`、`wallet-network.test.ts`、`policy.test.mjs`は12/12成功・skipなし。APIテストの構文検査成功。実Central APIとオンチェーン送金/mintは未実施。
+- 変更中のpathはM5aのsource／docs／testsのみ。実サービスのAPI検証と現地Crypto実送金はこれから。
+- 次：明示pathだけcommit/push→Cloud Build（same SHA）→Cloud Run deploy→`KALASH_TEST_ORIGIN`をlive Centralに向けて`pnpm run test:atm`（必須API試験、skipなし）→未接続Cash disabled/MetaMask deeplink/claim/ATM resetを確認。本人MetaMask送金を行う場合は対象額と操作を事前提示し、未知の操作は再送しない。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 
