@@ -119,6 +119,7 @@ public sealed partial class CentralCashCommandClient : ICashCommandCentral, ICas
         client = new HttpClient(handler) { BaseAddress = centralUri, Timeout = TimeSpan.FromSeconds(5) };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Add("Origin", centralUri.GetLeftPart(UriPartial.Authority));
     }
 
     public async Task<CashStartCommand?> GetCommandAsync(CancellationToken cancellationToken)

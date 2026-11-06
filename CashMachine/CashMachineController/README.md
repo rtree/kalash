@@ -126,6 +126,13 @@ Readback/report failure blocks acceptance; shutdown posts unavailable.
 Central's independent registered `cashEnabled` flag must also be authorized by
 the integrator; heartbeat does not switch it on. Await an actual fresh ready
 screen/health record before signed claim and actual ACCEPTING before insertion.
+All Central requests include the configured canonical HTTPS `Origin`
+(scheme/authority, no trailing slash) as well as the Controller Bearer credential.
+Before starting any REST child, product `run` durably advances the same health
+sequence and posts a truthful all-unavailable health report. A rejected POST
+(including HTTP 403), malformed receipt or transport error aborts startup before
+OpenConnection. Runtime failure logs include HTTP status codes when available,
+never response bodies, credentials or arbitrary exception messages.
 
 After the one note, use Done if the intake is still accepting; wait for its
 actual Central close/confirmation and retained journal/outbox acknowledgement.

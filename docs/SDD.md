@@ -408,6 +408,13 @@ at that capacity. It naturally exits only after clean closure, exact Outbox ACKs
 and reverified DISABLED/empty escrow with unchanged final inventory/counters.
 Regular `run` stays resident. A readback-derived authenticated heartbeat runs
 every five seconds without a second event reader; shutdown reports unavailable.
+The Central client sends the configured HTTPS authority as `Origin` on all
+requests. A durable, truthful unavailable-health POST must succeed before the
+REST child starts. HTTP failures report status only, not response bodies.
+Observed `DeviceStatusResponse.stateAsString` initialization states are parsed
+explicitly; unknown states still fail closed. Startup-only recovery preserves
+original raw/state evidence and is restricted to cash-free initialization with
+current DISABLED/empty/profile/inventory/counter and disconnection proof.
 
 The product owner is the sole consuming ITL reader and physical action sender.
 It persists note identity/accept decision/dispatch intent and events before

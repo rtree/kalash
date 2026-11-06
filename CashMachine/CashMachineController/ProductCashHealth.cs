@@ -13,6 +13,27 @@ public interface IControllerHealthCentral
     Task ReportHealthAsync(ControllerHealthReport report, CancellationToken token);
 }
 
+public static class ProductCashHealth
+{
+    public static async Task<long> NextSequenceAsync(
+        ProductCashState state, ProductCashJournal journal, long now, CancellationToken token)
+    {
+        state.HealthSequence = Math.Max(checked(state.HealthSequence + 1), now);
+        await journal.SaveAsync(state, token);
+        return state.HealthSequence;
+    }
+
+    public static async Task VerifyCentralBeforeStartupAsync(
+        ProductCashJournal journal, IControllerHealthCentral central, CancellationToken token)
+    {
+        var state = await journal.LoadAsync(token);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var sequence = await NextSequenceAsync(state, journal, now, token);
+        await central.ReportHealthAsync(new ControllerHealthReport(
+            sequence, now, false, false, false, false, false, null), token);
+    }
+}
+
 public sealed partial class CentralCashCommandClient : IControllerHealthCentral
 {
     public async Task ReportHealthAsync(ControllerHealthReport report, CancellationToken token)

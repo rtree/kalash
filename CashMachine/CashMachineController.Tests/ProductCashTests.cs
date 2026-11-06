@@ -70,6 +70,9 @@ internal static class ProductCashTests
         await Run("startup-only recovery archives proof and disconnects without cash commands", InitializationRecovery);
         await Run("initialization recovery refuses cash history, other locks and altered raw evidence", RejectNonStartupRecovery);
         await Run("initialization recovery fails closed on current readbacks and unknown disconnect", FailedInitializationRecovery);
+        await Run("all Central POST paths carry the canonical configured Origin", CanonicalCentralOrigin);
+        await Run("Central unavailable-health POST must pass before startup may continue", CentralPreStartupPost);
+        await Run("HTTP failure logs expose status but never response bodies or credentials", SanitizedHttpStatus);
         Console.WriteLine($"{passed} product cash tests passed (synthetic fixtures; no hardware evidence).");
     }
 
@@ -715,6 +718,70 @@ internal static class ProductCashTests
         }
     }
 
+    private static async Task CanonicalCentralOrigin()
+    {
+        var command = Command();
+        var transport = new SyntheticCentral(command) { ExpectedOrigin = "https://central.example:8443" };
+        using var client = transport.Client(new Uri("https://central.example:8443/"));
+        await client.GetCommandAsync(None);
+        await client.GetCashSessionAsync(None);
+        await client.ReportHealthAsync(new(1, command.CreatedAt, false, false, false, false, false, null), None);
+        await client.ReportAsync(command.CommandId, "received", null, null, None);
+        var state = new ProductCashState { StreamId = Guid.NewGuid().ToString("D") };
+        state.Begin(command, Inventory(), CashInventory.Denominations);
+        state.Ready(command.CreatedAt);
+        await client.PostCashEventAsync(state.Outbox[0], None);
+        Check(transport.RequestPaths.Count(path => path.StartsWith("POST ", StringComparison.Ordinal)) == 3,
+            "Health, command and event POST origins were not all exercised.");
+    }
+
+    private static async Task CentralPreStartupPost()
+    {
+        using var files = new FixtureDirectory();
+        using var journal = new ProductCashJournal(files.File("product"));
+        var transport = new SyntheticCentral(Command()) { HealthFailureStatus = HttpStatusCode.Forbidden };
+        using var client = transport.Client();
+        var startupContinued = false;
+        await Reject<HttpRequestException>(async () =>
+        {
+            await ProductCashHealth.VerifyCentralBeforeStartupAsync(journal, client, None);
+            startupContinued = true;
+        });
+        var refused = await journal.LoadAsync(None);
+        Check(!startupContinued && refused.HealthSequence > 0 && refused.Intake is null
+            && !refused.ConnectionDispatchPending, "Failed POST did not stop before device startup.");
+        transport.HealthFailureStatus = null;
+        await ProductCashHealth.VerifyCentralBeforeStartupAsync(journal, client, None);
+        var accepted = await journal.LoadAsync(None);
+        Check(accepted.HealthSequence > refused.HealthSequence, "Pre-start health sequence did not remain monotonic.");
+        var health = transport.HealthBodies[^1];
+        Check(!health.GetProperty("usbConnected").GetBoolean() && !health.GetProperty("connectionOpen").GetBoolean()
+            && !health.GetProperty("deviceStarted").GetBoolean() && !health.GetProperty("routesVerified").GetBoolean()
+            && !health.GetProperty("pollerOwned").GetBoolean() && health.GetProperty("deviceId").ValueKind == JsonValueKind.Null,
+            "Pre-start POST claimed an attached/ready device.");
+    }
+
+    private static async Task SanitizedHttpStatus()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        fixture.Central.HealthFailureStatus = HttpStatusCode.Forbidden;
+        var original = Console.Error;
+        using var captured = new StringWriter();
+        try
+        {
+            Console.SetError(captured);
+            await fixture.Tick();
+        }
+        finally { Console.SetError(original); }
+        var output = captured.ToString();
+        Check(output.Contains("health_readback_or_report_failed; HTTP 403", StringComparison.Ordinal)
+            && output.Contains("unavailable_health_report_failed; HTTP 403", StringComparison.Ordinal),
+            "HTTP status was collapsed into a generic health failure.");
+        Check(!output.Contains(SyntheticCentral.SensitiveErrorBody, StringComparison.Ordinal)
+            && !output.Contains(new string('a', 64), StringComparison.Ordinal)
+            && fixture.Itl.EnableCount == 0, "HTTP error handling leaked sensitive content or enabled cash.");
+    }
+
     private sealed class FixtureDirectory : IDisposable
     {
         private readonly string root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests",
@@ -809,6 +876,9 @@ internal static class ProductCashTests
 
     private sealed class SyntheticCentral(CashStartCommand command) : HttpMessageHandler
     {
+        public const string SensitiveErrorBody = "synthetic-sensitive-response-body-not-for-logs";
+        public string ExpectedOrigin = "https://central.example";
+        public HttpStatusCode? HealthFailureStatus;
         public bool Done, Offline, BadAck, LoseReceiptOnce, WrongBinding, NoSession, RejectHealth, BadCloseAck;
         public Action? AcceptingSessionRead, ClosePosted;
         public List<string> Events { get; } = [];
@@ -820,15 +890,18 @@ internal static class ProductCashTests
         public List<JsonElement> HealthBodies { get; } = [];
         private bool observed;
         private readonly Dictionary<long, string> durable = [];
-        public CentralCashCommandClient Client() => new(new Uri("https://central.example"), "atm-test", new string('a', 64), this);
+        public CentralCashCommandClient Client(Uri? centralUri = null) =>
+            new(centralUri ?? new Uri("https://central.example"), "atm-test", new string('a', 64), this);
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
-            if (Offline) throw new HttpRequestException("synthetic offline");
             var path = request.RequestUri!.AbsolutePath;
             RequestPaths.Add($"{request.Method} {path}");
+            Check(request.Headers.TryGetValues("Origin", out var origins) && origins.SequenceEqual([ExpectedOrigin]),
+                "Every Central request must carry the single canonical configured Origin without a trailing slash.");
             Check(request.Headers.Authorization?.Scheme == "Bearer" && request.Headers.Authorization.Parameter == new string('a', 64),
                 "Controller credential was not transported as Bearer.");
+            if (Offline) throw new HttpRequestException("synthetic offline");
             if (path == "/api/controller/atm-test/health")
             {
                 Check(request.Method == HttpMethod.Post, "Health method differs.");
@@ -840,6 +913,8 @@ internal static class ProductCashTests
                     Check(body.GetProperty("sequence").GetInt64() > HealthBodies[^1].GetProperty("sequence").GetInt64(),
                         "Health sequence did not increase.");
                 HealthBodies.Add(body);
+                if (HealthFailureStatus is { } failure)
+                    return new HttpResponseMessage(failure) { Content = new StringContent(SensitiveErrorBody) };
                 return Json(new ControllerHealthReceipt(!RejectHealth, false, false, true));
             }
             if (path == "/api/controller/atm-test/cash-session")

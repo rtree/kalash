@@ -133,7 +133,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 {
                     State.Reconcile("shutdown_unresolved", Now);
                     await SaveAsync();
-                    Log("shutdown_unresolved");
+                    Log("shutdown_unresolved", exception);
                 }
             }
             await ReportUnavailableAsync(CancellationToken.None);
@@ -167,7 +167,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 permission = null;
                 if (State.Intake is { Closed: false }) State.Close("offline", Now);
                 await SaveAsync();
-                Log("central_unavailable_or_invalid_receipt");
+                Log("central_unavailable_or_invalid_receipt", exception);
             }
 
             if (State.Intake is { Closed: false } active)
@@ -205,7 +205,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 if (State.Intake is { Closed: false }) State.Close("offline", Now);
                 await SaveAsync();
                 await StopIfClosingAsync(CancellationToken.None);
-                Log("cash_outbox_unacknowledged");
+                Log("cash_outbox_unacknowledged", exception);
             }
         }
         catch (Exception exception) when (IsOperational(exception))
@@ -214,19 +214,19 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             {
                 // Disk failure cannot make a physical operation safe to repeat. Stop once in this process,
                 // retain the pre-dispatch/raw-poll marker on disk and terminate for reconciliation.
-                Log("durable_journal_failed");
+                Log("durable_journal_failed", exception);
                 if (!emergencyStopAttempted && State.Intake is { EnableDispatchStarted: true, DisableDispatchStarted: false })
                 {
                     emergencyStopAttempted = true;
                     try { await device.DisableAsync(CancellationToken.None); }
-                    catch (Exception stopException) when (IsOperational(stopException)) { Log("emergency_disable_unknown"); }
+                    catch (Exception stopException) when (IsOperational(stopException)) { Log("emergency_disable_unknown", stopException); }
                 }
                 throw;
             }
             State.Reconcile("product_owner_operation_failed", Now);
             await SaveAsync();
             await StopIfClosingAsync(CancellationToken.None);
-            Log("product_owner_operation_failed");
+            Log("product_owner_operation_failed", exception);
         }
         finally { gate.Release(); }
     }
@@ -326,7 +326,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         {
             State.Reconcile("disable_outcome_unknown", Now);
             await SaveAsync();
-            Log("disable_outcome_unknown");
+            Log("disable_outcome_unknown", exception);
         }
     }
 
@@ -442,7 +442,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         {
             State.Reconcile("escrow_dispatch_outcome_unknown", Now);
             await SaveAsync();
-            Log("escrow_dispatch_outcome_unknown");
+            Log("escrow_dispatch_outcome_unknown", exception);
         }
     }
 
@@ -510,7 +510,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             healthReady = false;
             if (State.Intake is { Closed: false }) State.Close("offline", Now);
             await SaveAsync();
-            Log("health_readback_or_report_failed");
+            Log("health_readback_or_report_failed", exception);
             await ReportUnavailableAsync(token);
         }
     }
@@ -525,16 +525,12 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         }
         catch (Exception exception) when (IsOperational(exception))
         {
-            Log("unavailable_health_report_failed");
+            Log("unavailable_health_report_failed", exception);
         }
     }
 
-    private async Task<long> NextHealthSequenceAsync()
-    {
-        State.HealthSequence = Math.Max(checked(State.HealthSequence + 1), Now);
-        await SaveAsync();
-        return State.HealthSequence;
-    }
+    private Task<long> NextHealthSequenceAsync() =>
+        ProductCashHealth.NextSequenceAsync(State, journal, Now, CancellationToken.None);
 
     private async Task<bool> CompleteSingleHundredIfSafeAsync(CancellationToken token)
     {
@@ -564,13 +560,22 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         {
             State.Reconcile("single_note_shutdown_unverified", Now);
             await SaveAsync();
-            Log("single_note_shutdown_unverified");
+            Log("single_note_shutdown_unverified", exception);
             return false;
         }
     }
 
-    private static bool IsOperational(Exception exception) => exception is HttpRequestException or TimeoutException
+    private static bool IsOperational(Exception exception) => exception is HttpRequestException or ItlApiException or TimeoutException
         or InvalidDataException or InvalidOperationException or OperationCanceledException or IOException
         or UnauthorizedAccessException or JsonException or OverflowException;
-    private static void Log(string code) => Console.Error.WriteLine($"Product cash fail-closed: {code}; response bodies withheld.");
+    private static void Log(string code, Exception? exception = null)
+    {
+        var status = exception switch
+        {
+            HttpRequestException { StatusCode: { } http } => $"; HTTP {(int)http}",
+            ItlApiException itl => $"; ITL HTTP {(int)itl.StatusCode}",
+            _ => ""
+        };
+        Console.Error.WriteLine($"Product cash fail-closed: {code}{status}; response bodies withheld.");
+    }
 }

@@ -142,6 +142,8 @@ internal static partial class Program
             centralConfiguration.CentralUri,
             centralConfiguration.AtmId,
             centralConfiguration.Credential);
+        if (productJournal is not null)
+            await ProductCashHealth.VerifyCentralBeforeStartupAsync(productJournal, central, CancellationToken.None);
         _ = await central.GetCommandAsync(CancellationToken.None);
         var supervisor = CreateSupervisor();
         using var child = await supervisor.StartAsync(configuration);
