@@ -66,6 +66,7 @@ export interface Donation {
   error?: string;
   startBlock: string;
   donateAttemptId?: string;
+  approvalAttemptId?: string;
   approvalResolution?: {
     attemptId: string;
     resolvedAt: string;

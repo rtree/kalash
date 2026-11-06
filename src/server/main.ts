@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getAddress } from 'viem';
-import type { Donation } from '../shared.ts';
+import { CHAIN_ID, USDC, type Donation } from '../shared.ts';
 import { db, origin, publicConfig, project } from './config.ts';
 import { challenge, identity, verifyChallenge } from './authentication.ts';
 import { temples } from './catalog.ts';
@@ -179,9 +179,26 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   }
   if (request.method === 'GET' && (path === '/api/collection' || path === '/api/history')) {
     const records = await db.collection('donations').where('ownerWallet', '==', getAddress(owner)).get();
+    if (path === '/api/history') {
+      const donations = await Promise.all(records.docs.map(async (doc) => {
+        const donation = doc.data() as Donation;
+        if (donation.status !== 'intent' || donation.donateAttemptId || donation.txHash) return donation;
+        const operations = await doc.ref.collection('operations').get();
+        if (operations.size !== 1) return donation;
+        const operation = operations.docs[0];
+        const source = operation.get('source');
+        const target = operation.get('target');
+        if (operation.get('operation') !== 'approve' || operation.get('chainId') !== CHAIN_ID
+          || typeof source !== 'string' || source.toLowerCase() !== owner.toLowerCase()
+          || typeof target !== 'string' || target.toLowerCase() !== USDC.toLowerCase()
+          || operation.get('amount') !== donation.amount) return donation;
+        return { ...donation, approvalAttemptId: operation.id };
+      }));
+      donations.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return send(response, { donations });
+    }
     const donations = records.docs.map((doc) => doc.data() as Donation)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    if (path === '/api/history') return send(response, { donations });
     const totals = await db.collection('walletTempleTotals').where('wallet', '==', owner.toLowerCase()).get();
     return send(response, {
       donations, points: Object.fromEntries(totals.docs.map((doc) => [doc.get('templeId'), doc.get('points')])),

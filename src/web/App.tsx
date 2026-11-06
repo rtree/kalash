@@ -701,34 +701,40 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
   };
 
-  const resolveApprovalOnly = async () => {
-    if (!donation || !pendingOperation || pendingOperation.donationId !== donation.id
-      || pendingOperation.operation !== 'approve' || pendingOperation.txHash
-      || donation.status !== 'intent' || donation.donateAttemptId || donation.txHash) return;
+  const resolveApprovalOnly = async (
+    target: Donation | null = donation,
+    attemptId = pendingOperation?.attemptId,
+  ) => {
+    if (!target || !attemptId || target.status !== 'intent' || target.donateAttemptId || target.txHash) return;
+    const pendingMatches = pendingOperation?.donationId === target.id
+      && pendingOperation.operation === 'approve' && !pendingOperation.txHash
+      && pendingOperation.attemptId === attemptId;
+    if (!pendingMatches && target.approvalAttemptId !== attemptId) return;
     const confirmed = window.confirm(
-      `Central will check Base Sepolia for matching approval/donation events and verify the Vault allowance is zero. There is no donation transaction to retry. Continue only if no MetaMask wallet request is open. If the intent has not expired, this abandons the KALASH flow but does not revoke its signed authorization until ${new Date(donation.deadline * 1000).toLocaleTimeString()}; do not manually submit that old intent.`,
+      `Central will check Base Sepolia for matching approval/donation events and verify the Vault allowance is zero. There is no donation transaction to retry. Continue only if no MetaMask wallet request is open. If the intent has not expired, this abandons the KALASH flow but does not revoke its signed authorization until ${new Date(target.deadline * 1000).toLocaleTimeString()}; do not manually submit that old intent.`,
     );
     if (!confirmed) return;
     setBusy(true);
     setError('');
     try {
-      const expired = await api<Donation>(
-        `/api/donations/${encodeURIComponent(donation.id)}/resolve-approval`,
+      const resolved = await api<Donation>(
+        `/api/donations/${encodeURIComponent(target.id)}/resolve-approval`,
         { method: 'POST', body: JSON.stringify({
-          attemptId: pendingOperation.attemptId,
+          attemptId,
           confirmNoWalletRequest: true,
         }) },
         true,
       );
-      setDonation(expired);
-      persistPending(null);
-      if (currentDonationId === expired.id) {
+      if (donation?.id === resolved.id) setDonation(resolved);
+      setHistory((records) => records.map((record) => record.id === resolved.id ? resolved : record));
+      if (pendingMatches) persistPending(null);
+      if (currentDonationId === resolved.id) {
         localStorage.removeItem(CURRENT_DONATION);
         setCurrentDonationId(null);
       }
       setRefreshVersion((version) => version + 1);
-      setNotice(expired.approvalResolution?.outcome === 'cancelled'
-        ? `The approval-only app flow was abandoned. No donation was sent. The old signed intent is not revoked and remains valid until ${new Date(expired.deadline * 1000).toLocaleTimeString()}; do not submit it manually.`
+      setNotice(resolved.approvalResolution?.outcome === 'cancelled'
+        ? `The approval-only app flow was abandoned. No donation was sent. The old signed intent is not revoked and remains valid until ${new Date(resolved.deadline * 1000).toLocaleTimeString()}; do not submit it manually.`
         : 'Central verified the expired approval on Base Sepolia. No donation was sent; you may start a fresh test if you choose.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not safely resolve this approval-only attempt.');
@@ -903,9 +909,11 @@ export function App({ runtime }: { runtime: Runtime }) {
             temples={temples}
             donations={history}
             authenticated={walletReady}
+            busy={busy}
             onConnect={() => void connectWallet()}
             onSignIn={signInWallet}
             onExplore={() => navigate('/temples')}
+            onResolveApprovalOnly={(record, attemptId) => void resolveApprovalOnly(record, attemptId)}
             onPhotoEligibility={getPhotoEligibility}
             onUploadPhoto={publishPhoto}
           />
@@ -1512,9 +1520,11 @@ function HistoryPage(props: {
   temples: Temple[];
   donations: Donation[];
   authenticated: boolean;
+  busy: boolean;
   onConnect: () => void;
   onSignIn: () => void;
   onExplore: () => void;
+  onResolveApprovalOnly: (donation: Donation, attemptId: string) => void;
   onPhotoEligibility: (donationId: Hex) => Promise<PhotoEligibility>;
   onUploadPhoto: (donationId: Hex, file: File, displayName: string) => Promise<PhotoUploadResponse>;
 }) {
@@ -1541,24 +1551,40 @@ function HistoryPage(props: {
             <section key={month} className="history-month">
               <h2>{month}</h2>
               <div className="history-items">
-                {items.map((item) => (
-                  <article className="history-item" key={item.id}>
-                    <span className="history-dot" />
-                    <div className="history-details">
-                      <strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong>
-                      <span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span>
-                      <span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span>
-                      {item.status === 'confirmed' && (
-                        <HistoryPhotoShare
-                          donationId={item.id}
-                          onPhotoEligibility={props.onPhotoEligibility}
-                          onUploadPhoto={props.onUploadPhoto}
-                        />
-                      )}
-                    </div>
-                    <strong className="history-amount">{formatUsdc(item.amount)}<small>USDC</small></strong>
-                  </article>
-                ))}
+                {items.map((item) => {
+                  const approvalAttemptId = item.approvalAttemptId;
+                  return (
+                    <article className="history-item" key={item.id}>
+                      <span className="history-dot" />
+                      <div className="history-details">
+                        <strong>{templeNames.get(item.templeId) ?? 'Temple support'}</strong>
+                        <span>{new Date(item.createdAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })} · Remote support</span>
+                        <span className={`status-pill ${statusTone(item.status, item.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(item.status, item.mintStatus)}</span>
+                        {item.status === 'intent' && approvalAttemptId && !item.donateAttemptId && !item.txHash && (
+                          <div className="pending-box">
+                            <strong>Approval-only attempt · no donation sent</strong>
+                            <p>Central can verify this attempt. Continue only if no MetaMask wallet request is open.</p>
+                            <button
+                              className="button button-secondary button-wide"
+                              onClick={() => props.onResolveApprovalOnly(item, approvalAttemptId)}
+                              disabled={props.busy}
+                            >
+                              {props.busy ? 'Checking…' : 'Verify and resolve approval-only attempt'}
+                            </button>
+                          </div>
+                        )}
+                        {item.status === 'confirmed' && (
+                          <HistoryPhotoShare
+                            donationId={item.id}
+                            onPhotoEligibility={props.onPhotoEligibility}
+                            onUploadPhoto={props.onUploadPhoto}
+                          />
+                        )}
+                      </div>
+                      <strong className="history-amount">{formatUsdc(item.amount)}<small>USDC</small></strong>
+                    </article>
+                  );
+                })}
               </div>
             </section>
           ))}

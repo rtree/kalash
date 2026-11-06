@@ -135,6 +135,10 @@ test('real operation registration is idempotent and unknown submission cannot be
   assert.equal((await request(`/api/donations/${approval.id}/operation`, {
     method: 'POST', bearer: token, body: { operation: 'approve', attemptId: approvalAttemptId },
   })).status, 200);
+  const history = await (await request('/api/history', { bearer: token })).json();
+  assert.equal(history.donations.find((entry) => entry.id === approval.id).approvalAttemptId, approvalAttemptId);
+  const foreignHistory = await (await request('/api/history', { bearer: otherToken })).json();
+  assert.equal(foreignHistory.donations.some((entry) => entry.id === approval.id), false);
   const missingWalletConfirmation = await request(`/api/donations/${approval.id}/resolve-approval`, {
     method: 'POST', bearer: token, body: { attemptId: approvalAttemptId },
   });
