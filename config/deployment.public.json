@@ -6,5 +6,8 @@
   "vaultTxHash": "0x7377f2b6b10fe35f9baf3680f1a827829cab609b6e6c1af83790d1f930a968ec",
   "stampTxHash": "0x02b3d8f17b64dd27c296799f7bd22d2f96c33adcfbad473f9064b0ec3041eb96",
   "startBlock": "54871753",
-  "compiler": "solc 0.8.38 / shanghai"
+  "compiler": "solc 0.8.38 / shanghai",
+  "cashFeeVault": "0xe98c72e11570b017da8ad08e2d94fb295cbaef81",
+  "cashFeeVaultTxHash": "0xaf4bad9c3e426c743488f970148dace82d46f3fb7119f08b2f9d597bc59a9158",
+  "cashFeeStartBlock": "55412942"
 }

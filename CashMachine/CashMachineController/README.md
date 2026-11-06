@@ -5,6 +5,24 @@ the distinct product/process identity `KALASH.CashMachineController`. It
 contains the local REST API Server process host, ITL adapter and separately
 gated local cash diagnostic; build outputs are ignored by Git.
 
+## Interim ledger policy
+
+Set `KALASH_CASH_POLICY=interim-ledger` on both Central and the resident
+Controller for the owner-approved hackathon policy. The default is `strict`;
+invalid values must fail startup. Signed QR consent, device errors, a single
+consuming owner and once-only physical commands remain required.
+Historical accounting differences are retained as audit evidence rather than
+requiring exact ledger/inventory equality before another signed intake.
+An unresolved physical payout is never automatically replayed.
+
+The fee is 3% of recognized ledger cash, not 3% of machine inventory. Once
+canonically settled, the administrator approves all currently available
+Payout-compartment notes using a fresh physical baseline. Differences from
+recognized ledger cash are recorded, and Cashbox notes are excluded.
+The normal product-cash and product-payout authorization flags still apply.
+`Run-Local.ps1 -Interim` sets only this policy for the child process and restores
+the caller's environment on exit; it does not grant cash or payout authorization.
+
 ## Product payout safety gate
 
 The resident `run` host wires payout through the existing serialized product

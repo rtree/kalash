@@ -180,6 +180,16 @@ KalashStamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 
 ### M4 cash fee and payout (implementation in progress)
 
+The owner-approved Interim variant uses `KALASH_CASH_POLICY=interim-ledger`
+on Central and Controller (default `strict`, invalid values reject startup).
+Signed QR consent still starts each reception. Historical accounting
+differences remain auditable but do not by themselves block a new intake.
+The fee basis is recognized ledger cash at 3%, independently of the live
+Payout-compartment baseline. After canonical fee verification, explicit
+administrator approval pays out all actual Payout notes; value differences
+are retained, not turned into invented donation credit or ignored device
+faults. Cashbox remains excluded and uncertain physical commands never retry.
+
 The owner-approved demo administrator/fee payer for temple-01 is explicitly
 registered in `config/temple-admins.public.json`. Wallet ownership is verified
 through the existing one-use SIWE/Firebase session; this demo role does not

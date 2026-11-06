@@ -29,6 +29,17 @@ Owned event polling stays at 200ms and ESCROW decisions remain within 2 seconds.
 Deadline stops new notes while in-flight notes are resolved; local closeDetail
 distinguishes causes without adding Central wire reasons.
 
+2026-11-07 Interim owner override: keep signed QR consent and resident Cash ON,
+but historical ledger/inventory mismatches alone must not prevent the next
+intake. Preserve discrepant evidence; do not fabricate reconciled donations.
+Recognized ledger cash is settled at the existing 3% USDC fee. After that fee
+is canonically paid, a fresh administrator approval may dispense all actual
+Payout-compartment notes even when their value differs from credited ledger
+cash. Cashbox notes are physically unavailable and excluded. Device faults,
+unresolved physical commands/escrow and unknown payout no-retry protections
+remain. This explicit Interim mode is distinct from the strict production
+policy; historical records and donation recipients remain unchanged.
+
 ```
 ### 最初の操作に適用する短いルールとチェック
 
