@@ -16,10 +16,6 @@ const approvalEventAbi = parseAbi([
   'event Approval(address indexed owner,address indexed spender,uint256 value)',
 ]);
 
-const approvalEventAbi = parseAbi([
-  'event Approval(address indexed owner,address indexed spender,uint256 value)',
-]);
-
 export function donationReference(id: unknown) {
   requireValue(typeof id === 'string' && /^0x[0-9a-f]{64}$/i.test(id), 400, 'INVALID_ID', 'Invalid donation ID.');
   return db.collection('donations').doc(id.toLowerCase());

@@ -2,13 +2,13 @@
 
 ## 現在のゴール
 
-- ゴール：M2 写真共有・公開ボード。ユーザー選択／撮影→ローカルプレビュー→明示同意→非公開Storage保存→同意済みボード表示→本人による取り下げを通し、ポイント別サイズを検証する。
+- ゴール：M1 モバイル寄付。MetaMask内蔵Browserのapprove-only停滞を安全に解決し、新しい0.01 test USDC寄付→Central確認→Stamp→Collection再読込を本人のWallet承認で通す。その後M2写真共有へ戻る。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
-- Cloud Run：`kalash-central-00009-hgk`、source `65cf51cee9a7c908c516d7aac7e4448b940d358e`。ローカルはAPI参照用、mint無効。
+- Cloud Run：最新ready revision `kalash-central-00011-z4c`、health ready・Base Sepolia・mint有効、source `0b2a150dfc537b7d8a2a87d5ef53f1d86abe8f0d`。ローカル変更は未配備。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：期限切れApproval-only操作の安全な解決API/UIをCloud Runで確認する。未期限intentは解除・再送しない。解決完了後に限り、本人のWallet確認で0.01 test USDCのモバイル試験を一度行う。
+- 次の作業：`resolve-approval`のローカル変更を保存しCloud Build／Cloud Runへ反映する。最新intentは期限切れだが、APIがチェーンイベント・Allowanceを再検証してから本人確認dialogを進める。新しいWallet署名／送金は本人のみが承認する。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -35,7 +35,7 @@
 | M2 写真 | `kalash-donation-photos` はasia-south1、Uniform access、Public access prevention有効、soft-delete 0。Cloud Run runtime SAだけがアプリ用ObjectAdmin | 現行写真API／公開ボードを維持 | 個人写真の追加公開には都度明示同意 |
 | M2 カメラ | Android MetaMask内蔵Browserで`getUserMedia`が起動し、撮影・閉じる操作を表示。撮影・アップロードはせずStreamを停止 | 再度撮影する場合は所有者が操作・確認 | 許可プロンプトは本人操作。許可だけでは撮影・公開しない |
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
-| M1/Mobile Approval | MetaMaskのAllowance確認ポップアップは現在出ていない（ユーザー確認）。現intentは02:59:43Z作成、03:09:43Z期限。approveのみ、txHash/donateAttemptなし、Approval/Donatedイベント0、Allowance 0 | 配備済み`expire-approval` APIを期限後に再照合 | Browser local state/Firestoreを手動消去しない。本人がWallet requestなしを確認し、確認dialogを選んでから続行 |
+| M1/Mobile Approval | 現intent `0x9c721a5a…2932e`は02:59:43Z作成、03:09:43Z期限、Firestore status=`intent`。登録operationはapproveのみ（10000 units、USDC宛）、donateAttempt/txHashなし。期限切れ。過去確認ではAllowance popupなし、Approval/Donated event 0、Allowance 0 | 最新の`resolve-approval`を配備し、owner・操作・receipt/event・Allowanceを再検証する。live Centralはrevision `00011-z4c` / source `0b2a150`で未対応 | MetaMask requestが開いていないことを本人が確認し、Central dialogを明示承認。古い署名を手動送信しない。新規0.01送金はWalletで本人が承認 |
 | M3/M4 ITL | 保護APIは認証前HTTP401（認証失敗とは未確定） | 後続ゴールで安全な資格情報を用意して認証 | 紙幣・払い出しは人の立ち会いが必要 |
 
 ## M1の検証証跡
@@ -64,10 +64,10 @@
 - 端末はWindowsからADB 37.0.1で認識。Samsung SM_S942Z、Android 16、物理1080×2340。Chromeは`com.android.chrome`、MetaMaskは`io.metamask`。
 - MetaMask内蔵DApp BrowserでKALASHのHistory/Collection・写真操作を表示。通常Chrome＋WalletConnectのVerifyWalletは`personal_sign` unavailableで失敗したため、認証を迂回しない。
 - Historyへ表示される2件のrecent donationsはどちらもPC Chrome起点で、モバイル購入ではない。3件目の送金は行わない。
-- モバイルDonateボタンはapprove-only操作の途中状態でdisabled。Firestoreの現intentは02:59:43Z作成、03:09:43Z期限、approve operationのみでtxHash/donateAttemptなし。ユーザーによるとAllowance popupは出ていない。
+- MetaMask内蔵BrowserのDonateはapprove-only操作の途中状態でdisabled。最新Firestore intentは`0x9c721a5a…2932e`、02:59:43Z作成、03:09:43Z期限。status=`intent`、approve operationのみ（attempt `29b1b082…`）、txHash/donateAttemptなし。端末foregroundはMetaMask。ユーザーは電話後MetaMaskへ復帰したと報告。
 - 失効済みapprove-only intent 3件は開始後600ブロック内にUSDC Approval/Vault Donatedがなく、Allowance 0。
-- `POST /api/donations/:id/expire-approval`を配備。本人所有、期限切れ、approveのみ、donateAttempt/txHashなし、署名deadlineまでの全ブロック内にDonatedなし、Allowance 0の場合だけintentをexpiredへ更新。binary searchでdeadline-valid最終blockを特定し、RPC上限200-block chunksで照合。Firestore記録削除・approve・donateはしない。型チェック、build、局所9件、実API7pass/0skip。
-- 現intentはまだ期限内のためresolver未実行。期限後にMetaMask requestなしを本人確認し、アプリの確認dialogを承認した場合だけ解決する。その後に限り、0.01 test USDCのモバイル試験を別のWallet確認で行う。
+- 既存版は期限後だけの解決だった。`src/server/donations.ts`のローカル変更は、approve-only・owner・イベント不在・Allowance 0を再検証し、deadline前は`cancelled`、期限後は`expired`とする。期限前cancelは署名を無効化せず期限まで有効であることを表示。署名・送金・Firestore削除はしない。
+- ローカル型チェック/buildと局所9件（skipなし）は合格。API testにはactive donate拒否・Wallet確認必須・期限前cancel・冪等性の検査を追加済み。残り：明示パスのcommit/push、Cloud Build、Cloud Run配備、live API test。その後、本人のMetaMask requestなし確認とCentral dialog承認を待って既存intentを解決する。新しい0.01寄付は既存intent解決後のみ。
 - 予期しないMetaMaskページが開いた場合は操作・入力しない。所有者が正規KALASH画面へ戻したことを確認する。Wallet unlock、生体認証、カメラ権限、Spend/Donate署名は本人が行う。
 
 ## 過去のM1調査（要約）
@@ -82,4 +82,4 @@
 - 完了：M1全体、delegated receipt復旧、M2のprivate photo API/boardとカメラ実装、PC MetaMaskの実寄付、写真のpublic listing。
 - 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
 - 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
-- 次の一手：Cloud Build/配備後、MetaMask内蔵Browserで確認dialogを本人が承認した場合だけexpired approvalを解決する。その後に限り、Androidで0.01 test USDCの送金画面を確認し、署名は本人に承認してもらう。
+- 次の一手：Cloud Build/配備後、必須API testでlive Centralを検証する。AndroidでMetaMaskのWallet requestが開いていないことを本人が確認した後に、正規KALASH画面のresolve dialogを本人操作で承認する。成功後に限り、Base Sepoliaの0.01 USDC寄付画面へ進み、署名・送金は本人が承認する。
