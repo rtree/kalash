@@ -37,7 +37,7 @@
 | M2 | M2 | Integrator：写真・ボード | M1-e2e | human-wait（後回し） | 写真共有→Devotee board表示は本人／API確認済み。2026-11-06本人指示で取り下げ追加作業は後続へ。既存本人withdrawは維持。残るcamera/size検証も未完として保持 |
 | M5a-device-state | M5a | Integrator：ATM/Central read-only readiness | M1-e2e | doing | Controller heartbeat/USB disconnect/default unknownでCash disabled・Crypto available。局所health判定を実装。実Central API未検証、現金命令なし |
 | M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | doing | explicit visit claim→kind=1 intent→通常receipt検証・Stamp→ATM reset、同じIDで冪等。コード／型チェック済み、実Central API未検証 |
-| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | human-wait | PCの`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`をpairし、スマホMetaMaskから本人の0.01 USDC onsite test→Central/receipt/mint/Collection→ATM idleを確認 |
+| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | human-wait | PCで画面pairing完了（本人確認 2026-11-06 10:48Z）。次はCrypto受付QR→MetaMask→claim、その後本人の0.01 USDC onsite test→Central/receipt/mint/Collection→ATM idle |
 | M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | human-wait | コード／live API完了。実機MetaMaskのapproval／donation・receipt・mint・Collection・ATM復帰は本人確認待ち。Cash disabledのまま。次のM3を完了したとは扱わない |
 | M3-itl-contract | M3準備（M5aと並行） | Integrator：メーカーREST API契約照合 | なし | todo | 非再配布のメーカー資料で版・認証・起動・loopback契約を照合し、検証済み要点のみSDDへ記録。配布物はGitへ入れず、実機操作なし |
 | M3-controller-host | M3準備（M5aと並行） | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | todo | 専用.NET 10ホストからローカルRESTAPIServerを子起動・準備確認・終了し、自分が起動した子だけ管理。loopback限定・fake child試験。現金命令／サービス登録なし |
@@ -110,8 +110,8 @@
 - `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm run typecheck`、`pnpm run build`成功。Focused unit suiteは12/12成功・skipなし。
 - Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815`成功、image `central:dbb7efa`をrevision `00018-dgg`へ配備。`/api/health` ready・Base Sepolia・sourceCommit full SHA一致。ATM shell route HTTP200。
 - 実Central `pnpm run test:atm`は認可・pairing・expiry・claim・kind=1 intentを8/8成功・skipなし。未接続／古いhealthではCash disabled・Crypto available、Controller healthがreadyでもM5aではCash disabled。claim・intentの競合／再試行も実Firestoreで成功。API testは送金・mint・写真操作なし。
-- `atm-01`の登録済み画面URLは`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`。Pairing code発行・screen pairing・QR実機・MetaMask送金はまだ未実施。
-- 次：TASKSの結果をcommit/push。本人がPCとMetaMask mobileを操作できる時間にPairing codeを発行し、screen pairing→QR→明示claim→0.01 USDC承認・送金→Central receipt/mint→Collection→ATM idleを確認する。支払い署名は本人の明示承認後だけ。未知の操作は再送しない。
+- `atm-01` の登録済み画面URLは`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`。画面Pairingは本人が成功確認。QR発行／スマホ到達／claim／MetaMask送金／Central stampは未実施。
+- 次：PC ATM画面で「Donate with Crypto」を押しQRを表示→スマホ外部QR readerからMetaMask DApp Browserで開く→寺院・ATMを確認してWallet接続／VerifyWallet／明示Join。送金ボタン前で一度結果を共有し、0.01 USDC承認／送金は本人のMetaMask確認・明示承認後だけ進める。未知の操作は再送しない。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 
