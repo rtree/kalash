@@ -42,7 +42,7 @@
 | M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | Manual v14 p.182のSpectral Payout Route=1、NV4000用Postman例Route=3、acceptRoute=7の読戻しを区別。別firmware/datasetへ一般化しない |
 | M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。18件のController tests pass。 |
 | M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | done | Stage 1 verified。Stage 2 OpenConnection一回成功、6 route-result=true、status DISABLED。GET readback deviceModel/type/base=2/3/0、firmware/dataset一致、isOpen/isStarted=true、deviceError/dispenseState=0、noteInEscrow=false。6 INR levels/counters/currency取得。DisconnectDevice成功、connected list 0、所有REST child正常停止。現金操作なし |
-| M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
+| M3-cash | M3 | Integrator：Central／ATM／Controller | M3-device | blocked | Blocker M3-CASH-ACCOUNTING in [ISSUES.md](../ISSUES.md): cash settlement/fee contract and stamp kind are not defined consistently with DonationVault, KalashStamp and Donation types. Until decided, no Cash enablement, acceptor command, note insertion, or cash donation/mint. |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
