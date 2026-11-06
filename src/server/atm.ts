@@ -55,6 +55,12 @@ function validAtm(data: AtmRecord | undefined): AtmRecord {
     403, 'ATM_UNAVAILABLE', 'This ATM is not registered for onsite reception.');
   return data;
 }
+export async function validateControllerCredential(atmId: string, authorization: string | undefined) {
+  const atm = validAtm((await atmReference(atmId).get()).data() as AtmRecord | undefined);
+  const token = authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+  requireValue(token && credentialHash(token) === atm.credentialHash,
+    401, 'CONTROLLER_AUTH_REQUIRED', 'A registered Controller credential is required.');
+}
 function screenCredential(cookie: string | undefined) {
   const value = cookie?.split(';').map((part) => part.trim())
     .find((part) => part.startsWith(`${SCREEN_COOKIE}=`))?.slice(SCREEN_COOKIE.length + 1);
@@ -96,6 +102,7 @@ export async function createPairing(atmId: string, authorization: string | undef
   return { code, expiresInSeconds: PAIR_TTL_MS / 1000 };
 }
 export async function reportControllerHealth(atmId: string, authorization: string | undefined, body: Record<string, unknown>) {
+  await validateControllerCredential(atmId, authorization);
   const allowed = ['sequence', 'reportedAt', 'usbConnected', 'connectionOpen', 'deviceStarted', 'routesVerified', 'pollerOwned', 'deviceId'];
   requireValue(Object.keys(body).every((key) => allowed.includes(key))
     && Number.isSafeInteger(body.sequence) && Number(body.sequence) > 0
@@ -106,13 +113,11 @@ export async function reportControllerHealth(atmId: string, authorization: strin
     && (body.deviceId === null || (typeof body.deviceId === 'string' && body.deviceId.length <= 128)),
   400, 'INVALID_CONTROLLER_HEALTH', 'A recent, sequenced read-only Controller health report is required.');
   const reference = atmReference(atmId);
-  const token = authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
-  requireValue(token, 401, 'CONTROLLER_AUTH_REQUIRED', 'A registered Controller credential is required.');
   let accepted = false;
   await db.runTransaction(async (tx) => {
     const snapshot = await tx.get(reference);
     const atm = validAtm(snapshot.data() as AtmRecord | undefined);
-    requireValue(credentialHash(token) === atm.credentialHash,
+    requireValue(credentialHash(authorization!.slice(7)) === atm.credentialHash,
       401, 'CONTROLLER_AUTH_REQUIRED', 'A registered Controller credential is required.');
     const previous = atm.controllerHealth;
     const sequence = Number(body.sequence);

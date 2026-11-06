@@ -12,7 +12,7 @@ import {
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
-import { claimVisit, closeVisit, createPairing, createVisit, getAtm, getVisit, pairScreen, reportControllerHealth } from './atm.ts';
+import { claimVisit, closeVisit, createPairing, createVisit, getAtm, getVisit, pairScreen, reportControllerHealth, validateControllerCredential } from './atm.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -129,13 +129,16 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   }
   const controllerRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/(pairing|health)$/);
   if (request.method === 'POST' && controllerRoute) {
-    const body = await jsonBody(request);
     if (controllerRoute[2] === 'pairing') {
-      rateLimit(request, 'atm-pairing', 10);
+      rateLimit(request, `atm-pairing:${controllerRoute[1]}`, 10);
+      await validateControllerCredential(controllerRoute[1]!, request.headers.authorization);
+      const body = await jsonBody(request);
       requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Pairing takes no body fields.');
       return send(response, await createPairing(controllerRoute[1]!, request.headers.authorization));
     }
     rateLimit(request, `controller-health:${controllerRoute[1]}`, 30);
+    await validateControllerCredential(controllerRoute[1]!, request.headers.authorization);
+    const body = await jsonBody(request);
     return send(response, await reportControllerHealth(controllerRoute[1]!, request.headers.authorization, body));
   }
   const atmMatch = path.match(/^\/api\/atm\/([a-z0-9-]+)(?:\/(pair|visits)(?:\/([a-f0-9]{64})\/close)?)?$/);

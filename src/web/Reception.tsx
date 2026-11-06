@@ -115,7 +115,7 @@ export function AtmPage({ atmId }: { atmId: string }) {
     <main className="atm-main">
       <p className="eyebrow">{atm?.name ?? atmId}</p>
       <h1>{atm?.templeName ?? 'Connect this temple screen'}</h1>
-      <div className="notice notice-info" role="status">Crypto is available. Cash is disabled because the cash-machine workflow is not enabled. Do not insert banknotes.</div>
+      <div className="notice notice-info" role="status">Cash is disabled in this phase. Do not insert banknotes.</div>
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
         event.preventDefault();
