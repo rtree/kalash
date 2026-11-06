@@ -71,8 +71,11 @@ An expired approve-only intent may leave a client-side pending operation. Do not
 silently clear it or retry approval. An owner-only recovery endpoint may mark it
 expired only when the immutable intent is expired, its registered operations are
 approval-only, no `donateAttemptId` or `txHash` exists, a bounded canonical Vault
-event scan finds no matching `Donated`, and current Vault USDC allowance is zero.
-Preserve the operation history and resolution block/allowance evidence. The UI must
+event scan covers every block timestamp that could satisfy the signed deadline and
+finds no matching `Donated`, and current Vault USDC allowance is zero. Find the last
+deadline-valid block by timestamp (binary search), then query logs in RPC-compatible
+200-block chunks; reject requests requiring more than 20,000 blocks. Preserve the
+operation history and resolution block/allowance evidence. The UI must
 ask the owner to confirm no wallet request is still open; this path never signs,
 approves, donates, refunds, or deletes the record.
 

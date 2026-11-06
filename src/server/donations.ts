@@ -95,10 +95,30 @@ export async function resolveExpiredApproval(id: unknown, owner: Address, attemp
 
   const start = BigInt(record.startBlock);
   const latest = await chain.getBlockNumber();
-  requireValue(latest >= start && latest - start < 20000n,
+  requireValue(latest >= start,
     409, 'RECONCILIATION_REQUIRED', 'This intent is outside the safe on-chain check window; operator review is required.');
-  for (let from = start; from <= latest; from += 200n) {
-    const to = from + 199n < latest ? from + 199n : latest;
+  const deadline = BigInt(record.deadline);
+  const latestBlock = await chain.getBlock({ blockNumber: latest });
+  requireValue(latestBlock.timestamp > deadline, 409, 'CHAIN_TIME_NOT_EXPIRED',
+    'The latest Base Sepolia block is not past this intent deadline yet.');
+  const startBlock = await chain.getBlock({ blockNumber: start });
+  let throughBlock = start - 1n;
+  if (startBlock.timestamp <= deadline) {
+    let low = start;
+    let high = latest;
+    while (low < high) {
+      const middle = (low + high + 1n) / 2n;
+      const block = await chain.getBlock({ blockNumber: middle });
+      if (block.timestamp <= deadline) low = middle;
+      else high = middle - 1n;
+    }
+    throughBlock = low;
+  }
+  const blockCount = throughBlock >= start ? throughBlock - start + 1n : 0n;
+  requireValue(blockCount <= 20000n,
+    409, 'RECONCILIATION_REQUIRED', 'This intent is outside the safe on-chain check window; operator review is required.');
+  for (let from = start; from <= throughBlock; from += 200n) {
+    const to = from + 199n < throughBlock ? from + 199n : throughBlock;
     const events = await chain.getLogs({
       address: deployment.vault, event: vaultAbi[1], args: { donationId: record.id },
       fromBlock: from, toBlock: to, strict: true,
@@ -131,7 +151,7 @@ export async function resolveExpiredApproval(id: unknown, owner: Address, attemp
         attemptId,
         resolvedAt,
         fromBlock: start.toString(),
-        throughBlock: latest.toString(),
+        throughBlock: throughBlock.toString(),
         allowanceUnits: '0',
         donatedEvents: 0,
       },
