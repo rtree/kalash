@@ -228,7 +228,7 @@ export function App({ runtime }: { runtime: Runtime }) {
   const { address, chainId, isConnected, connector, status: walletStatus } = useAccount();
   const { connectors, connectAsync, isPending: connecting } = useConnect();
   const { disconnect } = useDisconnect();
-  const { data: walletClient } = useWalletClient();
+  const { data: walletClient, refetch: refreshWalletClient } = useWalletClient({ chainId: CHAIN_ID });
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const { switchChainAsync } = useSwitchChain();
   const { writeContractAsync } = useWriteContract();
@@ -477,15 +477,19 @@ export function App({ runtime }: { runtime: Runtime }) {
   };
 
   const authenticateWallet = async () => {
-    if (!address || !walletClient) throw new Error('Connect a wallet before continuing.');
+    if (!address || !isConnected) throw new Error('Connect a wallet before continuing.');
     setConnectingAuth(true);
     try {
       if (chainId !== CHAIN_ID) await switchChainAsync({ chainId: CHAIN_ID });
+      const signingClient = walletClient ?? (await refreshWalletClient()).data;
+      if (!signingClient) {
+        throw new Error('MetaMask is connected, but its signing session is not ready. Reconnect the wallet and try again.');
+      }
       const challenge = await api<{ nonce: string; message: string }>('/api/auth/challenge', {
         method: 'POST',
         body: JSON.stringify({ wallet: address }),
       });
-      const signature = await walletClient.signMessage({ account: address, message: challenge.message });
+      const signature = await signingClient.signMessage({ account: address, message: challenge.message });
       const result = await api<{ customToken: string }>('/api/auth/verify', {
         method: 'POST',
         body: JSON.stringify({ nonce: challenge.nonce, signature }),
