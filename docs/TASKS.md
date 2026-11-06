@@ -2,7 +2,7 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M5a 現地Crypto ATM連携。本人の指示により、NV200のUSB未接続を安全な試験状態としてCashを無効化し、Cryptoのみ選べるパターンを完成する。次の独立ゴールはM3現地現金。写真取り下げは後回し。M1寄付・本人写真掲載は成功済みのまま維持。
+- 現在のゴール：M5a 現地Crypto ATM連携。Cashを常時無効にしてCryptoのみ選べるパターンを完成する。次の独立ゴールはM3現地現金。写真取り下げは後回し。M1寄付・本人写真掲載は成功済みのまま維持。
 - 成功条件：認可ATMのdeeplink QR→MetaMask→SIWE／明示visit claim→電話でamount・必要時approve・kind=1 donate→Central confirmed/minted→Collection再読込とATM初期画面復帰。未接続／不明時Cash無効・Crypto有効。模擬状態やUI表示を実寄付・Stampの成功証拠にしない。
 - 今回の担当：Integrator一人が本体Central／Web／Controller／テストとSPEC／SDD／TASKS・Gitを担当。PoCファイルと他担当の変更には触れない。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
@@ -12,6 +12,7 @@
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
 - Cloud Run：M5a revision `kalash-central-00018-dgg`、image `central:dbb7efa`。Health ready・Base Sepolia・mint有効。health応答のsourceCommitは完全SHA `dbb7efa47df17107a6843f46961c5d55881712f9` と一致。
+- Central ATM `atm-01` を本番Firestoreへ登録。Cash acceptanceはfalse。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
 - 次の作業：M5a実装をcommitしCloud Build/Cloud Runへ反映、実Central APIとMetaMask deeplink経路を検証する。Cash commandは作らない。成功済みの寄付や本人写真を再送／再公開しない。
@@ -36,8 +37,8 @@
 | M2 | M2 | Integrator：写真・ボード | M1-e2e | human-wait（後回し） | 写真共有→Devotee board表示は本人／API確認済み。2026-11-06本人指示で取り下げ追加作業は後続へ。既存本人withdrawは維持。残るcamera/size検証も未完として保持 |
 | M5a-device-state | M5a | Integrator：ATM/Central read-only readiness | M1-e2e | doing | Controller heartbeat/USB disconnect/default unknownでCash disabled・Crypto available。局所health判定を実装。実Central API未検証、現金命令なし |
 | M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | doing | explicit visit claim→kind=1 intent→通常receipt検証・Stamp→ATM reset、同じIDで冪等。コード／型チェック済み、実Central API未検証 |
-| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | human-wait | 未接続時Crypto only、固定URL MetaMask経路、本人の0.01 USDC onsite test、Central/receipt/mint/Collection、ATM画面復帰 |
-| M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | doing | onsite Crypto end-to-end。Cash disabledのまま。次のM3を完了したとは扱わない |
+| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | human-wait | PCの`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`をpairし、スマホMetaMaskから本人の0.01 USDC onsite test→Central/receipt/mint/Collection→ATM idleを確認 |
+| M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | human-wait | コード／live API完了。実機MetaMaskのapproval／donation・receipt・mint・Collection・ATM復帰は本人確認待ち。Cash disabledのまま。次のM3を完了したとは扱わない |
 | M3-device | M3（次） | Integrator：CashMachineController/ITL | M5a | todo | USB接続後、認証・poller所有・接続／経路／在高・実Readyを確認 |
 | M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
@@ -104,11 +105,11 @@
 
 - UTC 2026-11-06 10:26以降／再開約158分。本人優先順位：M5a onsite Crypto while cash is disabled → next M3 cash. SPEC/SDD/TASKSはこの分割と写真取り下げ後回しに一致。実稼働版は`00018-dgg`／image `central:dbb7efa`。
 - M5a実装：read-only healthによりmissing/stale/disconnected/readyを分類。ただしこの段階では状態に関係なくCash acceptanceはfalse。ATM screen pairing、短命deeplink受付、本人claim、現地kind=1 intent、同じreceipt verification/mint/points/Collectionを接続。Donation unknown中はATMをロックし、確定後だけ同じvisitを解除する。
-- `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm exec tsc --noEmit`と`pnpm run build`成功。`atm.test.ts`、`shared.test.ts`、`donation-receipt.test.ts`、`wallet-network.test.ts`、`policy.test.mjs`は12/12成功・skipなし。APIテストの構文検査成功。実Central APIとオンチェーン送金/mintは未実施。
+- `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm run typecheck`、`pnpm run build`成功。Focused unit suiteは12/12成功・skipなし。
 - Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815`成功、image `central:dbb7efa`をrevision `00018-dgg`へ配備。`/api/health` ready・Base Sepolia・sourceCommit full SHA一致。ATM shell route HTTP200。
-- 実Central `pnpm run test:atm`のAPI認可・pairing・expiry・claim・kind=1 intent試験は初回に認証順序問題を検出。コードを修正・再配備後、テストfixtureのhealth状態共有を分離して再実行し8/8成功・skipなし。未接続／古いhealthではCash disabled・Crypto available、Controller健康報告がreadyでもM5aではCash disabled。claim・intentの競合／再試行も実Firestoreで成功。
-- 変更中のpathはM5aのsource／docs／testsのみ。実サービスのAPI検証と現地Crypto実送金はこれから。
-- 次：test fixture修正とTASKS証拠をcommit/push。実機ではPCの`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`にCrypto-only画面を用意し、MetaMask mobile deeplink・本人claim・金額確認を進める。オンチェーン送金・Stamp・Collection・ATM resetは本人承認後の0.01 USDC試験で確認。未知の操作は再送しない。
+- 実Central `pnpm run test:atm`は認可・pairing・expiry・claim・kind=1 intentを8/8成功・skipなし。未接続／古いhealthではCash disabled・Crypto available、Controller healthがreadyでもM5aではCash disabled。claim・intentの競合／再試行も実Firestoreで成功。API testは送金・mint・写真操作なし。
+- `atm-01`の登録済み画面URLは`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`。Pairing code発行・screen pairing・QR実機・MetaMask送金はまだ未実施。
+- 次：TASKSの結果をcommit/push。本人がPCとMetaMask mobileを操作できる時間にPairing codeを発行し、screen pairing→QR→明示claim→0.01 USDC承認・送金→Central receipt/mint→Collection→ATM idleを確認する。支払い署名は本人の明示承認後だけ。未知の操作は再送しない。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 
