@@ -84,3 +84,12 @@
 - 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
 - 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
 - 次の一手：MetaMask内蔵Browserを再読込し、Historyの古い期限切れintentを確認。HistoryのAbandon/resolve dialogはCentral状態確認だけで、MetaMask承認ではない。本人がno-requestを確認して期限切れintentを解決後、Donateを一度だけ開始し、MetaMaskの正確なUSDC approval requestを確認する。promptが出なければそこで停止して画面・wallet traceを確認し、再送やAbandonを重ねない。
+
+
+## モバイル導線の机上調査（文書ブランチ）
+
+- UTC 2026-11-06T04:42:21Z。対象：M1 mobile／M2写真、およびM3/M5 QR導線の設計準備。参照版 `5bc559a`、その版のSDD §3/§6/§7とSPEC §4/§5を照合。現行設計の変更なし、提案は採用・実装前。
+- 成果：`docs/issue-penetrator/mobile-wallet-verification-playbook.md` と `docs/issue-penetrator/kalash-metamask-browser-journey.md`。公式MetaMask/WalletConnect資料、Uniswap/Aave公開実装を照合し、同一操作のゲートと内蔵ブラウザ優先導線を作成。この文書commitに含む。
+- 検証：調査担当による出典・API/返却形式・記述レビュー、相互リンク・Markdown差分確認。今回の実機操作・送金・撮影・配備・製品テストはなし。ソース例を実機成功扱いしない。
+- 制約：調査環境のHTTPプロキシ接続失敗により一般Web直接取得不可。GitHub connectorで公式原文と実装を取得。通常git push経路を使わず文書専用ブランチへGitHub APIで保存する。
+- 次の一手：実装担当が非秘密URLのdeeplinkとinjected経路を確認し、試験用QRのnative scanner返却・Cancel・復帰、既存confirmed寄付からcamera preview/破棄を確認する。本人の認証・署名・権限・公開同意は実機試験時に本人が行う。今回人の操作待ちはなし。主ブランチの既存進捗・未完了判定は変更しない。
