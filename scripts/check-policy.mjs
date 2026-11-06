@@ -8,7 +8,8 @@ const fail = (message) => { throw new Error(`Dependency policy: ${message}`); };
 const read = (file) => readFileSync(file, 'utf8');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 export const policyFingerprint = () => hash(
-  ['package.json', '.npmrc', 'pnpm-workspace.yaml', '.node-version'].map(read).join('\n'),
+  ['package.json', '.npmrc', 'pnpm-workspace.yaml', '.node-version']
+    .map((file) => read(file).replace(/\r\n/g, '\n')).join('\n'),
 );
 
 function pnpm(...args) {

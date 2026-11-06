@@ -110,6 +110,7 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 17:08／今回再開約67分、M3配備境界。committed source `f0caf3b` のCloud Build `8298c8ab-29dc-4143-b4c0-11b673ce1831` はstep0 policyで停止、配備なし。原因をhashで特定：Windowsの`.npmrc`/workspace/Node版のCRLFとGit archiveのLF差だけでpolicy fingerprintが不一致（lockfileは一致）。4 policy入力の改行だけを正規化し、実設定・版・release-age・lock SHAの検証は維持。570 release再検証、policy2/2・skip0。次は修正版committed sourceのbuild一回、成功後に同一test/demoサービスへ配備。現金gateはoffのまま。
 - UTC 2026-11-06 16:40以降／今回再開約40分、M3-cash-local。未commit診断回収を除いたstaged snapshotからController全46試験・warning/error0を独立確認。新規snapshotのassets未作成（NETSDK1004）は空のlocal feedでpackage-free restoreして復旧、外部依存取得なし。実C# HTTP serializationの4イベントをTS validator/ledgerへ通す回帰を追加し、Central/Web局所47/47・skip0、typecheck/build再合格。製品pathから診断回収への依存なし。
 - 次：製品Controller変更をcommit/pushし、既承認のtest/demo Centralへ同じcommitted sourceを配備してrevisionと実APIを確認する。現金フラグ・Controller製品gateは有効化しない。実紙幣・Wallet署名・Payoutは未実施、実機のreadback/event/counter/人の受取確認は未検証のまま。
 - UTC 2026-11-06 16:30／今回再開約29分、M3-cash-local。Central/Controllerを2担当で実装し、Integratorが型・UI・Doneと検証入口を接続。`pnpm run test:cash` 46/46・skip0、typecheck/build成功（16:26）。package script変更でpolicy fingerprintが変わり一度停止したため、既存release verifierで570件を再検証して復旧。依存追加・installなし。Dockerfileにも必須cash HTTP/store試験を追加。

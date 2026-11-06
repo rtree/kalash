@@ -202,6 +202,12 @@ excess wallet balance does not expand budget. Deployment budget .01 ETH likewise
 
 ## 5. Dependency and validation entry
 
+Policy fingerprints normalize CRLF to LF for the four policy input files so
+Windows checkouts and committed-source Linux archives produce identical evidence.
+The lockfile SHA remains byte-exact; versions, effective settings and the
+168-hour release checks are unchanged. The policy test rejects real content
+changes and incorrect Node versions on either host.
+
 Pinned Node 26.13.0 (Lithium LTS), pnpm 10.34.9.
 `node scripts/check-policy.mjs` precedes acquisition and every validation entry.
 First install only: `pnpm install --ignore-scripts`; then verify publication timestamps
