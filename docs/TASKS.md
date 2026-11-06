@@ -8,6 +8,7 @@
 - 現在の障害：製品の紙幣イベント→Central台帳→Done確定の未接続と型エラーは解消、配備も完了。残る主障害は実機のACCEPTING／ESCROW→STORED／counter形状を署名済み受付で実証していないこと。実イベント→実Firestore寄付確定→mint receiptも未確認。製品gateとCentral現金受付は無効のまま、立ち会い・試験一枚・事前在高・回収方法を確認してから進む。
 - 今回の実機許可（2026-11-06 18:26Z以降）：本人が立ち会い、Controller起動・atm-01/temple-01の署名済み₹100一枚受付・Done・Base Sepolia Stamp発行を明示許可。本人が署名し、実Ready案内まで投入しない。収納札は機内保管し、後日の正規fee/admin Payoutまで回収しない。追加札・fee送金・Payoutは今回許可に含めない。実機操作はIntegratorのみ。Controller担当は起動/heartbeat接続、Central担当はread-only実DB/receipt証拠確認を準備。ADB端末なし（18:26Z）、phone操作は本人の実QR導線を維持。
 - 本人の別PCに既存ペアリング済みATMブラウザあり。再読込後「Choose how to give」を本人確認、その画面を使用する。Integratorが発行した新pairingコードは未交換で不要（新画面の再ペアリングを依頼しない）。機器port5000 listenerなし。次の技術確認はControllerの実readback→health→ATM Ready接続とmint予算。
+- 実起動で発見した現在の停止点：`48b6c82`を一回起動、OpenConnection完了・route6成功・最終DISABLED。ただし実応答`DeviceStatusResponse.stateAsString`のCONNECTING→CONNECTED→STARTING→STARTED→DISABLEDを製品parserがunknown_device_eventとしてlock。現金flag=false、intakeなし、札投入/Enable/Acceptなし。Controller PID20492だけ停止済み、REST child PID22504は保全。旧finish-initializationは全金種uninhibitedを要求しone100 profileを拒否したため、disconnect/child停止は未実施。初期化イベント対応と、同profileの厳密なstartup-only照合復旧を担当が修正中。無条件lock解除・再Open・第二pollerは禁止。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
@@ -112,6 +113,7 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 18:41以降：実機まで到達して上記parser/profile不一致を特定。raw journalの型と状態のみ読取り、vendorログ/credentials未読。stateはconnectionPending=false、manualEscrow=true、routeResults6、locked=true（unknown_device_eventだけ）、intake=null、outbox0、rawSequence1、pollInFlight=false。cash-enable/署名/紙幣はまだなし。known pre-intake ownerのみ終了後、旧終了helperがinhibit検証で停止。child22504を残し、安全状態・在高・counterの対応profile照合をしてから復旧する。
 - M3実機起動前：今回staged sourceだけの隔離snapshotで全Controller52/52（既存27＋製品25）成功、policy合格。1枚制限・readback heartbeat・自然安全終了を確認。通常runの常駐と要照合時のchild保全を維持。今回commitの製品版を一回だけ起動し、Central現金flagは実Ready/開始在高確認までfalseを維持する。診断未commit差分は使用しない。
 - UTC 2026-11-06 18:35以降、M3実機準備。Central read-only preflight：demo budget未使用、₹100一枚可、atm-01 active/reconciliationなし、cashEnabled=false、Controller未Ready。担当確認でmint有効・残り8件・reserved gas上限まで0.002961095724 ETH・pending job0（予算余力でありWallet残高証明ではない）。read-only台帳/points/canonical mint verifierを追加、12/12試験・skip0。既存実機許可を維持。
 - Controller担当が未接続heartbeatを実readbackから接続し、1枚制限profileを追加（50試験成功報告、まだ実機未起動）。既存regular runを維持し、今回の`--one-100`だけ一回のclose+exact ACK+安全停止後に自然終了する仕上げ中。理由：遠隔toolからCtrl+Cを安全配送できず、プロセス強制終了を通常手順にしないため。次：staged製品差分の検証・保存→一回起動→実Ready/開始在高確認→本人の既存別PCでCash選択・本人QR署名。まだ投入案内は出していない。
