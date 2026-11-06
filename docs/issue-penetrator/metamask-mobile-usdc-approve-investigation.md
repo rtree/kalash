@@ -1,24 +1,24 @@
-# MetaMask内蔵ブラウザでUSDC approveが出ない：原因調査
+# MetaMask内蔵ブラウザのUSDC approve：原因調査とRPC変更後の復旧
 
 調査日：2026-11-06（JST）。対象はKALASHのAndroid MetaMask内蔵ブラウザ。実機試験は別チームが担当し、本調査はコード・依存ソース・保存済み観測記録・上流issueの照合のみ。送金、Wallet操作、製品コード変更、配備、再現試験は実施していない。
 
 参照KALASH：[`7b72c796255f34ae75857dc867ef7f0211e3c1a5`](https://github.com/rtree/kalash/tree/7b72c796255f34ae75857dc867ef7f0211e3c1a5)。この版のTASKSが記録する稼働版は`00016-w6k`、source `1790e57`。最新コード、稼働版、当時の失敗操作を区別する。本書は文書専用ブランチに保存し、本体や別チームのUX PoCを変更しない。
 
-## 0. 追記：入口・写真の成功と本体への取り込み方針（2026-11-06）
+## 0. 最新更新：RPC変更後にモバイル寄付は完走済み
 
-ユーザーは今回、**入口QRをMetaMask内蔵ブラウザで開くDApp deeplink形式にし、KALASHを「モバイルMetaMask内蔵ブラウザ＋PC」前提へ変更する**と決定した。PCは既存のChrome＋MetaMask拡張の経路を基準にする。
+**本件を現在も「Approve未解決」として扱わない。** [main `8a7b887` のTASKS](https://github.com/rtree/kalash/blob/8a7b887fbd5496d78f0b71abe95fb4a8ddb3e7f2/docs/TASKS.md)では、本人がMetaMaskのBase Sepolia RPCを変更した後、0.01 USDCのapproval→donate→Central confirmed/minted→Collection再読込まで成功。receipt・canonical block・Vault Donated・mint receiptも照合済みと記録されている。
 
-- 本人・検証チームの報告では、PCのQR→外部QRリーダー→MetaMask内蔵→指定Cloud Run URLが成功し、queryも保持された。
-- 本体でカメラ起動・撮影・Upload／CommunityBoard掲載まで成功との本人報告がある。
-- 引用されたPoCサマリでは、同じスマホPoC画面の明示接続とcamera preview→停止は残確認。本体での写真成功と混同しない。
+問題時はWallet/providerのRPC準備中に `Custom eth_getBlockByNumber: Unauthorized` が出ており、本人報告のWallet設定hostは `rpc.walletconnect.org/v1`。今回のユーザーの原因報告と、RPC変更後の実成功を運用上の原因・復旧証拠として採用する。どの自動追加処理／過去操作がそのRPCをWalletへ保存したか、全URL・query・エラーの正確な発生層までは、この調査で独立検証していない。
 
-これにより、deeplink入口と写真機能を使う方向へ進める。**本書のApprove不表示を解決済みとする証拠は増えていない。** QR到達、撮影、接続、SIWE、USDC approveはそれぞれ別の境界であり、以下の初発未特定・nested拒否の指摘を引き継ぐ。今回の本体にはまだReownがあり、全面撤去可否も別判断。
+再発防止は**Base Sepoliaの自動追加で `wallet_addEthereumChain.params[0].rpcUrls = ["https://sepolia.base.org"]` を保証すること**。dAppのpublic read RPCは元から指定済みでも、Walletの保存済みnetworkは別である。chain切替だけで古いRPCを書き換えたとは扱わない。SDKのnetwork metadataと実際のadd-chain要求を確認する。Reown全面撤去を対策の必須条件にしない。
 
-本筋は「仕様・SDD・TASKSへ方針反映→deeplink QRを本体化→内蔵／PCの選択済みinjected providerへ統一→本書のApprove課題を解消→Reownの依存削除を別途判断」の順で取り込む。詳細と担当範囲は[導線設計§9](kalash-metamask-browser-journey.md#9-本筋のチームが取り込む順序)。アプリ内QRスキャナーの実装を入口採用の前提にしない。試験はPCのQR→スマホ→固定Cloud Run revisionを維持し、実行中は再配備しない。
+初期調査で特定した「再試行のCentral 409」「Viemの入れ子拒否を見落とす条件付き不具合」は別の論点として残す。これらを今回のRPC障害の代替原因とせず、再発時の診断・局所改善に利用する。以下の§1～§10は、追加の復旧証拠が得られる前の固定版に対する調査記録である。
 
-照合先：[main `67ab7cc` のTASKS](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/docs/TASKS.md)。以下の原因調査本文は従来の固定参照版 `7b72c796` に対する分析であり、今回の方針追記によって実機再現済みに変わるものではない。
+次の本筋はM2の残項目と寺院ATM実装。[更新したUX・取り込み方針](kalash-metamask-browser-journey.md)の§3にリモートCrypto／現地Crypto／現地現金、§7にRPC、§9にM3～M5への取り込みを記載した。QRはMetaMask deeplink、Cryptoの金額・写真はスマホ、現金はATMで投入・写真。成功済みの寄付経路を再構築せず再利用する。
 
-## 1. 結論：直近の停止原因は特定できた。最初の停滞とは別
+## 1. 初期調査時の結論：再試行のguardと初発を分ける
+
+以下はRPC変更後の復旧記録を得る前の結論。現在の状態は§0を優先する。
 
 **記録された直近のDonate再試行は、CentralがHTTP 409 `SIGNED_INTENT_STILL_VALID` を返したため、MetaMaskへの要求に到達していない。** この試行はリレー・NAT・MetaMaskの確認画面の不具合ではない。
 
@@ -269,7 +269,7 @@ visibilityState / foreground復帰
 - **Abandonがbusy中でも押せる：** 調査中に候補になったが、参照版のL1114は`disabled={props.busy}`。この版の確定バグとして報告しない。ただしreloadやWallet側要求の寿命は別で、UIのbusy解除はWallet要求取消しの証拠ではない。
 - **isWalletRejectionが全拒否を識別：** §4.5のとおり誤分類は成立する。ただし実端末の原因認定には当該エラーの観測が必要。4001を常に「本人がCancelした」と表示しない。
 
-## 9. 別チームに渡す具体的な修正・観測依頼
+## 9. 初期調査で提案した修正・観測（再発時の参考）
 
 ### 先に直す観測と表示
 

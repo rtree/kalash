@@ -1,58 +1,46 @@
-# KALASH：MetaMask内蔵ブラウザでQR・寄付・写真をつなぐ
+# KALASH：MetaMask・寺院ATMの寄付UXと取り込み方針
 
-調査・更新日：2026-11-06（JST）。[検証プレイブック](mobile-wallet-verification-playbook.md)のKALASH向け導線と本体への取り込み方針。今回の更新は本人・検証チームの報告を反映した文書作業で、調査担当は追加の実機操作を行っていない。
+更新日：2026-11-06（JST）。ユーザーが定義した三つの寄付体験を本体・寺院ATMへ取り込むための文書。[検証プレイブック](mobile-wallet-verification-playbook.md)と[過去のApprove調査](metamask-mobile-usdc-approve-investigation.md)を参照する。今回の作業は文書更新のみで、製品変更・配備・機器操作は実施していない。
 
-## 0. 今回決まった方針と、新たな実機結果
+## 0. 最新の決定と進捗
 
-**ユーザー決定：KALASHはモバイルMetaMask内蔵ブラウザとPCを前提にする。入口QRは、MetaMask内蔵ブラウザで目的のKALASHページを開くDApp deeplink形式にする。** 以下の初期案をこの決定に合わせて更新した。方針は決定済みであり、本体への反映・個々の受入結果は別に管理する。
+**KALASHはモバイルMetaMask内蔵ブラウザ＋PCを前提とし、ATMのQRはMetaMask DApp deeplinkにする。M1・M2の成功経路を使って寺院ATMへ進める。Reown全面撤去や独立したWallet層の作り直しを前提にしない。**
 
-| 項目 | 最新の証拠と扱い |
+最新照合：[main `8a7b887` のTASKS](https://github.com/rtree/kalash/blob/8a7b887fbd5496d78f0b71abe95fb4a8ddb3e7f2/docs/TASKS.md)。
+
+| 項目 | 現在の証拠・扱い |
 |---|---|
-| 外部QRからの入口 | 本人・検証チームが「PCのQR→スマホ外部QRリーダー→MetaMask内蔵ブラウザ→指定Cloud Run URL」を確認。今回の端末・リーダーではqueryも保持。入口の成功として採用する |
-| 本体の写真 | 本人が内蔵ブラウザでカメラ起動・撮影・Uploadを確認。検証チームはCommunityBoard掲載成功も別途記録。本体での本人実測として採用し、単なるAPI存在確認に戻さない |
-| 隔離PoCで残るもの | 引用されたサマリでは、同じスマホPoCページの明示接続と「カメラ開始→映像確認→停止」は残確認。本体の写真成功とは別ケース |
-| 本体のapprove／寄付 | 今回の成功報告には含まれない。[Approve原因調査](metamask-mobile-usdc-approve-investigation.md)の未解決範囲を引き継ぐ |
-| Reown全面撤去 | 今回の入口・写真成功では可否を確定しない。主導線のinjected化とパッケージ／設定削除を別変更にする |
+| モバイルCrypto寄付 | 本人がMetaMaskのBase Sepolia RPCを変更後、0.01 USDC approve→donate→Central confirmed/minted→Collection再読込まで成功。記録では成功receipt・canonical block・Vault Donated・mint receiptを照合済み。以前の「Approve未解決」を現在のブロッカーにしない |
+| RPC原因と再発防止 | 問題時のWallet設定hostは本人報告で `rpc.walletconnect.org/v1`、RPC準備時にUnauthorized。RPC変更後に成功した記録と今回の原因報告を採用。自動追加するRPCは必ず `https://sepolia.base.org` にする（§7） |
+| 写真・Devoteeボード | 本人がスマホで撮影・Upload・Devotee board表示まで確認。公開APIの写真1件・本人slot・published状態とも一致。M2はほぼ到達しており、運営者withdraw・残るcamera/size/withdraw検証を本筋で閉じる |
+| QR入口 | 今回の端末・外部QRリーダーでPC QR→MetaMask内蔵→指定Cloud Run URLへ到達しquery保持も成功。PoC `00002-j6c`／source `d9bf3ce0ed07` の記録 |
+| 独立PoCの残項目 | PoC自身の接続・camera preview停止は別ケースの未確認。本体の成功を取り消す理由にも、ATM共通設計を止める条件にもしない |
+| M3～M5 | 現金Controller・精算／払い出し・現地Cryptoはこれから。今回のUXはその実装へ取り込む仕様であり、実装済みの宣言ではない |
 
-照合した本筋の記録は[main `67ab7cc` のTASKS](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/docs/TASKS.md)。05:23 UTCの本体写真の本人報告、06:00 UTCのPoC入口確認を記録している。PoCは `kalash-uxmobile-00002-j6c`、source `d9bf3ce0ed07`、到達先は `https://kalash-uxmobile-548318651344.asia-south1.run.app/?mode=phone&case=external-qr`。調査担当が写真・DB・実端末版を再検証したという意味ではない。
+mainの同じTASKS内には古い「Approve診断を再開」「モバイル成功確認が未完」も残っている。本筋の統合担当は新しいM1-e2e／Mobile Approvalの成功証拠に合わせて現在状態を整理する。新たな寄付で成功済みを証明し直す必要はない。
 
-対象環境は次のように整理する。
+## 1. 対応環境と実装の優先順位
 
-- **モバイルの主経路：** MetaMask内蔵ブラウザ＋選択済みinjected provider。初期実績は今回のAndroid端末。iOS・別端末・別QRリーダーは未確認欄を持ち、Androidの成功を転記しない。
-- **PCの主経路：** PCブラウザ＋MetaMask拡張のinjected provider。既存のWindows Chrome実績を基準にし、他PCブラウザは別に対応状況を記録する。
-- **モバイルChrome等の外部ブラウザ：** KALASHを開いた人には「MetaMaskで開く」を案内する。Chrome＋WalletConnectでの寄付完走は今回の対象環境のリリース条件から外す。閲覧ページまで一律に閉める必要はない。
-- **今回の検証運用：** PCにQR表示→スマホ→Cloud Run試験サイトに統一し、試験中はrevisionを固定して再配備しない。開発PCのlocalhostをスマホ向け入口にしない。
+- モバイルはMetaMask内蔵ブラウザのinjected providerを使う。PCは既存のChrome＋MetaMask拡張を基準にする。iOS・別端末・別QRリーダーの対応実績は別欄で管理する。
+- 外部モバイルブラウザで来た人には「MetaMaskで開く」を出す。Chrome＋WalletConnectの完走を今回のリリース条件にしない。
+- Reown/AppKitを残してよい。必要なのは正しいprovider・chain・RPCで既存の寄付が動くこと。SDK撤去、Reown全通信遮断試験、アプリ内QRスキャナー実装はATM着手の必須条件から外す。
+- M2の残項目を引き継ぎ、次のM3でATM共通受付・deeplink QR・現金寄付・ATM写真を実装する。同じ受付基盤をM5現地Cryptoで再利用する。M4の精算／払い出しは既存計画に残し、寄付UX変更で削除しない。
+- 実機検証はPCのQR→スマホ→Cloud Runに統一し、試験中は配備revisionを固定する。
 
-## 1. 結論と採用条件
+## 2. 三経路で共通に使うもの
 
-**MetaMask内蔵ブラウザ＋選択済みinjected providerをモバイルの主経路として採用する。** deeplink入口とWebカメラには今回の実績がある。同じMetaMask内で認証・寄付・受付確認・写真公開をつなぐ。Wallet内のQRスキャナーは追加機能で、今回の外部QR入口の採用条件にはしない。
+| 項目 | 定義 |
+|---|---|
+| 本人確認 | MetaMaskで接続し、SIWEをCentralで検証。有効な認証は再利用し、Wallet変更時は本人を再確認 |
+| Crypto | 同じ金額入力・必要時approve・donate・Central検証・mint・Collectionを再利用。十分なallowanceがある場合、approve画面を省略するのは正常 |
+| 現地性 | ATM発行の有効な受付と本人をCentralで結ぶ。URLの現地フラグは表示の手掛かりで、現地種別・10倍Point・参拝スタンプの権限ではない |
+| 写真 | 寄付確定後の任意機能。撮影／画像選択／Skip→ローカルpreview→明示掲載同意→Upload。辞退しても寄付・スタンプは変わらない |
+| 二画面の同期 | スマホとATMが同じ受付・donationIdについてCentralを読む。スマホからATMへ直接通信させず、Centralの状態更新を表示する |
+| スタンプ | 応援／参拝の既存Collectionに反映。寄付確定とmint完了を区別し、成功mintを一度だけ数える |
 
-ただし「内蔵なら必ず成功」ではない。provider準備、Wallet要求の競合、WebViewの権限・ライフサイクル、RPC、Centralの検証は残る。対象Androidで以下の受入ゲートを通し、その後iOSを別に確認する。
+## 3. 入口と三つの寄付UX
 
-Reown AppKit（UI/adapter）とWalletConnect（外部Walletへの通信経路）を区別する。AppKitを使うこと自体が全要求をリレー経由にするわけではない。今回の要求は、**Reownのproject API／relayが使えなくても、injectedの主経路が起動し、署名・寄付できること**として検証する。
-
-MetaMask Connect SDKに替えるだけでは、この目的を満たしたとは言えない。公式architectureではmobile外部接続に暗号化relayを使う構成もある。狙うのはSDKの名前変更ではなく、同一アプリ内のinjected経路である。[D1–D4]
-
-## 2. 初期調査の実装状況と今回の更新
-
-初期コード／記録：[`5bc559a`](https://github.com/rtree/kalash/tree/5bc559ada99a3e394c64e8d308c91f285cddb6cf)。この表のコード評価はその版を基準とし、写真の実測更新は§0の報告を反映。最新の動作記録は本筋のTASKSを参照する。
-
-| 項目 | 確認できた状態 | 判断 |
-|---|---|---|
-| 内蔵ブラウザの本人認証 | SIWE・Central verify HTTP200・Wallet verified表示の記録 | この端末での実績あり。新規寄付成功とは別 |
-| 内蔵ブラウザのapprove／寄付 | approve画面が出ない原因を診断中。通常DonateとAbandonの混同を記録 | 未完了。経路変更だけで解決したとしない |
-| provider選択 | `connectWallet`が利用可能injectedを優先する処理あり | 基盤はある。実際に選ばれたconnectorを観測する |
-| Reown非設定分岐 | `runtime.ts`に`createConfig`＋`injected`分岐あり。ただしAppKit/WagmiAdapterは静的import | 通信上の独立とbundle依存の除去は別。通常設定ではAppKit初期化にも入るため、主経路の分離を明示的に設計・試験する |
-| 写真撮影 | 初期はAPI実装・権限・ボタンまで。今回、本人が本体のカメラ起動→撮影→Upload／CommunityBoard掲載成功を報告 | 本体での本人実測あり。PoCのcamera preview停止確認と、取り下げ等の未完了項目は別 |
-| 画像選択・公開 | 本人写真1枚のpublished記録、API試験の証拠あり | 本人写真を勝手に置換・削除して再試験しない |
-| Scan QR | `App.tsx`で「このreleaseでは未対応」というnoticeを出すのみ | QR decode・受付照合は新規実装が必要 |
-| ATMの現地受付／現金・現地Crypto | M3～M5は未着手の記録 | QRが読めても機器・台帳・参拝スタンプ完了にはならない |
-
-基盤コード：[runtime.ts](https://github.com/rtree/kalash/blob/5bc559ada99a3e394c64e8d308c91f285cddb6cf/src/web/runtime.ts)、[App.tsx](https://github.com/rtree/kalash/blob/5bc559ada99a3e394c64e8d308c91f285cddb6cf/src/web/App.tsx)、[TASKS](https://github.com/rtree/kalash/blob/5bc559ada99a3e394c64e8d308c91f285cddb6cf/docs/TASKS.md)。
-
-## 3. 入口を二つ用意する
-
-### A：主導線 — PC／ATMのQRからMetaMaskを直接開く
+### 3.1 共通入口：PC／ATMのQRからMetaMaskを直接開く
 
 ```text
 PC／ATMにMetaMask DApp deeplinkのQRを表示
@@ -81,7 +69,7 @@ PoCの[buildDeepLink／phoneTarget](https://github.com/rtree/kalash/blob/67ab7cc
 
 このリンクが行うのはページ移動だけ。QR読取・ページ表示を接続・寄付・写真公開の承認にはしない。
 
-### B：追加導線 — MetaMask内のKALASHからATMのQRを読む
+### 3.2 追加導線：MetaMask内のKALASHからATMのQRを読む
 
 ```text
 MetaMask内蔵ブラウザでKALASHを開く
@@ -92,7 +80,78 @@ MetaMask内蔵ブラウザでKALASHを開く
   → 内容確認 → 受付紐付け／寄付
 ```
 
-この導線は追加の実装・検証対象で、Aの入口採用を待たせる条件ではない。MetaMaskアプリのホームにある一般QR機能の挙動と、KALASHから呼ぶQR APIの挙動は別に試験する。Aと同じdeeplink QRをアプリ内で読む場合は、許可したdeeplinkをunwrapして展開先の正規KALASH URLを検証する設計が必要。以下の既存regex例は通常HTTPSの受付URL用なので、そのままdeeplink QRに適用しない。
+この導線は追加の実装・検証対象で、§3.1の入口採用を待たせる条件ではない。MetaMaskアプリのホームにある一般QR機能の挙動と、KALASHから呼ぶQR APIの挙動は別に試験する。§3.1と同じdeeplink QRをアプリ内で読む場合は、許可したdeeplinkをunwrapして展開先の正規KALASH URLを検証する設計が必要。以下の既存regex例は通常HTTPSの受付URL用なので、そのままdeeplink QRに適用しない。
+
+
+### 3.3 リモートCrypto：スマホだけで完結
+
+```text
+MetaMask内蔵でKALASHのURLを開く
+ → 寺院を選ぶ
+ → Connect／必要時SIWE
+ → USDC金額を入力し、金額・fee・受取額を確認
+ → 必要ならUSDC Approval
+ → 寄付取引をSign／送信
+ → Centralが寄付を確定
+ → 応援スタンプ発行・Collectionへ反映
+ → 任意：スマホで写真→preview→掲載同意→Devotee board
+```
+
+既定額0.01 USDC・既存の上限・Base Sepoliaを維持する。既に接続・本人認証済みなら重ねて要求せず、allowanceが十分ならapproveは不要。取引署名は寄付ごとに本人が確認する。寄付と写真の操作はすべてスマホで完結し、写真をSkipしても寄付は完了する。写真は寄付確定後ならmint待ちと並行してよい。PCも同じ寄付処理を拡張Wallet経由で使う。
+
+### 3.4 現地Crypto：ATMは入口と進捗、金額・署名はスマホ
+
+| 段階 | 寺院ATM | スマホ／Central |
+|---|---|---|
+| 初期 | 「Cryptoで寄付」「現金で寄付」を表示 | 未接続 |
+| Crypto選択 | Centralが作成した当該寺院・ATM・用途の受付をdeeplink QRで表示。ATMで金額入力は要求しない | 外部QRリーダーで読む |
+| 到達 | 「スマホで接続してください」 | MetaMask内蔵で**当該寺院の寄付ページ**を開く。寺院・受付を照合し「現地寄付」を表示 |
+| SIWE・受付紐付け | Centralが本人検証とこの受付への紐付けを完了したら「寄付中」（Donation in progress）へ | Connect／必要時SIWE。既存ログインでも今回の寺院受付への参加を主操作で明示する |
+| 金額・署名 | 「スマホで寄付を続けてください」 | リモートと同じ金額入力→必要時approve→donate |
+| 送信済み | 「確認中」（Confirming donation） | 同じdonationIdの送信結果をCentralで検証 |
+| 寄付確定 | 完了を短く示すか、そのまま初期画面へ戻る。mint・スマホ写真の完了は待たない | 参拝スタンプを発行し、同じ本人のCollectionを更新 |
+| 任意写真 | 次の利用者を受け付けられる | リモート同様、スマホで撮影・掲載できる |
+
+「SIWEしたら寄付中」は**CentralでSIWE検証＋当該ATM受付へのclaimが成立した時**に対応する。別ページでのログインやQR表示だけでATMを切り替えない。
+
+「Transactionが実行されたら初期画面」は、txHashを受け取っただけでなく、成功receiptと正しいVaultイベントをCentralが確認して寄付確定した時とする。送信失敗・結果不明を完了扱いしない。送信前の離脱／QR期限切れは受付を閉じられるが、送信後の不明状態は同じIDを照合する。ATMの初期化後もその寄付のmint・写真権限はCentralで継続する。
+
+### 3.5 現地現金：本人紐付け→投入→ATM写真
+
+| 段階 | 寺院ATM | スマホ／Central／Controller |
+|---|---|---|
+| Cash選択 | この寺院・ATM・cashSessionId用のdeeplink QRを表示 | Centralが一つの有効な受付を作る。まだNV200は受入無効 |
+| QR読取・本人紐付け | 「スマホで接続してください」 | MetaMask内蔵で当該寺院の現金受付ページへ。本人確認とこの現金受付への同意・紐付けを行う |
+| 機器準備 | 「準備中」 | Centralが受付を許可し、ControllerがNV200を開始。実機Readyを確認 |
+| 投入 | **「現金を投入してください」**、収納済み額・残り時間・上限を表示 | Readyから受付時間を計測。このcashSessionIdの実収納を紐付いたWalletの寄付として記録 |
+| 現金の完了 | 本人がATMの**「投入完了」（Done depositing）**を押す | 新規受入停止→途中紙幣・遅延イベント・在高を照合→収納額で寄付確定・mint予約 |
+| スタンプ | 寄付完了後、ATMは任意写真の選択画面へ | 成功mint後、スマホの参拝スタンプリストを静かに更新。画面を強制遷移させない |
+| ATM写真 | 「撮影／画像選択／Skip」→preview→任意の公開同意→掲載 | この確定寄付に限定したATM掲載権限で、寄付者Walletに帰属する写真として保存 |
+| セッション終了 | **「終了」（Finish）**、Skip、または写真画面の無操作期限で初期画面へ | カメラ・preview・本人表示・掲載権限を片付け、次の利用者へ |
+
+現金はQRを読んだだけでは開始しない。SPEC §5に合わせ、現金の署名を寺院・ATM・cashSessionId・用途に拘束する。未認証なら本人確認と受付紐付けを一つの導線で行い、有効なログインがある場合も今回の受付への同意・必要な署名だけを行う。一般的なログイン署名を別の受付への同意として使い回さない。
+
+「一定時間の現金がそのWalletの寄付」とは、**この受付のaccepting中に受け入れた紙幣を、Controllerが同じcashSessionIdへ帰属させて照合すること**を指す。closing後に遅れて届く同じ紙幣の収納イベントも含める。時刻の近さだけで現金を割り当てない。同じATMで別の寄付者の受付を重ねない。
+
+スマホでCollection表示中ならリストのデータだけ更新し、別画面なら次の表示／復帰時に取得する。完了モーダル・自動画面遷移・プッシュ通知は今回必須にしない。ネイティブアプリのNotificationはハッカソン後。発行中を獲得済みとして増やさず、mint成功後に既存の参拝枠へ一度だけ加算する。
+
+#### 受付と画面の期限
+
+実装初期値の案はQR 120秒、現金受付はReadyから120秒、ATM写真は無操作30秒。採用する値は本筋のSDD／設定に一元化し、画面には残り時間を表示する。QR・現金受付・写真画面の期限を同じタイマーにしない。
+
+- QR期限切れ：未claimの参照を失効させ、必要なら新しいQRを発行する。QRだけで寄付確定しない。
+- 現金のDone／期限／上限到達：いずれも受入停止→照合へ。収納額0なら寄付・mint・掲載権限を作らず終了する。実収納があればその額を照合して確定する。
+- NV200のHTTP成功や時計だけで収納を確定しない。ESCROW途中・遅延STORED・返却・通信断は既存Controller契約に従って処理し、照合不能なら「確認が必要」を表示して次の受付を開かない。
+- 写真のDone／Skip／期限：未公開previewを破棄し、撮影済みを自動Uploadしない。公開完了済みの写真はBoardに残す。処理中Uploadの結果も旧donationIdに限定し、次の寄付者へ引き継がない。
+
+```text
+ATM共通：idle → QR待ち → 本人紐付け
+Crypto：寄付中 → 取引確認中 → 寄付確定 → idle
+Cash：  機器準備 → 投入受付 → 受入停止・照合 → 寄付確定
+        → 任意写真 → Finish／Skip／無操作期限 → idle
+```
+
+この状態遷移は実装契約案。寄付確定前の異常は再照合へ分岐し、写真タイマーや画面の再読込で金銭処理を初期化しない。
 
 ## 4. QRは四種類を混ぜない
 
@@ -107,7 +166,7 @@ MetaMask内蔵ブラウザでKALASHを開く
 
 ### URLと受付状態の持ち方（新規設計案）
 
-- `/visit/<opaque-reference>`のような短いパスを候補にする。このrouteは現時点で未実装。金額・recipient・RPC URLをQRの値だけで採用しない。
+- 本体の主案は `/temples/<templeId>?visit=<opaque-reference>&mode=crypto` のように既存の寺院ページへ受付参照を渡す形。Cashでは用途をcashにする。パラメータ名は実装時に固定し、Centralの照合結果から現地寄付表示と用途を決める。`/visit/<opaque-reference>`を別途作るなら受付を解決して当該寺院ページへ移る補助routeとする。いずれも受付連携は未実装で、金額・recipient・RPC URLをQRの値だけで採用しない。
 - 単純なpathだけの非秘密URLでcold/warm起動を先に試す。query/hash/percent encodingを含む場合は欠落・二重decode・別originへの遷移を試験する。
 - ChromeとMetaMask内蔵ブラウザではstorage・認証は共有されない。Firebase token・SIWE署名・WC URIをURLで移送しない。移動先で本人認証し、Centralから同じ受付を復元する。
 - deeplinkサービスはURLの搬送経路に入る。URLへ高権限のbearer資格情報を載せない。受付参照はそれだけで現金開始・払い出し・写真公開できないものにする。
@@ -115,7 +174,9 @@ MetaMask内蔵ブラウザでKALASHを開く
 - 同じQRを二人が読む、期限直前に読む、ATMが別受付へ切り替わる、第三者が撮影済みQRを再使用するケースをサーバーで検証する。見ただけで消費せず、確認後のclaimを原子的に行う。
 - 短い手入力コードをfallbackにする場合も認証・期限・試行制限を維持し、番号だけで現金権限を与えない。
 
-## 5. QRを読む実装候補
+## 5. 追加機能：KALASH内でQRを読む実装候補
+
+以下はスマホ内の追加スキャナーを実装する場合の資料。今回のATM入口は外部QRリーダーで成立しているため、M3開始や三つの寄付UXの必須条件にはしない。
 
 ### 第一候補：選択したinjected providerで `wallet_scanQRCode`
 
@@ -176,81 +237,109 @@ confirmed寄付（既存Historyからでもよい）
 2. ボタン表示だけで合格にしない。映像が動き、videoWidth/Heightが正で、trackが有効であることを確認。
 3. 自撮りは前面カメラをpreferするが、facingModeの厳格指定を必須にしない。向き・ミラー表示・保存結果を照合。
 4. close、撮影完了、画面離脱、本人切替で停止・破棄する。背景化時の停止と復帰時の再開方針を明示する。
-5. 許可待ち中に離脱→後からgetUserMedia成功、という競合でも取得したtrackを即停止する。現在コードはこの競合への追加ガードが必要。
+5. 許可待ち中に離脱→後からgetUserMedia成功、という競合でも取得したtrackが停止されることを確認し、不足があればガードを追加する。
 6. 選択・撮影・プレビュー時点で画像POSTがない。公開同意後にのみ送信する。
 7. 5MB/20MP等のサーバー制限を、実端末の高解像度写真で確認。クライアントで縮小する場合もサーバー検証は維持。
 8. 公開→置換→取り下げ後、Board一覧・旧画像URL・Storage実体を確認。開きっぱなしのBoardにも状態変化を反映する。
 
-現地写真は現在のSPECでは端末撮影が基本。今回のスマホ撮影希望は追加のUX候補として扱い、M3/M5のATM側「撮影／選択／スキップ」を黙って削らない。スマホとATMの写真掲載権限・同じ受付IDへの帰属を設計し、実装時にSDDへ反映する。
+今回の決定で撮影場所を明確に変更する。**リモートCryptoと現地Cryptoはスマホ、現地現金はATM**で撮影／画像選択／Skipを提供する。旧SPECの「現地は端末」は本筋で更新する。現金ATMの掲載権限は確定したdonationId・Wallet・templeId・atmId・期限・用途に限定し、本人のWalletセッションをATMへ渡さない。Centralが寄付記録から所有者を決め、Upload時の任意wallet指定は採用しない。本人の掲載同意は撮影・受付同意と別に取得する。
 
-## 7. Reownを主経路の必須条件から外す実装方針
+## 7. Base Sepolia RPCの再発防止を小さく取り込む
 
-1. 起動時にinjected経路を初期化できる構造にする。Reown project API・relay・modal初期化完了を待たない。
-2. EIP-6963等で検出した実providerを選択し、アカウント取得・chain確認・SIWE・writeで同じ選択を使う。`isMetaMask`は他Walletも設定し得るので単独の認可根拠にしない。
-3. WalletConnectを残すなら任意の補助機能として分離・遅延読込し、今回の対象環境の必須導線にしない。モバイル外部ブラウザの主ボタンは「MetaMaskで開く」にする。injected失敗から無言でWCへ切り替えない。
-4. public RPCを明示し、Walletへの署名経路から分ける。Centralへの認証・保存・mintも維持。
-5. SDKを完全除去する変更と、主導線をinjectedにする変更を分けて検証する。Wagmi/Viem自体はReown relay必須ではない。
-6. テスト環境でReown/WC宛通信だけを遮断し、injectedの接続→SIWE→許可済み少額寄付→Central→Collectionが通ることを確認する。MetaMask自身のRPC等は遮断しない。別ケースでdeep link入口と手動URL入口も確認する。
+今回の本人報告とmainの復旧記録では、MetaMaskが使うBase Sepolia RPCを変更するとapprove・寄付が通った。問題時のhostは `rpc.walletconnect.org/v1` と報告されている。これをWallet側RPC経路の問題として扱い、自動追加時に同じ設定を作らない。どの過去操作がWalletへそのURLを登録したかは未確定で、Reown全体の撤去まで原因対策を広げない。
 
-これで「Reownに依存しない主導線」という主張を実証できる。サイト・中央API・チェーンRPC・MetaMask本体・deeplink resolver等の依存まで消えるわけではない。
+### 固定する契約
 
-## 8. 検証項目と現在の優先順位
+| 設定箇所 | 値・扱い |
+|---|---|
+| Walletへ追加するchain | Base Sepolia、84532／`0x14a34` |
+| `wallet_addEthereumChain` の `rpcUrls` | **`["https://sepolia.base.org"]`**。Reown／WalletConnectのproject付きRPCへ自動置換しない |
+| dAppのpublic read transport | `https://sepolia.base.org`。現在のruntimeにも明示設定がある |
+| SDKのnetwork／chain metadata | add-chain時に使われるRPCも同じ値になるようにする。public transportの設定だけで済ませない |
+| Walletに既に登録済みのnetwork | chain切替だけでは既存RPCが更新される保証はない。問題が残る端末は本人が設定を確認・変更する。ネットワーク追加要求だけで上書きできたと扱わない |
 
-§0の成功記録を引き継ぐ。以下は機能別の受入表であり、未実装のアプリ内QRスキャナー（3・4）を先に終えないと本体へ進めないという順序ではない。本筋は入口統合・選択provider・Approveを優先し、PoCの残る接続／preview停止確認は同じ配備版で行う。cold/warmや別端末など、まだ記録のない条件だけを追加する。
+自動追加要求の期待形（設計例。実際の要求は本人が確認する）：
 
-| 順番 | 試験 | 合格証拠 |
-|---|---|---|
-| 1 | 非秘密の既存寺院URLを手動入力、公式deeplink、標準カメラのQRで開く | cold/warm両方で正規origin・正しいpath。別ページ再開を検出 |
-| 2 | 内蔵ページでinjectedを選ぶ | connector記録、chain 84532、正しい本人。WC経由でない |
-| 3 | 状態変更しない試験用route／QRを用意してnative scannerで読む | 実返却形式・キャンセル・権限拒否・復帰を確認。例のregexは`/visit/`専用なので既存`/temples/`用の試験では合わせて変更する |
-| 4 | Web scanner／手入力fallback | 同じ受付照合へ到達。QR誤読・別originは拒否 |
-| 5 | 既存confirmed寄付からカメラ試験 | 実映像・撮影・破棄・Stream停止、公開前未送信 |
-| 6 | 同意した専用テスト画像で公開・取り下げ | 別ブラウザBoard表示と撤回後停止、実体削除。本人の既存写真を保護 |
-| 7 | 古いpendingの通常復旧後、許可済み寄付一本 | approveとdonateが区別され、同じIDでCentral・mint・再読込成功 |
-| 8 | Reown通信遮断、中断・回線切替 | injected主経路が成立し、同じ操作の復旧・重複防止を確認 |
-| 9 | ATMとの実連携（M3/M5） | スマホとATMが同じ受付ID・寺院・額・状態。QR読取だけで機器を動かさない |
+```json
+{
+  "method": "wallet_addEthereumChain",
+  "params": [{
+    "chainId": "0x14a34",
+    "chainName": "Base Sepolia",
+    "nativeCurrency": { "name": "Ether", "symbol": "ETH", "decimals": 18 },
+    "rpcUrls": ["https://sepolia.base.org"],
+    "blockExplorerUrls": ["https://sepolia.basescan.org"]
+  }]
+}
+```
 
-AndroidとiOSは別々に記録。未検証のiOSを対応済みにしない。WebViewのtoolbar・キーボード・セーフエリアでDonate/Publishボタンが隠れないことも実画面で確認する。Uniswapにもin-app browserの表示領域を扱う実装がある。[D8]
+[最新runtime.ts](https://github.com/rtree/kalash/blob/8a7b887fbd5496d78f0b71abe95fb4a8ddb3e7f2/src/web/runtime.ts)はpublic transportを既に固定しているが、AppKit/WagmiAdapterへchainも渡している。[App.tsx](https://github.com/rtree/kalash/blob/8a7b887fbd5496d78f0b71abe95fb4a8ddb3e7f2/src/web/App.tsx)のSIWE前と寄付前の両方のchain切替について、未知chain時の自動追加に上記 `rpcUrls` が使われるようにする。SDKのchain定義・connectorの追加パラメータを調整する最小差分でよい。
 
-### チームへの短い依頼文
+レビューでは実際に組み立てられるadd-chain要求を確認する。新規network追加と既存network切替を別ケースにし、すでに正常な本人端末のnetworkを削除して試し直す必要はない。chainIdが84532という応答だけではRPC hostを証明できず、ブラウザからWalletの実RPC設定を標準APIで取得できるとも仮定しない。資格情報付きURLのqueryをログへ出さない。
 
-> モバイルMetaMask内蔵ブラウザ＋PC MetaMask拡張を対応前提にし、入口QRをMetaMask DApp deeplink形式へ統合してください。外部QR→MetaMask→Cloud Runのquery保持、本体の撮影・Upload／CommunityBoard掲載は今回の本人実績として引き継いでください。PoCの接続・camera preview停止確認と、本体のApprove→寄付→Central→Stampは別の残タスクです。アプリ内Scan QRの実装やReown全面撤去を入口採用の前提にせず、§9の順で本体へ取り込んでください。
+Reown/AppKitは現在の成功経路を維持する。将来整理するなら別タスクでよく、ATM実装の先にSDK全面撤去・全通信遮断・新しいWallet基盤を置かない。
+
+## 8. 本筋で閉じる受入項目
+
+成功済みのM1/M2をゼロからやり直さず、新しいATMとの接点を中心に確認する。
+
+| 対象 | 完了条件 |
+|---|---|
+| RPC設定 | network自動追加の `rpcUrls` が指定URL。既存設定の扱いを区別し、PC／モバイルの成功経路を維持 |
+| ATM QR・受付 | Crypto/CashのQRが該当寺院をMetaMaskで開く。用途・期限・二重読取・別人・別ATMをCentralが区別する |
+| 現地Crypto | 金額入力はスマホ、SIWE＋claim後にATM「寄付中」、Central確定でATM初期画面、参拝mint・任意スマホ写真が同じ本人に帰属 |
+| 現地現金 | 本人紐付け→実機Ready→投入→Done／期限→受入停止・照合→確定・参拝mint。0円・途中紙幣・遅延イベントでも次の人へ現金を混ぜない |
+| Cash後のスマホ | 現在画面を維持。Collectionを表示中なら成功mintだけが静かに反映され、復帰・再読込でも重複しない |
+| ATM写真 | 寄付確定後に任意で撮影・同意・掲載。Wallet帰属が正しく、Finish／Skip／無操作終了で次の人に画像・権限を残さない |
+| M2の残項目 | 運営者withdraw、残るcamera／size／withdraw検証を現在のM2行で閉じる。今回の本人写真を再撮影・再公開する条件にはしない |
+
+実機中はCloud Run revisionを固定し、PCのQR→スマホの外部QRリーダー→MetaMaskの経路を使う。M3は実紙幣・Controller・台帳、M5は同一donationIdのチェーン・Central・両画面を照合する。写真やmintのUIタイマーを金銭処理の成功証拠にしない。
 
 ## 9. 本筋のチームが取り込む順序
 
-### 9.1 仕様・設計・進捗へ決定を反映する
+### 9.1 正本に反映する仕様差分
 
-ユーザーの今回の指示を仕様変更の根拠として扱う。この方針について再承認を求める必要はない。本筋の統合担当が次を反映する。
+今回のユーザー指示でUXは決定済み。本筋の統合担当が以下をSPEC／SDD／TASKSに反映する。
 
-| 正本 | 反映内容 |
+| 既存記述 | 今回の変更 |
 |---|---|
-| SPECのWeb／Wallet欄・対応環境 | 日付付き変更として「モバイルMetaMask内蔵＋PC MetaMask拡張、入口はDApp deeplink QR」を記載。元のReown/AppKit固定記述との関係を明示し、SDK全面削除を決定済みにしない |
-| SDD §1/§7 | 対応環境、deeplink生成、対象URLの検証、実provider選択、外部ブラウザ案内、Reown任意化の方針を記載。ATM受付の新route／認可契約は実装時に§2/§3にも反映 |
-| TASKS | QR入口・provider接続・Approve／寄付・写真・Reown分離を分けて担当／版／証拠／未完了を記録。今回の本人成功報告とPoC残項目をそのまま区別する |
+| SPEC §4.2 現地CryptoはATMで金額入力 | ATMでCrypto選択→QR。金額はスマホの寺院寄付ページで入力 |
+| SPEC §4.3 現地写真は端末 | リモート／現地Cryptoはスマホ、現地現金はATM。任意掲載は共通 |
+| ATMとスマホの結果表示 | SIWE＋受付claimでATM「寄付中」、Crypto確定で初期画面。Cashは確定後ATM写真へ、Finish／無操作で初期画面 |
+| CashのCollection更新 | 成功mintを静かに追加し、スマホを強制遷移させない。Notificationはハッカソン後 |
+| Web／Wallet・RPC | モバイルMetaMask内蔵＋PC、deeplink QR、自動追加RPCを指定値へ。Reown利用継続可 |
+| 進捗 | モバイル寄付は成功済み。M2残項目とM3着手条件を最新証拠で整理し、古いApprove未解決の次アクションを残さない |
 
-この文書ブランチは古いmainを親にしている。**ブランチ全体や古いTASKS／SDDをmainへ丸ごと上書きしない。** 本筋の現在の作業ブランチへ `docs/issue-penetrator/` の更新文書を選択して取り込み、TASKSは必要な決定・証拠だけを現在の担当行へ反映する。別チームのPoC・本体コード・進捗を巻き戻さない。
+SDDには受付のID・claim・期限・状態遷移・二画面同期・端末写真権限を追加する。現地フラグはCentralが有効なATM受付から解決し、QRの自己申告で種別・recipient・金額・Point倍率を決めない。現金受付の署名拘束と受入停止・照合は既存SPEC §5/§8を再利用する。
 
-### 9.2 小さな変更単位で本体へ統合する
+### 9.2 ATM実装タスクへの割り当て
 
-| 順序 | 担当・変更範囲 | 取り込み内容・完了の境界 |
+| タスク | 担当・範囲 | 取り込む内容 |
 |---|---|---|
-| 1 | UI／QR担当：本体の入口・QR表示 | PoCのdeeplink生成とquery保持の考え方を本体用URL契約へ移す。PC／ATMが表示する対象QRを切り替え、外部ブラウザには同じ行き先の「MetaMaskで開く」を出す。PoCサーバー・診断画面を本体に丸ごと移植しない |
-| 2 | Wallet担当：`src/web/runtime.ts`・接続UI | モバイル内蔵とPC拡張を選択済みinjectedへ統一。EIP-6963／遅い注入／複数拡張を扱い、接続・chain・SIWE・writeが同じ選択を使う。UA文字列だけでproviderを決めない。provider未検出時は再検出／MetaMask起動を案内する |
-| 3 | Wallet／Central担当：Approve障害 | [調査MD](metamask-mobile-usdc-approve-investigation.md)に沿って実provider境界とnested拒否を扱う。入口成功を障害解消にせず、同一donationIdでapprove→donate→Central→mint→再読込までを別に確認する |
-| 4 | M2担当：既存カメラ・写真機能 | 成功した本体の撮影・Upload／Board経路を維持。PoC preview実装を無条件に置き換えず、停止・離脱・取り下げ・運営者権限等の不足を既存M2タスクで埋める。写真確認のための新規寄付は不要 |
-| 5 | 統合担当：Reown依存の整理 | 主経路がReown初期化を待たず動く構成にする。全面削除の可否は別差分で依存利用箇所・起動設定・PC回帰を確認して決める |
+| M2残り | 既存M2担当 | 運営者withdraw等を閉じ、成功済みの写真API・カメラ・Boardを再利用可能なまま引き継ぐ |
+| RPC予防 | 既存Wallet担当 | network自動追加だけを局所修正。public read／chain metadata／add-chain要求を照合。Reown撤去はしない |
+| M3 ATM共通受付 | ATM UI＋Central | 初期画面、用途別受付、短命deeplink QR、本人claim、寺院ページへの到達、Centralからの状態更新 |
+| M3現金・写真 | Controller＋Central＋ATM UI | 受付拘束の署名、NV200 Ready／有限受付／Done／照合、参拝mint、寄付限定ATM写真権限、終了時の片付け |
+| M4 | 既存の精算・払い出し担当 | 元の精算・権限・全量払い出し契約を継続。今回の寄付UXで置き換えない |
+| M5現地Crypto | Pilgrim＋Central＋ATM UI | M1の金額・approve・donateを再利用し、M3共通受付へ接続。現地種別、両画面同期、ATM初期化、任意スマホ写真 |
 
-`runtime.ts`の[最新照合版](https://github.com/rtree/kalash/blob/67ab7ccce50fc960b5de1a1a10f5dcb9b038d227/src/web/runtime.ts)はAppKit/WagmiAdapterの静的importと、`reownProjectId`有無によるconfig分岐を持つ。内蔵ブラウザで開くだけ、またはproject IDを空にするだけでは、本体全体の依存解消を確認したことにならない。config API、初期化、connector保存・復元、CSP、package/lock、残る呼び出し元を追ってから削除する。Wagmi/Viemは利用を続けられる。
+M3とM5で別のQR／本人紐付け基盤を二重に作らない。現在の寄付・写真の成功経路を活かし、ATM用の受付コンテキストを追加する。PoCの診断サーバーやWallet probeを本体へ丸ごと移植する必要はない。
 
-PoCの `createWalletProbe` は接続・chain観測用で、SIWE・送金・Central業務状態を実装していない。これを製品Wallet層の代わりにしない。参考にするのは入口生成・provider発見・明示操作・camera lifecycle等の局所設計であり、本体の認証・復旧・同一ID照合は維持する。
+### 9.3 実装境界を具体化する
 
-### 9.3 取り込み後に区別して判定する
+以下の名前は提案であり、既存APIとして扱わない。
 
-- **入口採用の完了：** 本体用QRから正しい寺院／受付URLへ到達。今回のPoC query保持を証拠として引き継ぎ、本体で新しく追加するpath／queryだけを確認する。
-- **本体のWallet完了：** 対象のモバイル内蔵／PC拡張それぞれで接続・84532・SIWEが成立し、必要なapproveと寄付が同一IDでCentral・Stampまで確定。PCの既存成功も回帰の基準にする。
-- **M2の完了：** 本人による撮影・掲載成功に加え、元のM2が要求する同意・取り下げ等の未完了項目を閉じる。本体写真成功とPoC preview残確認を混ぜない。
-- **Reown非依存の完了：** Reown/WC通信・設定が主経路を止めないことを確認。パッケージ全面削除の完了とは別に記録する。
-- **検証の運用：** PCのQR→スマホ→固定Cloud Run revisionを使う。変更が必要になった場合は実行中ケースを閉じ、次のケース用に版を更新する。試験中の無断再配備はしない。
+- Centralが `visitSessionId` 相当を発行し、寺院・ATM・crypto/cash・期限・state・本人・donationId／cashSessionIdを結ぶ。QRには不透明な参照を載せる。
+- スマホは寺院ページで参照を解決し、本人確認後に当該受付をclaimする。署名・認証token・高権限の掲載資格情報をdeeplinkに載せない。
+- ATMとスマホは認可されたCentralのsession状態を取得する。まず既存構成に合わせた短周期pollで十分。動作中1～2秒目安、idleでは頻度を落とし、復帰時に再取得する。SSE等の新基盤を必須にしない。
+- 同じ状態への再処理、受付claim、Done、収納イベント、mint予約は同じIDで冪等化する。QR再読取・ブラウザ復帰で新しい寄付を自動作成しない。
+- 現金確定後、ATMにはそのdonationIdだけの短命写真権限を与える。掲載APIが所有者・寺院・ATM・期限・同意を再照合する。Finishで権限と端末内画像を解放する。
+
+この文書ブランチは古いmainを親にしている。**本筋では `docs/issue-penetrator/` の文書を選択して取り込み、現在のSPEC／SDD／TASKSへ差分を反映する。古いTASKS／SDDやブランチ全体で上書きしない。** 今回ここでは本体実装・配備・試験は行っていない。
+
+### チームへ渡す短い依頼文
+
+> M1モバイルはRPC変更後に完走済み、M2は写真掲載成功と残項目を引き継いでATM実装へ進めてください。ATMのCrypto/CashからMetaMask deeplink QRを出し、Centralで本人と受付を結びます。Cryptoは金額・署名・任意写真をスマホ、Cashは有限受付・終了照合後にATM写真です。Cashのスタンプはスマホの画面を変えずリストに反映してください。自動追加するBase Sepolia RPCを https://sepolia.base.org に固定し、Reown全面撤去には工数を使わず、§9.2の既存M3～M5へ組み込んでください。
 
 ## 10. 一次資料
 

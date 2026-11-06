@@ -86,20 +86,13 @@
 - 次の一手：MetaMask内蔵Browserを再読込し、Historyの古い期限切れintentを確認。HistoryのAbandon/resolve dialogはCentral状態確認だけで、MetaMask承認ではない。本人がno-requestを確認して期限切れintentを解決後、Donateを一度だけ開始し、MetaMaskの正確なUSDC approval requestを確認する。promptが出なければそこで停止して画面・wallet traceを確認し、再送やAbandonを重ねない。
 
 
-## モバイル導線の採用方針（文書ブランチ）
+## 寺院ATMへ取り込むUX（文書ブランチ）
 
-- UTC 2026-11-06 06:24:27。ユーザー決定を反映：KALASHはモバイルMetaMask内蔵ブラウザ＋PCを前提とし、入口QRをMetaMask DApp deeplink形式にする。PCは既存Chrome＋MetaMask拡張を基準。main参照 `67ab7ccce50fc960b5de1a1a10f5dcb9b038d227`。
-- 本人・検証チームの新証拠：PC QR→外部QRリーダー→MetaMask内蔵→Cloud Run指定URL、query保持が今回の環境で成功。本体のカメラ起動・撮影・Upload／CommunityBoard掲載も本人報告あり。PoC接続・camera preview→停止は引用サマリでは残確認。Approve／寄付／Reown全面撤去の成功には拡張しない。
-- 文書差分：`docs/issue-penetrator/kalash-metamask-browser-journey.md` の初期landing案を直接deeplink QRへ更新し、§9に本筋の担当・取り込み順・判定条件を追加。検証プレイブックとApprove調査にも方針・証拠を追記。今回の文書commitに含む。
-- SPEC Web／Wallet欄、main SDD §1/§2/§3/§7を照合。今回の仕様変更指示は決定済みだが、本筋のSPEC／SDD／製品コードには未反映。統合担当が既存のReown固定記述との関係と対応環境を反映し、現在のTASKSへ決定・証拠だけを取り込む。古い文書ブランチのTASKS／SDDを丸ごと上書きしない。
-- 取り込み順：QR入口→選択済みinjected providerをモバイル内蔵／PC拡張で統一→既存Approve課題→Reown主経路分離と全面削除の別判断。アプリ内QRスキャナーは入口採用の前提にしない。既存写真機能と本体の本人成功を引き継ぐ。
-- 検証：参照コード・PoCのdeeplink生成・記録を読み取り照合し、文書レビューとMarkdown／相互リンクを確認。調査担当による追加実機操作・撮影・公開・送金・製品変更・配備・製品テストはなし。PoCは `00002-j6c`／source `d9bf3ce0ed07` の本人結果を参照。
-- 次の一手：本筋の統合担当が導線文書§9に沿って反映する。検証担当はPCのQR→スマホ→固定Cloud Run試験サイトに統一し、実行中は再配備しない。今回の文書作業に本人操作待ちはなし。
-
-## USDC approve不表示の原因調査（文書ブランチ）
-
-- UTC 2026-11-06 05:10:49。対象：M1 mobile approve／M2へ進む前提。参照main `7b72c796255f34ae75857dc867ef7f0211e3c1a5`、同版TASKSの稼働記録 `00016-w6k`／source `1790e57`。SDD §2/§3/§7を照合、現行設計の変更なし。調査の統合担当のみ本節を記入し、主ブランチの進捗・別チームの実機操作は変更しない。
-- 成果：`docs/issue-penetrator/metamask-mobile-usdc-approve-investigation.md`（今回の文書commit）。直近再試行はCentralの `SIGNED_INTENT_STILL_VALID` 409でWallet要求前に停止。初発のapprove-only停滞は既存記録だけでは未特定。期限経過後の新しい試行を古い409で説明しない。
-- コード上の問題：最上位だけを見る拒否判定がViemのcause内4001を見落とし、pendingを残す条件を特定。client存在確認と実write経路が別、start traceが実provider送信を示さない、custom provider待ちにpublic HTTP timeoutが適用されない点も文書化。実端末で当該エラーが起きた証拠とは区別。
-- 検証：KALASHの固定commit、lockに対応するWagmi/Viem、MetaMask公開参照版、類似issueをGitHub connectorで取得して照合。SDK／MetaMask担当の最終レビューとMarkdown確認を実施。製品コード変更・実機試験・Wallet操作・送金・配備は行っていない。実端末のMetaMask版は未確認。
-- 未完了・次の一手：別チームが同一attemptのoperation応答、実provider method開始／終了、nested error code、connector typeを観測し、初発の停止境界を確定する。修正候補と判定表は文書§9。今回この調査のために必要な本人操作はなし。通常HTTPプロキシ接続不可のため出典取得・文書保存はGitHub connectorを使用。
+- UTC 2026-11-06 07:27:46。対象：ユーザー定義のリモートCrypto／現地Crypto／現地現金UXをM2残項目とM3～M5へ引き継ぐ。参照main `8a7b887fbd5496d78f0b71abe95fb4a8ddb3e7f2`、稼働記録 `00016-w6k`／source `1790e57`。
+- 最新証拠：MetaMaskのBase Sepolia RPC変更後、モバイルapprove→donate→Central confirmed/minted→Collection再読込が成功。receipt・Vaultイベント・mint receipt照合記録あり。本人の写真共有・Devotee board表示と公開APIの記録も一致。M2は運営者withdraw・残るcamera/size/withdraw検証を引き継ぐ。古い「Approve未解決」を現在のブロッカーにしない。
+- 新方針：モバイルMetaMask内蔵＋PC、ATM QRはDApp deeplink。Reown全面撤去は不要。自動追加するBase Sepolia networkのrpcUrlsを `["https://sepolia.base.org"]` に固定し、public read設定とWallet保存済みRPCを区別する。
+- UX：リモートCryptoはスマホ完結。現地CryptoはATMで選択→QR、スマホの当該寺院ページで金額・署名、CentralのSIWE＋claim後にATM「寄付中」、寄付確定後に初期画面。任意写真はスマホ。現地現金は本人と受付を結び、NV200 Ready→有限受付→Done／期限→停止・照合→確定、スマホCollectionを強制遷移なしで更新、ATM任意写真→Finish／無操作で初期画面。
+- 成果：`docs/issue-penetrator/kalash-metamask-browser-journey.md` に三UX・画面状態・期限・現地性・写真権限・RPC・M3～M5への割り当てを統合。プレイブックをATM段階へ更新し、Approve調査にはRPC復旧済みの証拠を追記、旧分析を履歴化。今回の文書commitに含む。
+- SPEC §4.2/§4.3/§5/§8、SDD §2/§3/§6/§7と照合。変更指示は現地Cryptoの金額入力場所、Crypto写真の撮影場所、ATMとスマホの状態遷移、RPC固定。現金の署名拘束・Controller照合・寄付限定写真権限は既存契約を維持。本筋のSPEC／SDD／製品コードは今回変更していない。
+- 確認：最新コード・記録の読み取り、文書レビュー、Markdownと相互リンクの検査。実機操作・Wallet署名・送金・撮影・公開・配備・製品テストはなし。
+- 次の一手：本筋が導線文書§9の差分を現行SPEC／SDD／TASKSと既存M3～M5へ反映。文書ファイルを選択して取り込み、古い文書ブランチ全体やTASKSでmainを上書きしない。実機はPC QR→スマホ→固定Cloud Run revision、試験中は再配備しない。今回の文書作業に本人操作待ちはなし。
