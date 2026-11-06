@@ -10,15 +10,21 @@ internal static class Program
     {
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
-            Console.WriteLine("Usage: KALASH.CashMachineController.exe run");
+            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | run");
             Console.WriteLine(
                 $"Requires {RestApiServerConfiguration.ServerDirectoryVariable}, an absolute {RestApiServerConfiguration.DotnetVariable}, and protected {RestApiServerConfiguration.SigningKeyVariable}.");
+            Console.WriteLine("The validate command never starts a child process.");
             return 0;
+        }
+
+        if (args.Length == 1 && args[0] == "validate")
+        {
+            return ValidateConfiguration();
         }
 
         if (args.Length != 1 || args[0] != "run")
         {
-            Console.Error.WriteLine("Specify the explicit 'run' command. No server starts by default.");
+            Console.Error.WriteLine("Specify 'validate' or the explicit 'run' command. No server starts by default.");
             return 2;
         }
 
@@ -85,6 +91,33 @@ internal static class Program
         {
             Console.Error.WriteLine($"Windows process operation failed with error {exception.NativeErrorCode}.");
             return 1;
+        }
+        catch (IOException)
+        {
+            Console.Error.WriteLine("Local REST API Server files could not be read.");
+            return 1;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine("Access to the local REST API Server files was denied.");
+            return 1;
+        }
+    }
+
+    private static int ValidateConfiguration()
+    {
+        try
+        {
+            var configuration = RestApiServerConfiguration.FromEnvironment();
+            _ = configuration.CreateStartInfo();
+            Console.WriteLine(
+                "Local REST API Server configuration is valid. No vendor server child was started; API and device readiness are unverified.");
+            return 0;
+        }
+        catch (ControllerConfigurationException exception)
+        {
+            Console.Error.WriteLine($"Configuration error: {exception.Message}");
+            return 2;
         }
         catch (IOException)
         {

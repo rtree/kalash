@@ -17,13 +17,16 @@ node scripts\check-policy.mjs
 dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineController.Tests.csproj
 ```
 
-The test runner does not start the manufacturer server. The explicit `run`
-command requires a local `RESTAPIServer` directory, an absolute
-`KALASH_ITL_DOTNET` path, and protected `KALASH_ITL_JWT_KEY`; it reports only
-process liveness, not API authentication or device readiness. No cash-device
-commands are implemented. Verify real server startup and ITL/device behavior
-only in the later M3-device task with the authorized machine. Windows service
-registration is a separate, later approval and is not part of this scaffold.
+The `validate` command checks the local package and child environment overrides
+without launching the server. The `run` command requires a local
+`RESTAPIServer` directory, an absolute `KALASH_ITL_DOTNET` path, and protected
+`KALASH_ITL_JWT_KEY`; it reports only process liveness, not API authentication
+or device readiness.
+
+The test runner does not start the manufacturer server. No cash-device commands
+are implemented. Verify real server startup and ITL/device behavior only in the
+M3-device task with the authorized machine. Windows service registration is a
+separate, later approval and is not part of this scaffold.
 
 Keep credentials and machine-specific paths outside Git. Never log credentials
 or copy manufacturer binaries, manuals, or configuration into this project.
