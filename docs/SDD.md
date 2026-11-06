@@ -450,6 +450,13 @@ the exact `AllowedHosts` and `Jwt__Key` overrides. Startup checks that the
 process remains alive; API authentication and device readiness are separate
 checks and are never inferred from an open port.
 
+`ItlReadOnlyClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
+tokens in memory, refreshes the token before expiry, and serializes each request.
+It exposes authentication and non-consuming USB/device/inventory GETs only.
+There is deliberately no `GetDeviceStatus`, `OpenConnection`, route, acceptor,
+or payout method until the single-poller and route contracts are resolved.
+HTTP errors expose status codes, not response bodies; there are no blind retries.
+
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
 an explicit QR-unavailable reason instead of manufacturing a mobile link.
 `scripts/bootstrap-atm.mjs` provisions the registered ATM without overwriting an

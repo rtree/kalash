@@ -11,7 +11,8 @@ internal static class Program
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
             Console.WriteLine("Usage: KALASH.CashMachineController.exe run");
-            Console.WriteLine($"Requires {RestApiServerConfiguration.ServerDirectoryVariable} and protected {RestApiServerConfiguration.SigningKeyVariable}.");
+            Console.WriteLine(
+                $"Requires {RestApiServerConfiguration.ServerDirectoryVariable}, an absolute {RestApiServerConfiguration.DotnetVariable}, and protected {RestApiServerConfiguration.SigningKeyVariable}.");
             return 0;
         }
 

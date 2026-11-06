@@ -2,8 +2,8 @@
 
 This is the KALASH-owned Windows controller project, targeting .NET 10 with
 the distinct product/process identity `KALASH.CashMachineController`. It
-currently contains only the local REST API Server process host; build outputs
-are ignored by Git.
+currently contains the local REST API Server process host and a read-only ITL
+API client; build outputs are ignored by Git.
 
 The controller will manage only the manufacturer REST API Server child process
 that it starts from an explicitly configured local installation. It must not
