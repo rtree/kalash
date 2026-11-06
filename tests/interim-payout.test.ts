@@ -111,6 +111,7 @@ mock.module('../src/server/config.ts', { namedExports: {
 } });
 
 const payout = await import('../src/server/payout.ts');
+const atmService = await import('../src/server/atm.ts');
 const credentialHash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 function inventory(count: number): CashInventory {
@@ -289,6 +290,77 @@ test('active historical readback stores bound audit evidence without editing a p
   assert.deepEqual(atm.cashAuditReadback, { visitId: 'a'.repeat(64), cashSessionId, report });
   assert.deepEqual(store.records.get(`cashSessions/${cashSessionId}`).ledger, before);
   assert.equal(atm.cashPhysicalReconciliationRequired, true);
+});
+
+test('ADC retirement accepts the real legacy reason set only after fresh bound readback without fabricating a note outcome', async () => {
+  seedPendingReturnAudit();
+  const visitId = 'a'.repeat(64);
+  const sessionPath = `cashSessions/${cashSessionId}`;
+  const visitPath = `visits/${visitId}`;
+  const legacyReasons = [
+    'unexpected_device_state_event', 'unexpected_device_state', 'prior_reconciliation_required',
+    'close_observation_timeout', 'unresolved_escrow',
+  ];
+  const session = store.records.get(sessionPath);
+  const pendingReturn = session.ledger.notes.at(-1);
+  session.ledger.notes = [pendingReturn];
+  session.ledger.reconciliationReasons = legacyReasons;
+  const physicalInventory: CashInventory = {
+    levels: CASH_DENOMINATIONS.map((valuePaise) => ({
+      valuePaise,
+      payout: valuePaise === '10000' ? 3 : 0,
+      cashbox: valuePaise === '1000' || valuePaise === '2000' ? 2 : valuePaise === '20000' ? 1 : 0,
+    })),
+    counters: { stored: 57, stacked: 2, dispensed: 53, transferredToStack: 1 },
+  };
+  session.ledger.baseline = physicalInventory;
+  store.records.set(sessionPath, session);
+  const visit = store.records.get(visitPath);
+  delete visit.reconciliationReason;
+  delete visit.reconciliationReasons;
+  visit.cashAcceptedPaise = '0';
+  store.records.set(visitPath, visit);
+  const atm = store.records.get(`atms/${atmId}`);
+  atm.payoutInventory = { ...atm.payoutInventory, inventory: physicalInventory, rawSequence: 5 };
+  store.records.set(`atms/${atmId}`, atm);
+  const before = structuredClone(session.ledger);
+
+  const report = { observedAt: Date.now(), deviceId, deviceState: 'DISABLED' as const,
+    escrowEmpty: true as const, inventory: physicalInventory, rawSequence: 6 };
+  await payout.reportPayoutInventory(atmId, `Bearer ${controllerToken}`, report);
+  assert.equal(await atmService.retireHistoricalCashAfterReadback(atmId, visitId), true);
+
+  const retiredAtm = store.records.get(`atms/${atmId}`);
+  const retiredVisit = store.records.get(visitPath);
+  const retiredLedger = store.records.get(sessionPath).ledger;
+  assert.equal(retiredAtm.activeVisitId, null);
+  assert.equal(retiredAtm.cashHistoricalReconciliationOnly, true);
+  assert.equal(retiredAtm.cashPhysicalReconciliationRequired, false);
+  assert.equal(retiredAtm.cashAuditReadback, null);
+  assert.equal(retiredVisit.cashHistoricalAuditWarning, true);
+  assert.deepEqual(retiredVisit.cashRetirementReadback, report);
+  assert.deepEqual(retiredLedger.reconciliationReasons, legacyReasons);
+  assert.deepEqual(retiredLedger, before);
+  assert.equal(retiredLedger.notes[0]?.returned, false);
+  assert.equal(retiredLedger.notes[0]?.stored, false);
+  assert.equal(retiredLedger.notes[0]?.credited, false);
+  assert.equal(retiredLedger.notes[0]?.credited, before.notes[0]?.credited);
+});
+
+test('historical ADC retirement still requires the current controller to be healthy', async () => {
+  seedPendingReturnAudit();
+  const visitId = 'a'.repeat(64);
+  const report = { observedAt: Date.now(), deviceId, deviceState: 'DISABLED' as const,
+    escrowEmpty: true as const, inventory: inventory(2), rawSequence: 6 };
+  await payout.reportPayoutInventory(atmId, `Bearer ${controllerToken}`, report);
+  const atm = store.records.get(`atms/${atmId}`);
+  atm.controllerHealth.deviceStarted = false;
+  store.records.set(`atms/${atmId}`, atm);
+
+  await assert.rejects(atmService.retireHistoricalCashAfterReadback(atmId, visitId),
+    { code: 'CASH_CONTROLLER_NOT_READY' });
+  assert.equal(store.records.get(`atms/${atmId}`).activeVisitId, visitId);
+  assert.equal(store.records.get(`visits/${visitId}`).cashRetiredAt, undefined);
 });
 
 test('unknown historical intake command cannot submit or consume a physical audit readback', async () => {

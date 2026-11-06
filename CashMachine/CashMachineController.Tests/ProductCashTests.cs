@@ -1219,6 +1219,19 @@ internal static class ProductCashTests
         fixture.Central.NoSession = true;
         await fixture.Tick();
         Check(fixture.Itl.EnableCount == 1 && fixture.Itl.AcceptCount == 0, "Restart replayed the old physical start.");
+
+        using var policy = new CashPolicyEnvironment("interim-ledger");
+        SeedHistoricalMismatch(fixture.Owner.State);
+        await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+        await fixture.Restart(reopen: true);
+        await fixture.Owner.TickAsync(None, allowStart: false);
+        Check(!fixture.Owner.State.Locked && fixture.Owner.State.HistoricalAuditRetired
+            && fixture.Itl.EnableCount == 1 && fixture.Itl.AcceptCount == 0
+            && (await commands.ReadEvidenceAsync(command.CommandId, None)).SequenceEqual(originalCommand),
+            $"Previously reconciled zero-note command blocked Interim audit retirement or was rewritten: "
+            + $"locked={fixture.Owner.State.Locked}, retired={fixture.Owner.State.HistoricalAuditRetired}, "
+            + $"reasons={string.Join(",", fixture.Owner.State.LockReasons)}, "
+            + $"reconciled={ProductFailedStartRecovery.IsReconciledCommand(fixture.Owner.State, (await commands.ReadAsync(command.CommandId, None))!)}.");
     }
 
     private static async Task RejectOtherFailedStarts()
@@ -1887,6 +1900,7 @@ internal static class ProductCashTests
                 case "GetConnectedUSBDevices": return Json(UsbDisconnected ? Array.Empty<object>() : [new { Port = "COM4" }]);
                 case "GetAllCashDevices": return Json(disconnected ? Array.Empty<string>() : [DeviceId]);
                 case "OpenConnection":
+                    disconnected = false;
                     using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token)))
                     {
                         Check(!body.RootElement.GetProperty("EnableAcceptor").GetBoolean()

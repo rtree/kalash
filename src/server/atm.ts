@@ -116,7 +116,10 @@ export function cashLedgerHasOperationalError(ledger: CashLedger): boolean {
 }
 export function cashAuditReasonAllowed(reason: string): boolean {
   return historicalCashReasons.has(reason)
-    || ['unresolved_escrow', 'controller_fault', 'prior_reconciliation_required'].includes(reason);
+    || [
+      'unresolved_escrow', 'controller_fault', 'prior_reconciliation_required',
+      'unexpected_device_state_event', 'unexpected_device_state', 'close_observation_timeout',
+    ].includes(reason);
 }
 export function cashLedgerAuditableAfterReadback(ledger: CashLedger): boolean {
   return ledger.closed && ledger.baseline !== null && ledger.reconciliationReasons.length > 0
@@ -167,6 +170,18 @@ async function retireHistoricalCash(tx: Transaction, atm: AtmRecord, visit: Visi
     ...(physicalAudit ? { cashPhysicalReconciliationRequired: false } : {}),
   });
   return true;
+}
+export async function retireHistoricalCashAfterReadback(atmId: string, visitId: string): Promise<boolean> {
+  const atmRef = atmReference(atmId);
+  const visitRef = visitReference(visitId);
+  return db.runTransaction(async (tx) => {
+    const [atmSnapshot, visitSnapshot] = await Promise.all([tx.get(atmRef), tx.get(visitRef)]);
+    const atm = atmSnapshot.data() as AtmRecord | undefined;
+    const visit = visitSnapshot.data() as VisitRecord | undefined;
+    if (!atm || atm.id !== atmId || !visit || visit.id !== visitId
+      || visit.atmId !== atmId || visit.templeId !== atm.templeId) return false;
+    return retireHistoricalCash(tx, atm, visit);
+  });
 }
 export async function validateControllerCredential(atmId: string, authorization: string | undefined) {
   const atm = validAtm((await atmReference(atmId).get()).data() as AtmRecord | undefined);

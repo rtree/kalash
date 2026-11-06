@@ -540,18 +540,18 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
 
         nextAuditRecheck = Now + ProductTiming.EscrowDecisionMs;
         var commands = await commandJournal.ReadAllAsync(token);
-        if (commands.Any(entry => entry.State is "dispatching" or "unknown"
+        if (commands.Any(entry => !ProductFailedStartRecovery.IsReconciledCommand(State, entry)
+            && (entry.State is "dispatching" or "unknown"
             || entry.PendingReportState == "dispatching"
             || entry.State is "observed" or "reported"
                 && !State.CompletedSessions.Contains(entry.Command.CashSessionId)
-                && State.Intake?.Command.CommandId != entry.Command.CommandId))
+                && State.Intake?.Command.CommandId != entry.Command.CommandId)))
             return;
 
         if (State.PollInFlight || State.Outbox.Count != 0) return;
         var pollAt = lastOwnedPollAt;
         var observed = latest;
         if (pollAt is null || observed is null || !Fresh(pollAt.Value, Now)
-            || Now - pollAt.Value > ProductTiming.EscrowDecisionMs
             || observed.DeviceState != "DISABLED" || observed.Events.Count != 0)
             return;
 

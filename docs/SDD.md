@@ -199,6 +199,12 @@ even while the allowlisted historical lock remains set. Retirement is
 an audit annotation rather than a fabricated RETURNED/STORED event. Central
 retains the original ledger, command and device evidence. Fee coverage is keyed
 by cash session to avoid charging recognized notes again across retirements.
+Previously completed zero-note recovery is recognized using the same exact
+command/receipt binding as startup; unreconciled unknown commands still block.
+Legacy device-state and close-timeout reasons are allowed only in the historical
+audit path requiring a fresh bound physical readback, not as accounting-only
+errors. Owner-authorized ADC maintenance may invoke the existing retirement
+transaction; no public endpoint or wallet/screen authorization is added.
 The administrator view shows recognized cash, actual Payout cash and their
 signed difference before approving the exact actual full payout amount.
 
