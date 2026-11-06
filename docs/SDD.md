@@ -107,6 +107,11 @@ the wallet provider may use different RPC backends; do not infer that the wallet
 endpoint is healthy from the browser read, force gas values, or retry blindly.
 Keep the exact error and sanitized provider trace, and verify the wallet's chain/RPC
 configuration before making another approval attempt.
+For WalletConnect's Blockchain RPC HTTP API, `/v1` requires both a CAIP-2
+`chainId` and a `projectId` query parameter; a bare `rpc.walletconnect.org/v1`
+hostname is not a complete request URL. Do not copy credential-bearing RPC URLs
+into logs or ask the owner to share the project ID. See the [WalletConnect Blockchain
+RPC specification](https://specs.walletconnect.com/2.0/specs/servers/blockchain/blockchain-rpc-api).
 
 ## 3. Authentication and API contract
 
