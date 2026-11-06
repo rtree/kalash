@@ -35,10 +35,10 @@
 | M1-deploy | M1 | Integrator：Cloud Run | M1-api、M1-ui | 完了 | 実オリジン、runtime SA、Health、mint loop確認 |
 | M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCのMetaMaskに加え、Android MetaMask内蔵Browserでも0.01 USDC approval→Donate→Central確認→Stamp/Collection再読込を本人確認。receipt canonical、Vault `Donated` event、mint receiptを照合 |
 | M2 | M2 | Integrator：写真・ボード | M1-e2e | human-wait（後回し） | 写真共有→Devotee board表示は本人／API確認済み。2026-11-06本人指示で取り下げ追加作業は後続へ。既存本人withdrawは維持。残るcamera/size検証も未完として保持 |
-| M5a-device-state | M5a | Integrator：ATM/Central read-only readiness | M1-e2e | doing | Controller heartbeat/USB disconnect/default unknownでCash disabled・Crypto available。局所health判定を実装。実Central API未検証、現金命令なし |
-| M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | doing | explicit visit claim→kind=1 intent→通常receipt検証・Stamp→ATM reset、同じIDで冪等。コード／型チェック済み、実Central API未検証 |
-| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | human-wait | PCで画面pairing完了（本人確認 2026-11-06 10:48Z）。次はCrypto受付QR→MetaMask→claim、その後本人の0.01 USDC onsite test→Central/receipt/mint/Collection→ATM idle |
-| M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | human-wait | コード／live API完了。実機MetaMaskのapproval／donation・receipt・mint・Collection・ATM復帰は本人確認待ち。Cash disabledのまま。次のM3を完了したとは扱わない |
+| M5a-device-state | M5a | Integrator：ATM/Central read-only readiness | M1-e2e | verified | Live APIでmissing/stale/disconnected/ready healthを確認。Cash acceptanceは全状態でfalse、Crypto有効。CashDevice命令なし |
+| M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | verified | visit claim・kind=1 intent、実receipt／Vaultイベント、mint／Stamp、points、ATM idleまで同じdonationIdで照合 |
+| M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | verified | 本人がATM screen pairing、MetaMask mobileの0.01 USDC送金、Collection再読込後のOn-site Stamp表示を確認 |
+| M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | verified | 現地Crypto end-to-endを確認。Cashは無効のまま。次のM3現地現金は別ゴール |
 | M3-itl-contract | M3準備（M5aと並行） | Integrator：メーカーREST API契約照合 | なし | todo | 非再配布のメーカー資料で版・認証・起動・loopback契約を照合し、検証済み要点のみSDDへ記録。配布物はGitへ入れず、実機操作なし |
 | M3-controller-host | M3準備（M5aと並行） | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | todo | 専用.NET 10ホストからローカルRESTAPIServerを子起動・準備確認・終了し、自分が起動した子だけ管理。loopback限定・fake child試験。現金命令／サービス登録なし |
 | M3-device | M3（次） | Integrator：CashMachineController/ITL | M5a、M3-controller-host | todo | USB接続後、認証・poller所有・接続／経路／在高・実Readyを確認 |
@@ -110,8 +110,9 @@
 - `node scripts/check-policy.mjs`合格、570ロック依存の168時間証拠も有効。`pnpm run typecheck`、`pnpm run build`成功。Focused unit suiteは12/12成功・skipなし。
 - Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815`成功、image `central:dbb7efa`をrevision `00018-dgg`へ配備。`/api/health` ready・Base Sepolia・sourceCommit full SHA一致。ATM shell route HTTP200。
 - 実Central `pnpm run test:atm`は認可・pairing・expiry・claim・kind=1 intentを8/8成功・skipなし。未接続／古いhealthではCash disabled・Crypto available、Controller healthがreadyでもM5aではCash disabled。claim・intentの競合／再試行も実Firestoreで成功。API testは送金・mint・写真操作なし。
-- `atm-01` の登録済み画面URLは`https://kalash-central-548318651344.asia-south1.run.app/atm/atm-01`。画面Pairingは本人が成功確認。QR発行／スマホ到達／claim／MetaMask送金／Central stampは未実施。
-- 次：PC ATM画面で「Donate with Crypto」を押しQRを表示→スマホ外部QR readerからMetaMask DApp Browserで開く→寺院・ATMを確認してWallet接続／VerifyWallet／明示Join。送金ボタン前で一度結果を共有し、0.01 USDC承認／送金は本人のMetaMask確認・明示承認後だけ進める。未知の操作は再送しない。
+- M5a live donation 0xd25b42f9…dd2dfb（visit 178d6d49…fbbc0）：kind=1、10,000 USDC base units、Firestore confirmed/minted。Donation tx 0x24708f73…aaba69 successful/canonical、exact Vault Donated and USDC fee/net transfers matched. Mint tx 0x658b3e88…9584b successful/canonical、matching StampMinted event。Firestore visit confirmed、ATM activeVisitId cleared、points include 10× onsite multiplier。本人はCollection reload後のOn-site Lotus Courtyard Stamp表示も確認。
+- M5a配備 revision 00018-dgg／image central:dbb7efa。Cloud Build 146fafbd-127e-47ff-ac98-b17d2b7e4815 successful. Live API pnpm run test:atm 8/8 pass, no skips. Source dbb7efa47df17107a6843f46961c5d55881712f9。
+- 次：M5a完了。M3現金は別ゴールとして準備し、Cash command／実機service登録は実装・権限の確認後に別途行う。Cash試験は人の立ち会いを待つ。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 
