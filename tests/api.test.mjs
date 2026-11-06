@@ -121,10 +121,10 @@ test('real operation registration is idempotent and unknown submission cannot be
   assert.equal((await request(`/api/donations/${donation.id}/operation`, {
     method: 'POST', bearer: token, body: { operation: 'donate', attemptId: crypto.randomUUID() },
   })).status, 409);
-  const unsafeResolution = await request(`/api/donations/${donation.id}/expire-approval`, {
-    method: 'POST', bearer: token, body: { attemptId: operation.attemptId },
+  const unsafeResolution = await request(`/api/donations/${donation.id}/resolve-approval`, {
+    method: 'POST', bearer: token, body: { attemptId: operation.attemptId, confirmNoWalletRequest: true },
   });
-  assert.equal(unsafeResolution.status, 409, 'an active donate attempt must never be expired as an approval-only operation');
+  assert.equal(unsafeResolution.status, 409, 'an active donate attempt must never be abandoned as approval-only');
 
   const approvalIntent = await request('/api/donations', {
     method: 'POST', bearer: token, body: { templeId: 'temple-01', amount: '0.01' },
@@ -135,11 +135,28 @@ test('real operation registration is idempotent and unknown submission cannot be
   assert.equal((await request(`/api/donations/${approval.id}/operation`, {
     method: 'POST', bearer: token, body: { operation: 'approve', attemptId: approvalAttemptId },
   })).status, 200);
-  const earlyResolution = await request(`/api/donations/${approval.id}/expire-approval`, {
+  const missingWalletConfirmation = await request(`/api/donations/${approval.id}/resolve-approval`, {
     method: 'POST', bearer: token, body: { attemptId: approvalAttemptId },
   });
-  assert.equal(earlyResolution.status, 409, 'a live approval intent must not be resolved as expired');
-  assert.equal((await (await request(`/api/donations/${approval.id}`, { bearer: token })).json()).status, 'intent');
+  assert.equal(missingWalletConfirmation.status, 400, 'recovery requires explicit confirmation that no wallet prompt is open');
+  const earlyResolution = await request(`/api/donations/${approval.id}/resolve-approval`, {
+    method: 'POST', bearer: token,
+    body: { attemptId: approvalAttemptId, confirmNoWalletRequest: true },
+  });
+  assert.equal(earlyResolution.status, 200);
+  const resolvedApproval = await earlyResolution.json();
+  assert.equal(resolvedApproval.status, 'cancelled');
+  assert.equal(resolvedApproval.approvalResolution.outcome, 'cancelled');
+  assert.equal(resolvedApproval.approvalResolution.onchainRevoked, false);
+  assert.equal(resolvedApproval.approvalResolution.confirmedNoWalletRequest, true);
+  assert.equal(resolvedApproval.approvalResolution.approvalEvents, 0);
+  assert.equal(resolvedApproval.approvalResolution.donatedEvents, 0);
+  assert.equal((await (await request(`/api/donations/${approval.id}`, { bearer: token })).json()).status, 'cancelled');
+  const repeatResolution = await request(`/api/donations/${approval.id}/resolve-approval`, {
+    method: 'POST', bearer: token,
+    body: { attemptId: approvalAttemptId, confirmNoWalletRequest: true },
+  });
+  assert.equal(repeatResolution.status, 200, 'recovery is idempotent for the same approval attempt');
 
   const unknown = await request(`/api/donations/${donation.id}/verify`, { method: 'POST', bearer: token, body: {} });
   assert.equal(unknown.status, 200);

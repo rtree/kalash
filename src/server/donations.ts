@@ -12,6 +12,14 @@ import { temples } from './catalog.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { validateDonationReceiptEvidence } from './donation-receipt.ts';
 
+const approvalEventAbi = parseAbi([
+  'event Approval(address indexed owner,address indexed spender,uint256 value)',
+]);
+
+const approvalEventAbi = parseAbi([
+  'event Approval(address indexed owner,address indexed spender,uint256 value)',
+]);
+
 export function donationReference(id: unknown) {
   requireValue(typeof id === 'string' && /^0x[0-9a-f]{64}$/i.test(id), 400, 'INVALID_ID', 'Invalid donation ID.');
   return db.collection('donations').doc(id.toLowerCase());
@@ -57,6 +65,8 @@ export async function recordOperation(id: unknown, owner: Address, operation: un
     const snapshot = await transaction.get(reference);
     const data = snapshot.data() as Donation | undefined;
     requireValue(data?.ownerWallet.toLowerCase() === owner.toLowerCase(), 403, 'NOT_OWNER', 'Donation permission denied.');
+    requireValue(data.status !== 'cancelled' && data.status !== 'expired',
+      409, 'INTENT_ABANDONED', 'This donation intent is no longer active.');
     const attempt = reference.collection('operations').doc(attemptId);
     const existing = await transaction.get(attempt);
     if (existing.exists) {
@@ -73,16 +83,24 @@ export async function recordOperation(id: unknown, owner: Address, operation: un
   });
   return ownedDonation(id, owner);
 }
-export async function resolveExpiredApproval(id: unknown, owner: Address, attemptId: unknown): Promise<Donation> {
+export async function resolveApprovalOnlyIntent(
+  id: unknown,
+  owner: Address,
+  attemptId: unknown,
+  confirmNoWalletRequest: unknown,
+): Promise<Donation> {
   requireValue(deployment, 503, 'CONTRACTS_NOT_DEPLOYED', 'Contracts unavailable.');
   requireValue(typeof attemptId === 'string' && /^[a-z0-9-]{36}$/i.test(attemptId),
     400, 'INVALID_ATTEMPT', 'A stable approval attempt ID is required.');
+  requireValue(confirmNoWalletRequest === true, 400, 'WALLET_STATE_CONFIRMATION_REQUIRED',
+    'Confirm that no wallet request is still open before resolving this approval-only attempt.');
   const reference = donationReference(id);
   const record = await ownedDonation(id, owner);
-  if (record.status === 'expired' && record.approvalResolution?.attemptId === attemptId) return record;
-  requireValue(record.status === 'intent' && record.deadline <= Math.floor(Date.now() / 1000)
+  if ((record.status === 'cancelled' || record.status === 'expired')
+    && record.approvalResolution?.attemptId === attemptId) return record;
+  requireValue(record.status === 'intent'
     && !record.donateAttemptId && !record.txHash,
-  409, 'NOT_EXPIRED_APPROVAL', 'Only an expired intent with no donation submission can be resolved.');
+  409, 'NOT_APPROVAL_ONLY', 'Only an active intent with no donation submission can be resolved.');
 
   const operations = await reference.collection('operations').get();
   const attempt = operations.docs.find((operation) => operation.id === attemptId);
@@ -99,33 +117,48 @@ export async function resolveExpiredApproval(id: unknown, owner: Address, attemp
     409, 'RECONCILIATION_REQUIRED', 'This intent is outside the safe on-chain check window; operator review is required.');
   const deadline = BigInt(record.deadline);
   const latestBlock = await chain.getBlock({ blockNumber: latest });
-  requireValue(latestBlock.timestamp > deadline, 409, 'CHAIN_TIME_NOT_EXPIRED',
-    'The latest Base Sepolia block is not past this intent deadline yet.');
-  const startBlock = await chain.getBlock({ blockNumber: start });
-  let throughBlock = start - 1n;
-  if (startBlock.timestamp <= deadline) {
+  const chainExpired = latestBlock.timestamp > deadline;
+  let throughBlock = latest;
+  if (chainExpired) {
     let low = start;
     let high = latest;
-    while (low < high) {
+    const startBlock = await chain.getBlock({ blockNumber: start });
+    if (startBlock.timestamp > deadline) {
+      throughBlock = start - 1n;
+    } else {
+      while (low < high) {
       const middle = (low + high + 1n) / 2n;
       const block = await chain.getBlock({ blockNumber: middle });
       if (block.timestamp <= deadline) low = middle;
       else high = middle - 1n;
+      }
+      throughBlock = low;
     }
-    throughBlock = low;
   }
   const blockCount = throughBlock >= start ? throughBlock - start + 1n : 0n;
   requireValue(blockCount <= 20000n,
     409, 'RECONCILIATION_REQUIRED', 'This intent is outside the safe on-chain check window; operator review is required.');
+  let approvalEvents = 0;
+  let donatedEvents = 0;
   for (let from = start; from <= throughBlock; from += 200n) {
     const to = from + 199n < throughBlock ? from + 199n : throughBlock;
-    const events = await chain.getLogs({
-      address: deployment.vault, event: vaultAbi[1], args: { donationId: record.id },
-      fromBlock: from, toBlock: to, strict: true,
-    });
-    requireValue(events.length === 0, 409, 'DONATION_EVENT_FOUND',
-      'A matching donation event exists. Keep this operation and ask Central to reconcile it.');
+    const [approvals, donations] = await Promise.all([
+      chain.getLogs({
+        address: USDC, event: approvalEventAbi[0], args: { owner, spender: deployment.vault },
+        fromBlock: from, toBlock: to, strict: true,
+      }),
+      chain.getLogs({
+        address: deployment.vault, event: vaultAbi[1], args: { donationId: record.id },
+        fromBlock: from, toBlock: to, strict: true,
+      }),
+    ]);
+    approvalEvents += approvals.length;
+    donatedEvents += donations.length;
   }
+  requireValue(approvalEvents === 0, 409, 'APPROVAL_EVENT_FOUND',
+    'A matching Vault allowance event exists. Keep this operation and review the wallet allowance.');
+  requireValue(donatedEvents === 0, 409, 'DONATION_EVENT_FOUND',
+    'A matching donation event exists. Keep this operation and ask Central to reconcile it.');
   const allowance = await chain.readContract({
     address: USDC,
     abi: parseAbi(['function allowance(address owner,address spender) view returns (uint256)']),
@@ -136,22 +169,32 @@ export async function resolveExpiredApproval(id: unknown, owner: Address, attemp
     'USDC allowance to the donation vault is still active. Do not clear this operation; review the wallet allowance first.');
 
   const resolvedAt = new Date().toISOString();
+  const outcome = chainExpired ? 'expired' : 'cancelled';
+  const error = chainExpired
+    ? 'Expired approval-only operation checked on Base Sepolia; no approval event, donation event or allowance was found.'
+    : 'Approval-only flow abandoned before deadline; no approval event, donation event or allowance was found. The signed intent is not revoked on-chain and remains valid until its deadline.';
   await db.runTransaction(async (transaction) => {
     const currentSnapshot = await transaction.get(reference);
     const current = currentSnapshot.data() as Donation | undefined;
     requireValue(current?.ownerWallet.toLowerCase() === owner.toLowerCase()
-      && current.status === 'intent' && current.deadline <= Math.floor(Date.now() / 1000)
+      && current.status === 'intent' && current.deadline === record.deadline
+      && current.startBlock === record.startBlock
       && !current.donateAttemptId && !current.txHash,
     409, 'OPERATION_CHANGED', 'The donation state changed during reconciliation; reload it before continuing.');
     transaction.update(reference, {
-      status: 'expired',
-      expiredAt: resolvedAt,
-      error: 'Expired approval-only operation checked on Base Sepolia; no donation event or allowance was found.',
+      status: outcome,
+      ...(outcome === 'expired' ? { expiredAt: resolvedAt } : { cancelledAt: resolvedAt }),
+      error,
       approvalResolution: {
         attemptId,
         resolvedAt,
         fromBlock: start.toString(),
         throughBlock: throughBlock.toString(),
+        outcome,
+        signatureValidUntil: record.deadline,
+        onchainRevoked: false,
+        confirmedNoWalletRequest: true,
+        approvalEvents: 0,
         allowanceUnits: '0',
         donatedEvents: 0,
       },

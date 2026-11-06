@@ -42,7 +42,7 @@ export interface Temple {
   recipient: Address;
   motif: string;
 }
-export type DonationStatus = 'intent' | 'submitting' | 'unknown' | 'submitted' | 'confirmed' | 'failed' | 'expired';
+export type DonationStatus = 'intent' | 'submitting' | 'unknown' | 'submitted' | 'confirmed' | 'failed' | 'expired' | 'cancelled';
 export type MintStatus = 'reserved' | 'prepared' | 'submitted' | 'minted' | 'error';
 export interface Donation {
   id: Hex;
@@ -71,9 +71,16 @@ export interface Donation {
     resolvedAt: string;
     fromBlock: string;
     throughBlock: string;
+    outcome: 'cancelled' | 'expired';
+    signatureValidUntil: number;
+    onchainRevoked: false;
+    confirmedNoWalletRequest: true;
+    approvalEvents: 0;
     allowanceUnits: '0';
     donatedEvents: 0;
   };
+  expiredAt?: string;
+  cancelledAt?: string;
 }
 export interface PhotoDto {
   id: string;

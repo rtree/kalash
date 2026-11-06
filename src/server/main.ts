@@ -8,7 +8,7 @@ import { db, origin, publicConfig, project } from './config.ts';
 import { challenge, identity, verifyChallenge } from './authentication.ts';
 import { temples } from './catalog.ts';
 import {
-  createDonation, ownedDonation, recordOperation, resolveExpiredApproval, verifyDonation,
+  createDonation, ownedDonation, recordOperation, resolveApprovalOnlyIntent, verifyDonation,
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
@@ -149,7 +149,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     requireValue(Object.keys(body).every((key) => ['templeId', 'amount'].includes(key)), 400, 'UNKNOWN_FIELD', 'Only templeId and amount may be specified.');
     return send(response, await createDonation(owner, body.templeId, body.amount), 201);
   }
-  const match = path.match(/^\/api\/donations\/(0x[0-9a-f]{64})(?:\/(operation|verify|expire-approval))?$/i);
+  const match = path.match(/^\/api\/donations\/(0x[0-9a-f]{64})(?:\/(operation|verify|resolve-approval))?$/i);
   if (match) {
     const id = match[1]!.toLowerCase();
     if (request.method === 'GET' && !match[2]) return send(response, await ownedDonation(id, owner));
@@ -157,11 +157,14 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       const body = await jsonBody(request);
       return send(response, await recordOperation(id, owner, body.operation, body.attemptId));
     }
-    if (request.method === 'POST' && match[2] === 'expire-approval') {
+    if (request.method === 'POST' && match[2] === 'resolve-approval') {
       const body = await jsonBody(request);
-      requireValue(Object.keys(body).length === 1 && typeof body.attemptId === 'string',
-        400, 'INVALID_BODY', 'Only the expired approval attemptId may be specified.');
-      return send(response, await resolveExpiredApproval(id, owner, body.attemptId));
+      requireValue(Object.keys(body).every((key) => ['attemptId', 'confirmNoWalletRequest'].includes(key))
+        && typeof body.attemptId === 'string' && body.confirmNoWalletRequest === true,
+      400, 'INVALID_BODY', 'An approval attempt ID and explicit no-open-wallet-request confirmation are required.');
+      return send(response, await resolveApprovalOnlyIntent(
+        id, owner, body.attemptId, body.confirmNoWalletRequest,
+      ));
     }
     if (request.method === 'POST' && match[2] === 'verify') {
       const body = await jsonBody(request);

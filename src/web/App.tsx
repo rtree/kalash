@@ -194,6 +194,7 @@ function donationStatusLabel(status: DonationStatus, mintStatus?: Donation['mint
   if (status === 'submitted') return 'Central is verifying your donation';
   if (status === 'failed') return 'Donation failed';
   if (status === 'expired') return 'Donation intent expired';
+  if (status === 'cancelled') return 'Approval-only attempt abandoned · no donation sent';
   return 'Ready to submit';
 }
 
@@ -696,21 +697,23 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
   };
 
-  const resolveExpiredApproval = async () => {
+  const resolveApprovalOnly = async () => {
     if (!donation || !pendingOperation || pendingOperation.donationId !== donation.id
       || pendingOperation.operation !== 'approve' || pendingOperation.txHash
-      || donation.status !== 'intent' || donation.deadline > Math.floor(Date.now() / 1000)
-      || donation.donateAttemptId || donation.txHash) return;
+      || donation.status !== 'intent' || donation.donateAttemptId || donation.txHash) return;
     const confirmed = window.confirm(
-      'This approval attempt expired. Central will check Base Sepolia for a matching donation and verify the Vault allowance is zero. This does not cancel any wallet request. Continue only if no MetaMask request is open.',
+      `Central will check Base Sepolia for matching approval/donation events and verify the Vault allowance is zero. There is no donation transaction to retry. Continue only if no MetaMask wallet request is open. If the intent has not expired, this abandons the KALASH flow but does not revoke its signed authorization until ${new Date(donation.deadline * 1000).toLocaleTimeString()}; do not manually submit that old intent.`,
     );
     if (!confirmed) return;
     setBusy(true);
     setError('');
     try {
       const expired = await api<Donation>(
-        `/api/donations/${encodeURIComponent(donation.id)}/expire-approval`,
-        { method: 'POST', body: JSON.stringify({ attemptId: pendingOperation.attemptId }) },
+        `/api/donations/${encodeURIComponent(donation.id)}/resolve-approval`,
+        { method: 'POST', body: JSON.stringify({
+          attemptId: pendingOperation.attemptId,
+          confirmNoWalletRequest: true,
+        }) },
         true,
       );
       setDonation(expired);
@@ -720,9 +723,11 @@ export function App({ runtime }: { runtime: Runtime }) {
         setCurrentDonationId(null);
       }
       setRefreshVersion((version) => version + 1);
-      setNotice('Central verified this expired approval on Base Sepolia. No donation was sent; you may start a fresh test if you choose.');
+      setNotice(expired.approvalResolution?.outcome === 'cancelled'
+        ? `The approval-only app flow was abandoned. No donation was sent. The old signed intent is not revoked and remains valid until ${new Date(expired.deadline * 1000).toLocaleTimeString()}; do not submit it manually.`
+        : 'Central verified the expired approval on Base Sepolia. No donation was sent; you may start a fresh test if you choose.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not safely resolve this expired approval.');
+      setError(cause instanceof Error ? cause.message : 'Could not safely resolve this approval-only attempt.');
     } finally {
       setBusy(false);
     }
@@ -855,7 +860,7 @@ export function App({ runtime }: { runtime: Runtime }) {
             onDonate={() => void startDonation()}
             onCheck={() => void checkCentral()}
             onResumeApproval={() => void resumeAfterApproval()}
-            onResolveExpiredApproval={() => void resolveExpiredApproval()}
+            onResolveApprovalOnly={() => void resolveApprovalOnly()}
             onRestore={() => void restoreDonation()}
             onCollection={() => { setRefreshVersion((version) => version + 1); navigate('/collection'); }}
             onExplore={() => navigate('/temples')}
@@ -987,7 +992,7 @@ function TempleDetail(props: {
   onDonate: () => void;
   onCheck: () => void;
   onResumeApproval: () => void;
-  onResolveExpiredApproval: () => void;
+  onResolveApprovalOnly: () => void;
   onRestore: () => void;
   onCollection: () => void;
   onExplore: () => void;
@@ -1073,10 +1078,9 @@ function TempleDetail(props: {
               <p>No donation has been sent yet. Do not retry an unknown wallet request.</p>
               {props.pendingOperation.txHash && <button className="button button-secondary button-wide" onClick={props.onResumeApproval} disabled={props.busy}>Check approval & continue</button>}
               {!props.pendingOperation.txHash && props.donation?.status === 'intent'
-                && props.donation.deadline <= Math.floor(Date.now() / 1000)
                 && !props.donation.donateAttemptId && !props.donation.txHash
                 && props.pendingOperation.donationId === props.donation.id
-                && <button className="button button-secondary button-wide" onClick={props.onResolveExpiredApproval} disabled={props.busy}>Verify expired approval safely</button>}
+                && <button className="button button-secondary button-wide" onClick={props.onResolveApprovalOnly} disabled={props.busy}>Verify and resolve approval-only attempt</button>}
             </div>
           )}
           {props.donation && (
@@ -1113,7 +1117,7 @@ function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore
     <div className={`donation-progress ${minted ? 'is-minted' : ''}`}>
       <div className={`status-pill ${statusTone(donation.status, donation.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(donation.status, donation.mintStatus)}</div>
       <ul className="progress-steps">
-        <li className={donation.status !== 'intent' ? 'complete' : 'current'}><span>1</span><div><strong>Wallet transaction</strong><small>{unknown ? 'Result unknown · check before taking another action' : donation.txHash ? `${donation.txHash.slice(0, 10)}…` : 'Not submitted'}</small></div></li>
+        <li className={donation.status !== 'intent' && donation.status !== 'cancelled' ? 'complete' : 'current'}><span>1</span><div><strong>Wallet transaction</strong><small>{unknown ? 'Result unknown · check before taking another action' : donation.txHash ? `${donation.txHash.slice(0, 10)}…` : donation.status === 'cancelled' ? 'Approval-only attempt abandoned · no donation sent' : 'Not submitted'}</small></div></li>
         <li className={donation.status === 'confirmed' || minted ? 'complete' : donation.status === 'submitted' ? 'current' : ''}><span>2</span><div><strong>Central verification</strong><small>{donation.status === 'confirmed' || minted ? 'Verified on Base Sepolia' : 'Waiting for Central'}</small></div></li>
         <li className={minted ? 'complete' : donation.status === 'confirmed' ? 'current' : ''}><span>3</span><div><strong>Temple stamp</strong><small>{minted ? 'Minted on-chain' : donation.status === 'confirmed' ? 'Mint is pending' : 'Issued after verification'}</small></div></li>
       </ul>
@@ -1363,7 +1367,7 @@ function CollectionPage(props: {
     return map;
   }, [props.donations]);
   const pending = [...new Map(props.donations
-    .filter((item) => item.mintStatus !== 'minted' && item.status !== 'failed' && item.status !== 'expired')
+    .filter((item) => item.mintStatus !== 'minted' && item.status !== 'failed' && item.status !== 'expired' && item.status !== 'cancelled')
     .map((item) => [item.id, item])).values()];
   return (
     <section className="page collection-page">
