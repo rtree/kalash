@@ -10,6 +10,25 @@ export interface CashInventory {
   levels: { valuePaise: string; payout: number; cashbox: number }[];
   counters: { stored: number; stacked: number; dispensed: number; transferredToStack: number };
 }
+export interface CashReadinessEvidence {
+  version: 'itl-idle-after-enable-v1';
+  commandId: string;
+  cashSessionId: string;
+  deviceId: string;
+  disabledObservedAt: number;
+  enableDispatchedAt: number;
+  enableAcknowledgedAt: number;
+  idleObservedAt: number;
+  disabledRawSequence: number;
+  rawSequence: number;
+  deviceStateCode: 5;
+  manualEscrow: true;
+  routesVerified: true;
+  escrowEmpty: true;
+  deviceHealthy: true;
+  baseline: CashInventory;
+  inventory: CashInventory;
+}
 interface NoteIdentity { noteKey: string; valuePaise: string; currency: 'INR' }
 export type CashEventData =
   | { type: 'intake_started'; data: { inventory: CashInventory } }
@@ -145,6 +164,38 @@ export function validateCashInventory(input: unknown): CashInventory {
   fields(counters, ['stored', 'stacked', 'dispensed', 'transferredToStack']);
   check(Object.values(counters).every(integer), 'All four explicit counters are required.');
   return input as CashInventory;
+}
+export function validateCashReadinessEvidence(input: unknown): CashReadinessEvidence {
+  const value = object(input);
+  fields(value, [
+    'version', 'commandId', 'cashSessionId', 'deviceId', 'disabledObservedAt', 'enableDispatchedAt',
+    'enableAcknowledgedAt', 'idleObservedAt', 'disabledRawSequence', 'rawSequence', 'deviceStateCode',
+    'manualEscrow', 'routesVerified', 'escrowEmpty', 'deviceHealthy', 'baseline', 'inventory',
+  ]);
+  check(value.version === 'itl-idle-after-enable-v1'
+    && typeof value.cashSessionId === 'string' && uuid.test(value.cashSessionId)
+    && value.commandId === `cash-start-${value.cashSessionId}`
+    && typeof value.deviceId === 'string' && value.deviceId.length > 0 && value.deviceId.length <= 128,
+  'Explicit readiness command, cash session and device binding are required.');
+  check(integer(value.disabledObservedAt) && value.disabledObservedAt > 0
+    && integer(value.enableDispatchedAt) && integer(value.enableAcknowledgedAt) && integer(value.idleObservedAt)
+    && value.disabledObservedAt <= value.enableDispatchedAt
+    && value.enableDispatchedAt <= value.enableAcknowledgedAt
+    && value.enableAcknowledgedAt <= value.idleObservedAt
+    && value.enableDispatchedAt < value.idleObservedAt,
+  'Readiness must follow the actual disabled, enable dispatch, acknowledgement and new IDLE observations.');
+  check(integer(value.disabledRawSequence) && integer(value.rawSequence) && value.rawSequence > value.disabledRawSequence,
+    'A newer durable owned-reader sequence is required.');
+  check(value.deviceStateCode === 5 && value.manualEscrow === true && value.routesVerified === true
+    && value.escrowEmpty === true && value.deviceHealthy === true, 'An explicit healthy empty manual-escrow IDLE readback is required.');
+  const baseline = validateCashInventory(value.baseline);
+  const inventory = validateCashInventory(value.inventory);
+  check(baseline.levels.every((before) => {
+    const after = inventory.levels.find((level) => level.valuePaise === before.valuePaise)!;
+    return after.payout === before.payout && after.cashbox === before.cashbox;
+  }) && (Object.keys(baseline.counters) as (keyof CashInventory['counters'])[])
+    .every((key) => baseline.counters[key] === inventory.counters[key]), 'Readiness inventory and all counters must be unchanged.');
+  return structuredClone(input) as CashReadinessEvidence;
 }
 export function validateCashEvent(input: unknown): CashEvent {
   const value = object(input);

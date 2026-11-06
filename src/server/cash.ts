@@ -154,6 +154,8 @@ export async function reportControllerCashEvent(
     if (atm.cashReconciliationRequired || ['reconciling', 'needs_reconciliation'].includes(visit.state)) flag('prior_reconciliation_required');
     if (event.type === 'intake_started' && (!['observed', 'reported'].includes(command.state)
       || !['accepting', 'closing'].includes(visit.state) || !visit.cashDeadline)) flag('start_not_observed_ready');
+    if (event.type === 'intake_started' && command.readinessEvidence
+      && digest(event.data.inventory) !== digest(command.readinessEvidence.baseline)) flag('readiness_baseline_mismatch');
     if (event.type === 'intake_closed' && event.data.reason === 'done' && !visit.cashCloseRequested) {
       flag('done_not_requested');
     }

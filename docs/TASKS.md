@@ -115,6 +115,7 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 19:17以降、M3実IDLE Ready契約：Central側の完全証拠付きIDLE判定・baseline一致・零枚失敗の明示operator照合を実装。親実行`pnpm run test:cash`72/72・skip0、typecheck成功。evidence/reconciliation試験を通常cash suiteとDocker必須検証へ追加し570release証拠更新。Controllerの実serialized fixture→Central HTTP/store照合は最終統合待ち、未配備。実機Controller12260は完了零枚/停止/前後一致を確認して停止済み、child17780だけ保全。未解決受付を消去せず実証拠を待つ。
 - M3実本人署名まで到達。現在の詰まりはEnable後の実状態IDLEと、未実証だったACCEPTING前提の不一致。STORED・入金・Stampなし。本人未投入、物理前後同値、停止DISABLEDを確認しcashEnabled=falseへ戻した。Controller担当は資料根拠/実IDLE Ready契約、Central担当は同契約と旧command非再送の零枚失敗照合を分担。次の新署名・投入を案内せず、現在の受付を証拠で閉じる。
 - M3 Origin修正版：staged製品snapshotでController59/59（既存27＋製品32）成功。全Central POSTに正規Origin、REST childより先にdurable unavailable-health POSTを検証、HTTP statusのみ安全出力する。`d708a45`で初期化復旧・実disabled/empty/在高/counter・disconnect/child停止は完了済み。今回commit版で通信を先に確認してから再起動する。前の不明命令を再送する操作ではなく、結果確認済みの切断後の新しい接続。
 - UTC 2026-11-06 18:41以降：実機まで到達して上記parser/profile不一致を特定。raw journalの型と状態のみ読取り、vendorログ/credentials未読。stateはconnectionPending=false、manualEscrow=true、routeResults6、locked=true（unknown_device_eventだけ）、intake=null、outbox0、rawSequence1、pollInFlight=false。cash-enable/署名/紙幣はまだなし。known pre-intake ownerのみ終了後、旧終了helperがinhibit検証で停止。child22504を残し、安全状態・在高・counterの対応profile照合をしてから復旧する。

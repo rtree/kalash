@@ -2,15 +2,21 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getAddress, verifyMessage, type Address, type Hex } from 'viem';
 import { ATM_ID, CASH_LIMIT_PAISE, VISIT_REFERENCE, VISIT_TTL_MS, cashMachineStatus, metaMaskLink, templeTarget, visitState, type AtmDto, type CashMachineStatus, type VisitDto, type VisitState } from '../atm.ts';
 import { CHAIN_ID } from '../shared.ts';
-import { CASH_DEMO_LIMIT_PAISE, CASH_DEMO_NOTE_LIMIT, type CashCloseReason } from '../cash.ts';
+import { CASH_DEMO_LIMIT_PAISE, CASH_DEMO_NOTE_LIMIT, validateCashReadinessEvidence, type CashCloseReason, type CashReadinessEvidence } from '../cash.ts';
 import { db, origin } from './config.ts';
 import { temples } from './catalog.ts';
-import { requireValue } from './errors.ts';
+import { HttpError, requireValue } from './errors.ts';
 
 const SCREEN_TTL_MS = 8 * 60 * 60 * 1000;
 const PAIR_TTL_MS = 120_000;
 export const SCREEN_COOKIE = 'kalash_atm';
 export const credentialHash = (value: string) => createHash('sha256').update(value).digest('hex');
+function canonicalObservation(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalObservation).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalObservation(item)}`).join(',')}}`;
+  return JSON.stringify(value) ?? 'null';
+}
 export interface AtmRecord {
   id: string;
   name: string;
@@ -66,6 +72,7 @@ interface ControllerCommand {
   expiresAt: number;
   createdAt: number;
   reportHash?: string;
+  readinessEvidence?: CashReadinessEvidence;
 }
 export function atmReference(id: unknown) {
   requireValue(typeof id === 'string' && ATM_ID.test(id), 400, 'INVALID_ATM', 'Invalid ATM reference.');
@@ -228,7 +235,7 @@ export async function reportControllerCashCommand(
 ) {
   const token = authorization?.match(/^Bearer ([a-f0-9]{64})$/i)?.[1];
   requireValue(token, 401, 'CONTROLLER_AUTH_REQUIRED', 'A registered Controller credential is required.');
-  const allowedFields = ['commandId', 'state', 'observedAt', 'deviceState', 'reason'];
+  const allowedFields = ['commandId', 'state', 'observedAt', 'deviceState', 'reason', 'readinessEvidence'];
   requireValue(Object.keys(body).every((key) => allowedFields.includes(key))
     && typeof body.commandId === 'string'
     && typeof body.state === 'string'
@@ -237,6 +244,13 @@ export async function reportControllerCashCommand(
     && (body.deviceState === undefined || (typeof body.deviceState === 'string' && body.deviceState.length <= 80))
     && (body.reason === undefined || (typeof body.reason === 'string' && body.reason.length <= 160)),
   400, 'INVALID_CASH_COMMAND_REPORT', 'The Controller command report is invalid.');
+  let readinessEvidence: CashReadinessEvidence | undefined;
+  if (body.readinessEvidence !== undefined) {
+    try { readinessEvidence = validateCashReadinessEvidence(body.readinessEvidence); }
+    catch { throw new HttpError(400, 'INVALID_CASH_READINESS_EVIDENCE', 'A complete immutable IDLE-after-enable proof is required.'); }
+    requireValue(body.deviceState === 'IDLE' && ['observed', 'reported'].includes(String(body.state)),
+      400, 'INVALID_CASH_READINESS_EVIDENCE', 'IDLE readiness evidence belongs only to an observed or reported command.');
+  }
   const atmRef = atmReference(atmId);
   const commandRef = db.collection('controllerCommands').doc(body.commandId);
   const reportHash = credentialHash(JSON.stringify(Object.entries(body).sort(([a], [b]) => a.localeCompare(b))));
@@ -284,8 +298,18 @@ export async function reportControllerCashCommand(
     if (next === 'observed') {
       requireValue(typeof body.observedAt === 'number' && Math.abs(Date.now() - body.observedAt) <= 30_000,
         400, 'INVALID_CASH_COMMAND_REPORT', 'A recent device observation timestamp is required.');
-      requireValue(body.deviceState === 'ACCEPTING',
-        400, 'INVALID_CASH_COMMAND_REPORT', 'An actual ACCEPTING device observation is required.');
+      if (body.deviceState === 'IDLE') {
+        requireValue(readinessEvidence && readinessEvidence.commandId === command.commandId
+          && readinessEvidence.cashSessionId === visit.cashSessionId
+          && readinessEvidence.deviceId === atm.controllerHealth?.deviceId
+          && readinessEvidence.idleObservedAt === body.observedAt
+          && readinessEvidence.disabledObservedAt >= command.createdAt
+          && readinessEvidence.enableDispatchedAt < command.expiresAt,
+        400, 'INVALID_CASH_READINESS_EVIDENCE', 'IDLE must be proven after the bound command enable, not inferred from HTTP success.');
+      } else {
+        requireValue(body.deviceState === 'ACCEPTING' && !readinessEvidence,
+          400, 'INVALID_CASH_COMMAND_REPORT', 'An actual ACCEPTING observation or complete IDLE-after-enable evidence is required.');
+      }
       const acceptingAt = Math.min(body.observedAt, Date.now());
       const deadline = acceptingAt + 120_000;
       tx.update(visitRef, {
@@ -309,12 +333,17 @@ export async function reportControllerCashCommand(
       });
     } else if (next === 'reported') {
       requireValue(visit.state === 'accepting', 409, 'CASH_COMMAND_STATE_CONFLICT', 'Only an observed accepting command can be acknowledged.');
+      requireValue((body.observedAt === undefined || body.observedAt === commandSnapshot.get('observedAt'))
+        && (body.deviceState === undefined || body.deviceState === commandSnapshot.get('deviceState'))
+        && (!readinessEvidence || canonicalObservation(readinessEvidence) === canonicalObservation(command.readinessEvidence)),
+      409, 'CASH_COMMAND_OBSERVATION_CONFLICT', 'Acknowledgement cannot replace the persisted physical observation.');
     }
     tx.update(commandRef, {
       state: next, reportHash,
       ...(typeof body.observedAt === 'number' ? { observedAt: body.observedAt } : {}),
       ...(typeof body.deviceState === 'string' ? { deviceState: body.deviceState } : {}),
       ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
+      ...(readinessEvidence ? { readinessEvidence } : {}),
       updatedAt: Date.now(),
     });
     return { accepted: true, state: next };

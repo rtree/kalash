@@ -9,7 +9,7 @@ import { baseSepolia } from 'viem/chains';
 import { ATM_ID, CASH_ACCEPTANCE_MS, cashMachineStatus, VISIT_REFERENCE } from '../src/atm.ts';
 import {
   CASH_DEMO_LIMIT_PAISE, CASH_DEMO_NOTE_LIMIT, applyCashEvent, cashTotals,
-  newCashLedger, validateCashEvent,
+  newCashLedger, validateCashEvent, validateCashReadinessEvidence,
 } from '../src/cash.ts';
 import { CHAIN_ID, donationPointUnits, stampAbi } from '../src/shared.ts';
 
@@ -84,10 +84,17 @@ export function verifyCashEvidence(evidence) {
       && consent.cashSessionId === session.cashSessionId && consent.atmId === atm.id
       && consent.templeId === visit.templeId && equalAddress(consent.wallet, visit.ownerWallet)
       && visit.cashConsentVersion === 'cash-session-v1');
+    let readinessVerified = command?.deviceState === 'ACCEPTING';
+    if (command?.deviceState === 'IDLE') {
+      const readiness = validateCashReadinessEvidence(command.readinessEvidence);
+      readinessVerified = readiness.commandId === command.commandId && readiness.cashSessionId === session.cashSessionId
+        && readiness.deviceId === atm.controllerHealth?.deviceId && readiness.idleObservedAt === command.observedAt
+        && readiness.disabledObservedAt >= command.createdAt && readiness.enableDispatchedAt < command.expiresAt;
+    }
     check('observed_start_command', command?.commandId === `cash-start-${session.cashSessionId}`
       && command.type === 'start_cash' && command.atmId === atm.id && command.visitId === visit.id
       && command.cashSessionId === session.cashSessionId && command.templeId === visit.templeId
-      && ['observed', 'reported'].includes(command.state) && command.deviceState === 'ACCEPTING'
+      && ['observed', 'reported'].includes(command.state) && readinessVerified
       && Number.isSafeInteger(command.observedAt) && command.observedAt > 0);
     check('finite_ready_deadline', Number.isSafeInteger(visit.acceptingAt) && visit.acceptingAt > 0
       && visit.cashDeadline === visit.acceptingAt + CASH_ACCEPTANCE_MS
@@ -109,6 +116,8 @@ export function verifyCashEvidence(evidence) {
       && predecessor.id === previousEvent.deviceEventId && previousEvent.occurredAt <= first.occurredAt
       && predecessor.payloadHash === cashEvidenceHash(previousEvent)));
     check('start_baseline_first', first.type === 'intake_started' && first.occurredAt >= command.observedAt);
+    if (command.readinessEvidence) check('readiness_baseline_matches_intake', first.type === 'intake_started'
+      && cashEvidenceHash(first.data.inventory) === cashEvidenceHash(command.readinessEvidence.baseline));
     let replay = newCashLedger();
     let ordered = true;
     let attributed = true;

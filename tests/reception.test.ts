@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   CASH_DENOMINATIONS, applyCashEvent, cashTotals, newCashLedger, reconcileCash,
-  validateCashEvent, validateCashInventory, type CashEvent, type CashInventory,
+  validateCashEvent, validateCashInventory, validateCashReadinessEvidence, type CashEvent, type CashInventory,
 } from '../src/cash.ts';
 
 const inventory = (): CashInventory => ({
@@ -150,4 +150,25 @@ test('a closed ledger never accepts later STORED or a replacement baseline', () 
   assert.ok(late.reconciliationReasons.includes('event_after_close'));
   assert.ok(applyCashEvent(start(), event('intake_started', { inventory: inventory() }))
     .reconciliationReasons.includes('duplicate_or_late_baseline'));
+});
+test('IDLE readiness requires every durable dispatch, owned-reader and unchanged physical field explicitly', () => {
+  const proof = {
+    version: 'itl-idle-after-enable-v1', commandId: 'cash-start-20000000-0000-4000-8000-000000000001',
+    cashSessionId: '20000000-0000-4000-8000-000000000001', deviceId: 'local-device',
+    disabledObservedAt: 1000, enableDispatchedAt: 2000, enableAcknowledgedAt: 2500, idleObservedAt: 3000,
+    disabledRawSequence: 4, rawSequence: 5, deviceStateCode: 5, manualEscrow: true, routesVerified: true,
+    escrowEmpty: true, deviceHealthy: true, baseline: inventory(), inventory: inventory(),
+  };
+  assert.deepEqual(validateCashReadinessEvidence(proof), proof);
+  for (const key of Object.keys(proof)) {
+    const incomplete: Record<string, unknown> = structuredClone(proof);
+    delete incomplete[key];
+    assert.throws(() => validateCashReadinessEvidence(incomplete), key);
+  }
+  for (const changes of [
+    { version: 'generic-idle' }, { manualEscrow: false }, { routesVerified: false }, { escrowEmpty: false },
+    { deviceHealthy: false }, { deviceStateCode: 0 }, { enableAcknowledgedAt: 1999 }, { rawSequence: 4 },
+    { idleObservedAt: 2000 }, { deviceId: '' }, { commandId: 'other-command' },
+    { inventory: { ...inventory(), counters: { stored: 1, stacked: 0, dispensed: 0, transferredToStack: 0 } } },
+  ]) assert.throws(() => validateCashReadinessEvidence({ ...proof, ...changes }));
 });

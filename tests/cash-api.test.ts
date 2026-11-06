@@ -1,6 +1,7 @@
 import { after, before, beforeEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Hex } from 'viem';
 import { CASH_DENOMINATIONS, type CashEvent, type CashEventData, type CashInventory } from '../src/cash.ts';
@@ -480,4 +481,85 @@ test('Done never downgrades the integrated needs_reconciliation state to closing
   assert.equal(store.read(visitPath).state, 'reconciling');
   assert.equal(store.count('donations'), 0);
   assert.equal(store.read(`atms/${atmId}`).activeVisitId, visitId);
+});
+function idleReadinessReport() {
+  const observedAt = Date.now() - 1000;
+  return {
+    commandId: `cash-start-${cashSessionId}`, state: 'observed', deviceState: 'IDLE', observedAt,
+    readinessEvidence: {
+      version: 'itl-idle-after-enable-v1', commandId: `cash-start-${cashSessionId}`, cashSessionId, deviceId: 'local-double',
+      disabledObservedAt: observedAt - 3000, enableDispatchedAt: observedAt - 2000, enableAcknowledgedAt: observedAt - 1000,
+      idleObservedAt: observedAt, disabledRawSequence: 4, rawSequence: 5, deviceStateCode: 5,
+      manualEscrow: true, routesVerified: true, escrowEmpty: true, deviceHealthy: true,
+      baseline: inventory(), inventory: inventory(),
+    },
+  };
+}
+function awaitingObservedStart(report: ReturnType<typeof idleReadinessReport>) {
+  const commandPath = `controllerCommands/cash-start-${cashSessionId}`;
+  store.records.set(commandPath, {
+    ...store.read(commandPath), state: 'dispatching', createdAt: report.readinessEvidence.disabledObservedAt - 1000,
+  });
+  store.records.set(visitPath, { ...store.read(visitPath), state: 'awaiting_device', cashDeadline: null });
+}
+test('bare IDLE, missing readback fields and wrong command/device/time never establish Ready', async () => {
+  const initial = idleReadinessReport();
+  awaitingObservedStart(initial);
+  const { readinessEvidence, ...bare } = initial;
+  await assert.rejects(atm.reportControllerCashCommand(atmId, auth, bare), { code: 'INVALID_CASH_READINESS_EVIDENCE' });
+  for (const mutate of [
+    (proof: any) => { delete proof.manualEscrow; },
+    (proof: any) => { proof.escrowEmpty = false; },
+    (proof: any) => { proof.deviceId = 'different-device'; },
+    (proof: any) => { proof.idleObservedAt++; },
+    (proof: any) => { proof.disabledObservedAt = store.read(`controllerCommands/cash-start-${cashSessionId}`).createdAt - 1; },
+    (proof: any) => { proof.inventory.counters.stored = 1; },
+    (proof: any) => { proof.rawSequence = proof.disabledRawSequence; },
+  ]) {
+    const changed = structuredClone(readinessEvidence);
+    mutate(changed);
+    await assert.rejects(atm.reportControllerCashCommand(atmId, auth, { ...bare, readinessEvidence: changed }),
+      { code: 'INVALID_CASH_READINESS_EVIDENCE' });
+    assert.equal(store.read(visitPath).state, 'awaiting_device');
+    assert.equal(store.read(visitPath).cashDeadline, null);
+  }
+});
+test('complete immutable IDLE wire report -> Ready -> note -> Done -> reconciled atomic mint reservation', async (t) => {
+  const report: ReturnType<typeof idleReadinessReport> = process.env.KALASH_CASH_READINESS_WIRE
+    ? JSON.parse(readFileSync(process.env.KALASH_CASH_READINESS_WIRE, 'utf8')) : idleReadinessReport();
+  if (process.env.KALASH_CASH_READINESS_WIRE) {
+    t.mock.timers.enable({ apis: ['Date'], now: report.observedAt + 100 });
+    seed();
+    t.diagnostic('Consumed actual C# serialized HTTP report using controlled local clock; no hardware or live Firestore.');
+  }
+  awaitingObservedStart(report);
+  const response = await request(`/api/controller/${atmId}/commands/${report.commandId}`, report, { Authorization: auth });
+  assert.equal(response.status, 200);
+  assert.equal(store.read(visitPath).state, 'accepting');
+  assert.equal(store.read(visitPath).cashDeadline, report.observedAt + 120000);
+  assert.equal(store.read(`controllerCommands/${report.commandId}`).deviceState, 'IDLE');
+  assert.deepEqual(store.read(`controllerCommands/${report.commandId}`).readinessEvidence, report.readinessEvidence);
+  assert.deepEqual(await atm.reportControllerCashCommand(atmId, auth, report), { accepted: true, state: 'observed' });
+  await assert.rejects(atm.reportControllerCashCommand(atmId, auth, {
+    ...report, state: 'reported', readinessEvidence: { ...report.readinessEvidence, deviceId: 'changed-device' },
+  }), { code: 'CASH_COMMAND_OBSERVATION_CONFLICT' });
+  await atm.reportControllerCashCommand(atmId, auth, { ...report, state: 'reported' });
+  await start();
+  if (process.env.KALASH_CASH_READINESS_WIRE) t.mock.timers.tick(1);
+  await stored();
+  if (process.env.KALASH_CASH_READINESS_WIRE) t.mock.timers.tick(1);
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  await post(closeEvent());
+  assert.equal(store.read(visitPath).state, 'confirmed');
+  assert.equal(store.count('donations'), 1);
+  assert.equal(store.count('mintJobs'), 1);
+});
+test('intake baseline differing from IDLE-ready readback remains locked with no donation', async () => {
+  const report = idleReadinessReport();
+  awaitingObservedStart(report);
+  await atm.reportControllerCashCommand(atmId, auth, report);
+  await post(makeEvent(1, { type: 'intake_started', data: { inventory: inventory(1) } }));
+  assert.equal(store.read(visitPath).state, 'reconciling');
+  assert.ok(store.read(sessionPath).ledger.reconciliationReasons.includes('readiness_baseline_mismatch'));
+  assert.equal(store.count('donations'), 0);
 });

@@ -301,3 +301,20 @@ test('preflight accounts for global pending reservations and both demo limits wi
   assert.equal(empty.cashEnabled, false);
   assert.equal(empty.physicalPermissionGrantedByVerifier, false);
 });
+test('truthful IDLE-after-enable proof verifies without inventing an ACCEPTING observation', () => {
+  const evidence = fixture();
+  evidence.atm.controllerHealth = { deviceId: 'fixture-device' };
+  Object.assign(evidence.command, {
+    deviceState: 'IDLE', createdAt: now - 4000, expiresAt: now + 60000,
+    readinessEvidence: {
+      version: 'itl-idle-after-enable-v1', commandId: evidence.command.commandId, cashSessionId, deviceId: 'fixture-device',
+      disabledObservedAt: now - 3000, enableDispatchedAt: now - 2000, enableAcknowledgedAt: now - 1000,
+      idleObservedAt: now, disabledRawSequence: 4, rawSequence: 5, deviceStateCode: 5,
+      manualEscrow: true, routesVerified: true, escrowEmpty: true, deviceHealthy: true,
+      baseline: inventory(), inventory: inventory(),
+    },
+  });
+  assert.equal(verifyMintReceiptEvidence(verifyCashEvidence(evidence), mintEvidence(evidence)).status, 'confirmed');
+  delete evidence.command.readinessEvidence;
+  assert.equal(verifyCashEvidence(evidence).status, 'mismatch');
+});

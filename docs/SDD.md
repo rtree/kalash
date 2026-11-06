@@ -416,6 +416,22 @@ explicitly; unknown states still fail closed. Startup-only recovery preserves
 original raw/state evidence and is restricted to cash-free initialization with
 current DISABLED/empty/profile/inventory/counter and disconnection proof.
 
+The observed firmware waits in `IDLE` after EnableAcceptor; `ACCEPTING` refers
+to note transport, not waiting for insertion. Report the actual `IDLE`, never a
+fabricated `ACCEPTING`. Central accepts it only with
+`itl-idle-after-enable-v1`: matching command/session/device, durably ordered
+disabled observation -> Enable dispatch/ack -> later owned-reader IDLE,
+numeric device state 5, manual escrow, verified routes/health/empty escrow, and
+identical baseline/current six-level inventory and four counters. Bare IDLE,
+stale/mismatched proof or a later changed intake baseline is rejected.
+
+The explicit `scripts/reconcile-failed-cash-start.mjs` operator tool defaults
+to dry-run. `--apply` only closes the specific failed-start zero-note shape
+after matching archived state/raw/command proof and fresh physical evidence.
+It preserves the original unknown command, ledger and stream; it never creates
+a donation/mint, resets event sequence or re-enables cash. It is not a general
+reconciliation override for unknown cash.
+
 The product owner is the sole consuming ITL reader and physical action sender.
 It persists note identity/accept decision/dispatch intent and events before
 escrow actions, uses the existing command journal to forbid physical replay,
