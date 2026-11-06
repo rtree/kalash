@@ -137,7 +137,8 @@ public sealed class ItlControllerClient : IDisposable
     public async Task<JsonDocument> OpenConnectionAsync(
         string comPort,
         string logFilePath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<int>? enabledDenominations = null)
     {
         if (!Regex.IsMatch(comPort, "^COM[0-9]+$", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
         {
@@ -154,7 +155,9 @@ public sealed class ItlControllerClient : IDisposable
             comPort,
             0,
             logFilePath,
-            denominations.Select(value => new DenominationInhibit($"{value} INR", false)).ToArray(),
+            denominations.Select(value => new DenominationInhibit(
+                $"{value} INR",
+                enabledDenominations is not null && !enabledDenominations.Contains(value))).ToArray(),
             denominations.Select(value => new DenominationRoute($"{value} INR", 1)).ToArray(),
             false,
             false,
@@ -180,6 +183,26 @@ public sealed class ItlControllerClient : IDisposable
         CancellationToken cancellationToken = default)
     {
         return GetDeviceAsync("GetDeviceStatus", deviceId, cancellationToken, TimeSpan.FromSeconds(2));
+    }
+
+    public Task EnableAcceptorOnceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        return PostDeviceCommandAsync("EnableAcceptor", deviceId, cancellationToken);
+    }
+
+    public Task DisableAcceptorOnceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        return PostDeviceCommandAsync("DisableAcceptor", deviceId, cancellationToken);
+    }
+
+    public Task AcceptFromEscrowOnceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        return PostDeviceCommandAsync("AcceptFromEscrow", deviceId, cancellationToken);
+    }
+
+    public Task ReturnFromEscrowOnceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        return PostDeviceCommandAsync("ReturnFromEscrow", deviceId, cancellationToken);
     }
 
     public async Task DisconnectDeviceAsync(
@@ -265,6 +288,40 @@ public sealed class ItlControllerClient : IDisposable
                 requestTimeout.Token);
             EnsureSuccess(response);
             return await ParseResponseAsync(response, requestTimeout.Token);
+        }
+        finally
+        {
+            requestGate.Release();
+        }
+    }
+
+    private async Task PostDeviceCommandAsync(
+        string operation,
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            throw new ArgumentException("ITL deviceID is required.", nameof(deviceId));
+        }
+
+        ThrowIfDisposed();
+        await requestGate.WaitAsync(cancellationToken);
+        try
+        {
+            var encodedDeviceId = Uri.EscapeDataString(deviceId);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"api/v2/CashDevice/{operation}?deviceID={encodedDeviceId}");
+            request.Headers.Authorization = new AuthenticationHeaderValue(
+                "Bearer",
+                await GetBearerTokenAsync(cancellationToken));
+            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+            EnsureSuccess(response);
         }
         finally
         {

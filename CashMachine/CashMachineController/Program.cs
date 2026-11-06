@@ -17,7 +17,7 @@ internal static class Program
     {
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
-            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | run");
+            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | diagnose-cash | run");
             Console.WriteLine(
                 $"Inspect uses the unchanged vendor default credentials from the local Fresh package at {VendorBootstrapCredentials.PackageDirectoryVariable}; no password changes or persistence are performed.");
             Console.WriteLine("validate never starts a child; inspect performs read-only checks and stops its child.");
@@ -30,9 +30,9 @@ internal static class Program
             return ValidateConfiguration();
         }
 
-        if (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "run"))
+        if (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "diagnose-cash" or "run"))
         {
-            Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', 'reconcile', 'finish-initialization', or the explicit 'run' command.");
+            Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', 'reconcile', 'finish-initialization', 'diagnose-cash', or the explicit 'run' command.");
             return 2;
         }
 
@@ -52,6 +52,7 @@ internal static class Program
                 "initialize" => await InitializeDeviceAsync(),
                 "reconcile" => await ReconcileExistingDeviceAsync(),
                 "finish-initialization" => await FinishInitializationAsync(),
+                "diagnose-cash" => await DiagnoseCashAsync(),
                 _ => await RunServerAsync()
             };
         }
@@ -63,6 +64,12 @@ internal static class Program
         catch (ItlApiException exception)
         {
             Console.Error.WriteLine($"ITL REST API returned HTTP {(int)exception.StatusCode}; response body withheld.");
+            return 1;
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode is not null)
+        {
+            Console.Error.WriteLine(
+                $"Central command API returned HTTP {(int)exception.StatusCode.Value}; response body withheld and no cash command was retried.");
             return 1;
         }
         catch (HttpRequestException)
@@ -110,11 +117,26 @@ internal static class Program
     private static async Task<int> RunServerAsync()
     {
         var configuration = RestApiServerConfiguration.FromEnvironment();
+        var freshPackageDirectory = Environment.GetEnvironmentVariable(
+            VendorBootstrapCredentials.PackageDirectoryVariable);
+        if (string.IsNullOrWhiteSpace(freshPackageDirectory))
+        {
+            throw new ControllerConfigurationException(
+                $"Set {VendorBootstrapCredentials.PackageDirectoryVariable} to the local Fresh ITL package.");
+        }
+
+        VendorBootstrapCredentials.VerifyTargetMatchesFreshPackage(
+            configuration.ServerDirectory,
+            freshPackageDirectory);
+        var itlCredentials = VendorBootstrapCredentials.Load(freshPackageDirectory);
+        var centralConfiguration = CashControllerConfiguration.Load();
+        using var central = new CentralCashCommandClient(
+            centralConfiguration.CentralUri,
+            centralConfiguration.AtmId,
+            centralConfiguration.Credential);
+        _ = await central.GetCommandAsync(CancellationToken.None);
         var supervisor = CreateSupervisor();
         using var child = await supervisor.StartAsync(configuration);
-        Console.WriteLine(
-            $"REST API Server child process {child.Id} is running. API authentication and device readiness are unverified.");
-
         var stopRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
@@ -122,28 +144,355 @@ internal static class Program
             stopRequested.TrySetResult();
         };
         Console.CancelKeyPress += cancelHandler;
+        using var cancellation = new CancellationTokenSource();
+        using var itl = new ItlControllerClient(itlCredentials.Username, itlCredentials.Password);
+        ItlDeviceStatusPoller? deviceStatusPoller = null;
+        Task? deviceEventDrain = null;
+        var statusPollerDisposed = false;
 
         try
         {
+            await new LoopbackListenerVerifier().WaitForLoopbackOnlyAsync(
+                child,
+                configuration.Port,
+                TimeSpan.FromSeconds(15));
+            await itl.VerifyHostFilteringAsync(cancellation.Token);
+            await itl.AuthenticateAsync(cancellation.Token);
+            using var connectedDevices = await itl.GetAllCashDevicesAsync(cancellation.Token);
+            if (connectedDevices.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidDataException("GetAllCashDevices did not return an array.");
+            }
+
+            ICashStartDevice device;
+            if (connectedDevices.RootElement.GetArrayLength() == 1)
+            {
+                var deviceId = GetConnectedDeviceId(connectedDevices.RootElement[0]);
+                var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var eventJournal = Path.Combine(
+                    localData,
+                    "KALASH",
+                    "cash-device-events",
+                    $"{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.jsonl");
+                deviceStatusPoller = new ItlDeviceStatusPoller(itl, deviceId, eventJournal);
+                deviceStatusPoller.Start();
+                await WaitForStatusSnapshotAsync(deviceStatusPoller, TimeSpan.FromSeconds(5), cancellation.Token);
+                device = new ItlCashStartDevice(itl, deviceStatusPoller, deviceId);
+                deviceEventDrain = DrainDeviceEventsAsync(deviceStatusPoller, cancellation.Token);
+                Console.WriteLine($"ITL device {deviceId} attached with one durable status/event poller.");
+            }
+            else
+            {
+                device = new UnavailableCashStartDevice(
+                    connectedDevices.RootElement.GetArrayLength() == 0
+                        ? "no_connected_device"
+                        : "multiple_connected_devices");
+                Console.Error.WriteLine(
+                    $"ITL status is unavailable: {connectedDevices.RootElement.GetArrayLength()} connected devices; cash commands will fail preflight.");
+            }
+
+            var journal = CashCommandJournal.FromLocalApplicationData();
+            var processor = new CashStartCommandProcessor(
+                centralConfiguration.AtmId,
+                central,
+                device,
+                journal,
+                physicalAcceptanceAuthorized: false);
+            var commandPoller = new CashCommandPoller(central, journal, processor);
+            Console.WriteLine(
+                $"Controller ready for Central {centralConfiguration.CentralUri} / ATM {centralConfiguration.AtmId}. Credential loaded; physical acceptance remains disabled.");
+
             var exitTask = child.WaitForExitAsync();
-            if (await Task.WhenAny(exitTask, stopRequested.Task) == exitTask)
+            var commandTask = commandPoller.RunAsync(cancellation.Token);
+            if (await Task.WhenAny(exitTask, stopRequested.Task, commandTask) == exitTask)
             {
                 var exitCode = await exitTask;
                 Console.Error.WriteLine($"REST API Server child exited unexpectedly with code {exitCode}.");
                 return 1;
             }
 
-            const bool noCashOperationCanBeInProgress = true;
+            if (commandTask.IsCompleted)
+            {
+                await commandTask;
+                throw new InvalidOperationException("The Central cash command worker stopped unexpectedly.");
+            }
+
+            cancellation.Cancel();
+            try
+            {
+                await commandTask;
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+            }
+            if (deviceEventDrain is not null)
+            {
+                try
+                {
+                    await deviceEventDrain;
+                }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                {
+                }
+            }
+
+            if (deviceStatusPoller is not null)
+            {
+                await deviceStatusPoller.DisposeAsync();
+                statusPollerDisposed = true;
+            }
+
+            var safeToStopChild = deviceStatusPoller is null;
+            if (deviceStatusPoller?.Latest is { } finalStatus
+                && string.Equals(finalStatus.DeviceState, "DISABLED", StringComparison.OrdinalIgnoreCase))
+            {
+                using var connected = await itl.GetAllCashDevicesAsync(CancellationToken.None);
+                if (connected.RootElement.ValueKind == JsonValueKind.Array
+                    && connected.RootElement.GetArrayLength() == 1)
+                {
+                    var deviceId = GetConnectedDeviceId(connected.RootElement[0]);
+                    using var complete = await itl.GetCompleteCashDeviceAsync(deviceId, CancellationToken.None);
+                    var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
+                    if (!readback.NoteInEscrow && readback.DeviceError == 0 && readback.DispenseState == 0)
+                    {
+                        await itl.DisconnectDeviceAsync(deviceId, CancellationToken.None);
+                        using var afterDisconnect = await itl.GetAllCashDevicesAsync(CancellationToken.None);
+                        safeToStopChild = afterDisconnect.RootElement.ValueKind == JsonValueKind.Array
+                            && afterDisconnect.RootElement.GetArrayLength() == 0;
+                    }
+                }
+            }
+
+            if (!safeToStopChild)
+            {
+                Console.Error.WriteLine(
+                    $"Device state is not verified safe for shutdown; REST API child {child.Id} remains running for reconciliation.");
+                return 1;
+            }
+
             await supervisor.StopAsync(
                 child,
-                noCashOperationCanBeInProgress,
+                noCashOperationCanBeInProgress: true,
                 timeout: TimeSpan.FromSeconds(5));
             Console.WriteLine("The owned REST API Server child stopped.");
             return 0;
         }
         finally
         {
+            cancellation.Cancel();
             Console.CancelKeyPress -= cancelHandler;
+            if (deviceStatusPoller is not null && !statusPollerDisposed)
+            {
+                await deviceStatusPoller.DisposeAsync();
+            }
+        }
+    }
+
+    private static async Task<int> DiagnoseCashAsync()
+    {
+        var configuration = RestApiServerConfiguration.FromEnvironment();
+        var freshPackageDirectory = Environment.GetEnvironmentVariable(
+            VendorBootstrapCredentials.PackageDirectoryVariable);
+        if (string.IsNullOrWhiteSpace(freshPackageDirectory))
+        {
+            throw new ControllerConfigurationException(
+                $"Set {VendorBootstrapCredentials.PackageDirectoryVariable} to the local Fresh ITL package.");
+        }
+
+        VendorBootstrapCredentials.VerifyTargetMatchesFreshPackage(
+            configuration.ServerDirectory,
+            freshPackageDirectory);
+        var credentials = VendorBootstrapCredentials.Load(freshPackageDirectory);
+        using var api = new ItlControllerClient(credentials.Username, credentials.Password);
+        var supervisor = CreateSupervisor();
+        using var child = await supervisor.StartAsync(configuration);
+        ItlDeviceStatusPoller? statusPoller = null;
+        var deviceId = (string?)null;
+        var deviceMayBeConnected = false;
+        var connectionOpenedByThisProcess = false;
+        var diagnosticStarted = false;
+        var diagnosticSucceeded = false;
+        var safeToStopChild = false;
+        try
+        {
+            await new LoopbackListenerVerifier().WaitForLoopbackOnlyAsync(
+                child,
+                configuration.Port,
+                TimeSpan.FromSeconds(15));
+            await api.VerifyHostFilteringAsync();
+            await api.AuthenticateAsync();
+
+            using var connected = await api.GetAllCashDevicesAsync();
+            if (connected.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidDataException("GetAllCashDevices did not return an array.");
+            }
+
+            if (connected.RootElement.GetArrayLength() > 1)
+            {
+                throw new InvalidOperationException(
+                    "Cash diagnostic requires exactly one ITL device; no device command was sent.");
+            }
+
+            if (connected.RootElement.GetArrayLength() == 1)
+            {
+                deviceId = GetConnectedDeviceId(connected.RootElement[0]);
+                deviceMayBeConnected = true;
+            }
+            else
+            {
+                using var usbDevices = await api.GetConnectedUsbDevicesAsync();
+                var ports = GetComPorts(usbDevices.RootElement);
+                if (ports.Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Cash diagnostic requires exactly one detected COM port; found {ports.Length}.");
+                }
+
+                var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrWhiteSpace(localData))
+                {
+                    throw new IOException("Windows Local Application Data is unavailable for SSP diagnostics.");
+                }
+
+                var logDirectory = Path.Combine(localData, "KALASH", "itl-ssp-logs");
+                Directory.CreateDirectory(logDirectory);
+                deviceMayBeConnected = true;
+                using var opened = await api.OpenConnectionAsync(
+                    ports[0],
+                    logDirectory,
+                    CancellationToken.None,
+                    new HashSet<int> { 10_000 });
+                connectionOpenedByThisProcess = true;
+                deviceId = RequiredString(opened.RootElement, "deviceID");
+                var routePoll = await WaitForRouteConfigurationAsync(api, deviceId);
+                if (routePoll.SuccessfulRoutes != 6
+                    || !string.Equals(routePoll.FinalDeviceState, "DISABLED", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        "The diagnostic device did not verify six routes and DISABLED; no notes may be inserted.");
+                }
+            }
+
+            var eventDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "KALASH",
+                "cash-device-events");
+            var eventJournal = Path.Combine(
+                eventDirectory,
+                $"diagnostic-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.jsonl");
+            statusPoller = new ItlDeviceStatusPoller(api, deviceId!, eventJournal);
+            statusPoller.Start();
+            await WaitForStatusSnapshotAsync(statusPoller, TimeSpan.FromSeconds(5), CancellationToken.None);
+            var device = new ItlCashStartDevice(api, statusPoller, deviceId!);
+            var preflight = await device.CheckPreconditionsAsync(CancellationToken.None);
+            if (!preflight.Ready)
+            {
+                throw new InvalidOperationException(
+                    $"Cash diagnostic preflight failed: {preflight.Reason}. No note was requested.");
+            }
+
+            Console.WriteLine("Local cash diagnostic only; it creates no donation, mint, or Central record.");
+            Console.WriteLine("Owner/operator must be present and approve one owner-provided ₹100 INR note.");
+            Console.WriteLine("Do not insert a note until the controller explicitly reports acceptance.");
+            Console.Write("Type exactly OWNER PRESENT - ONE INR 100 NOTE to continue: ");
+            if (!string.Equals(
+                    Console.ReadLine(),
+                    "OWNER PRESENT - ONE INR 100 NOTE",
+                    StringComparison.Ordinal))
+            {
+                Console.WriteLine("Diagnostic cancelled before enabling the acceptor.");
+                safeToStopChild = false;
+                return 2;
+            }
+
+            var workflow = new CashReceptionDiagnostic(
+                device,
+                CashDiagnosticJournal.FromLocalApplicationData());
+            diagnosticStarted = true;
+            var result = await workflow.RunFirstNoteAsync(cancellationToken =>
+            {
+                Console.Write("One matching STORED event is durable. Inspect the machine and type DONE to close: ");
+                if (!string.Equals(Console.ReadLine(), "DONE", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("The operator did not confirm Done.");
+                }
+
+                return Task.CompletedTask;
+            }, CancellationToken.None, () =>
+            {
+                Console.WriteLine("The device reported ACCEPTING for this diagnostic. Insert exactly one ₹100 INR note.");
+            });
+            Console.WriteLine(
+                $"Local diagnostic reconciled {result.AcceptedNotes} note / {result.AcceptedPaise} paise. No donation or mint was created.");
+            diagnosticSucceeded = true;
+        }
+        finally
+        {
+            if (statusPoller is not null)
+            {
+                await statusPoller.DisposeAsync();
+            }
+
+            if (!deviceMayBeConnected)
+            {
+                safeToStopChild = true;
+            }
+            else if (connectionOpenedByThisProcess
+                && (!diagnosticStarted || diagnosticSucceeded)
+                && deviceId is not null
+                && statusPoller?.Latest is { } finalStatus
+                && string.Equals(finalStatus.DeviceState, "DISABLED", StringComparison.OrdinalIgnoreCase))
+            {
+                using var complete = await api.GetCompleteCashDeviceAsync(deviceId);
+                var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
+                if (!readback.NoteInEscrow && readback.DeviceError == 0 && readback.DispenseState == 0)
+                {
+                    await api.DisconnectDeviceAsync(deviceId);
+                    using var afterDisconnect = await api.GetAllCashDevicesAsync();
+                    safeToStopChild = afterDisconnect.RootElement.ValueKind == JsonValueKind.Array
+                        && afterDisconnect.RootElement.GetArrayLength() == 0;
+                }
+            }
+
+            if (safeToStopChild)
+            {
+                await supervisor.StopAsync(child, noCashOperationCanBeInProgress: true, TimeSpan.FromSeconds(5));
+            }
+            else
+            {
+                Console.Error.WriteLine(
+                    $"Cash/device result is unresolved. The owned REST API child {child.Id} remains running; do not retry cash commands.");
+            }
+        }
+
+        return 0;
+    }
+
+    private static async Task WaitForStatusSnapshotAsync(
+        ItlDeviceStatusPoller poller,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (poller.Latest is null && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+        }
+
+        if (poller.Latest is null)
+        {
+            throw new TimeoutException("The single ITL status poller produced no initial observation.");
+        }
+    }
+
+    private static async Task DrainDeviceEventsAsync(
+        ItlDeviceStatusPoller poller,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            _ = await poller.ReadNextAsync(cancellationToken);
         }
     }
 

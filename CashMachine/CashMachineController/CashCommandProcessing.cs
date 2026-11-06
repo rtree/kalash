@@ -455,6 +455,11 @@ public sealed class CashStartCommandProcessor(
             await SaveAsync(entry, cancellationToken);
             return true;
         }
+        catch (HttpRequestException exception) when (
+            exception.StatusCode is not null && (int)exception.StatusCode.Value < 500)
+        {
+            throw;
+        }
         catch (HttpRequestException)
         {
             entry.State = "report_pending";
@@ -510,5 +515,28 @@ public sealed class CashCommandPoller(
                 retryDelay = TimeSpan.FromSeconds(Math.Min(retryDelay.TotalSeconds * 2, 30));
             }
         }
+
     }
+}
+
+public sealed class UnavailableCashStartDevice(string reason) : ICashStartDevice
+{
+    public Task<CashDevicePreflight> CheckPreconditionsAsync(
+        CashStartCommand command,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new CashDevicePreflight(false, "unknown", reason));
+    }
+
+    public Task EnableAcceptorOnceAsync(CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("The cash device is unavailable; acceptance is disabled.");
+
+    public Task<CashCommandObservation?> WaitForAcceptingAsync(
+        string cashSessionId,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("The cash device is unavailable; acceptance is disabled.");
+
+    public Task DisableAcceptorOnceAsync(CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("The cash device is unavailable; no device command was sent.");
 }

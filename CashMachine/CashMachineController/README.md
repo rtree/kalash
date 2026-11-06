@@ -2,8 +2,8 @@
 
 This is the KALASH-owned Windows controller project, targeting .NET 10 with
 the distinct product/process identity `KALASH.CashMachineController`. It
-currently contains the local REST API Server process host and a gated ITL
-diagnostic client; build outputs are ignored by Git.
+contains the local REST API Server process host, ITL adapter and separately
+gated local cash diagnostic; build outputs are ignored by Git.
 
 The controller will manage only the manufacturer REST API Server child process
 that it starts from an explicitly configured local installation. It must not
@@ -29,9 +29,7 @@ validator or consume events.
 The `validate` command checks local package configuration without launching the
 server. `inspect` verifies loopback binding and Host filtering, authenticates
 with the unchanged vendor default account, reads only USB and connected-device
-lists, then stops its child. `ItlControllerClient` has no credential-update,
-acceptor-enable, escrow accept/return, or payout API. The long-running `run`
-command only reports process liveness.
+lists, then stops its child.
 
 `.\CashMachine\CashMachineController\Initialize-Local.ps1` is the separately
 scoped Stage 2 operation. It sends exactly one `OpenConnection` using the
@@ -53,12 +51,28 @@ that reconciliation. It rechecks DISABLED, empty escrow, identity, levels and
 counters, sends one DisconnectDevice, confirms the device list is empty, then
 stops that exact server PID. It refuses to stop if any check is unresolved.
 
+`diagnose-cash` is separate from product mode. It requires interactive
+owner/operator confirmation, enables only the ₹100 denomination, accepts at
+most one ₹100 INR note, waits for matching ESCROW/STORED events, requires Done,
+then verifies levels and stored/stacked counters. Its durable journal is local
+diagnostic evidence only; it never creates a donation, mint or Central record.
+An unresolved diagnostic blocks another diagnostic until reconciled.
+The device's `ACCEPTING` state representation is fail-closed and still requires
+live verification before a note is inserted.
+
+The long-running `run` worker loads the registered ATM record from
+`%LOCALAPPDATA%\KALASH\secrets\atm-01.json`; `KALASH_CENTRAL_URL` and
+`KALASH_ATM_ID` may explicitly override the non-secret connection fields.
+The bearer token is file-only and is never logged. A single ITL status poller
+durably records state changes and events before handing them to the worker.
+Product cash acceptance remains disabled in this worker until authorization is
+connected to the verified Central command flow. No payout command is
+implemented.
+
 If `KALASH_ITL_JWT_KEY` is absent, the controller creates a fresh ephemeral
 signing key in memory for the server child; it is not persisted. The test runner
-does not start the manufacturer server. The only device-changing API exposed
-is the explicitly gated OpenConnection/DisconnectDevice initialization pair;
-cash acceptance and payout are not implemented. No Windows service/autostart
-setup is included.
+does not start the manufacturer server. No Windows service/autostart setup is
+included.
 
 Keep credentials and machine-specific paths outside Git. Never log credentials
 or copy manufacturer binaries, manuals, or configuration into this project.

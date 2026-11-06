@@ -23,6 +23,7 @@ internal static class Program
         await Run("refuse an occupied port without starting a child", RefuseOccupiedPort);
         await Run("stop only the owned child after safe-state approval", StopOwnedChild);
         await Run("serialize authenticated ITL GET requests", ReadOnlyItlRequests);
+        await Run("send single no-body ITL cash commands without retry", ItlCashCommandsAreSingleShot);
         await Run("do not expose failed-auth response bodies", HideAuthenticationResponseBody);
         await Run("verify allowed and rejected Host headers", VerifyHostFiltering);
         await Run("reject an unfiltered Host header", RejectUnfilteredHost);
@@ -33,9 +34,13 @@ internal static class Program
         await Run("cash command mismatch and expired command are rejected", RejectInvalidCashCommands);
         await Run("cash command dispatch outcome is never blindly retried", UnknownCashDispatchIsNotRetried);
         await Run("cash command journal failure prevents device dispatch", JournalFailurePreventsDispatch);
+        await Run("load registered ATM configuration without exposing credentials", LoadCashControllerConfiguration);
+        await Run("refuse missing or invalid registered ATM configuration", RejectInvalidCashControllerConfiguration);
+        await Run("reconcile one local ₹100 cash diagnostic without product settlement", CashDiagnosticReconcilesOneNote);
+        await Run("stop on an unapproved cash diagnostic denomination", CashDiagnosticRejectsOtherDenomination);
         await Run("parse device model codes as numeric readbacks", ParseNumericDeviceReadback);
         await Run("distinguish missing and wrong-type readback fields", DistinguishDeviceReadbackErrors);
-        Console.WriteLine("22 CashMachineController tests passed.");
+        Console.WriteLine("27 CashMachineController tests passed.");
         return 0;
     }
 
@@ -258,6 +263,32 @@ internal static class Program
                 && reads[4].Path == "/api/v2/CashDevice/GetCounters?deviceID=device-01"
                 && reads[5].Path == "/api/v2/CashDevice/GetCurrencyAssignment?deviceID=device-01",
             "A read request used an unexpected ITL endpoint.");
+    }
+
+    private static async Task ItlCashCommandsAreSingleShot()
+    {
+        var handler = new CapturingHttpHandler();
+        using var client = new ItlControllerClient("test-user", "test-password", handler);
+        await client.EnableAcceptorOnceAsync("synthetic-device-id");
+        await client.AcceptFromEscrowOnceAsync("synthetic-device-id");
+        await client.DisableAcceptorOnceAsync("synthetic-device-id");
+
+        var commands = handler.Requests
+            .Where(request => request.Path.Contains("/api/v2/CashDevice/", StringComparison.Ordinal)
+                && request.Method == HttpMethod.Post)
+            .ToArray();
+        Check(commands.Length == 3, "The ITL commands were retried or omitted.");
+        Check(commands.Select(request => request.Path).SequenceEqual(
+            [
+                "/api/v2/CashDevice/EnableAcceptor?deviceID=synthetic-device-id",
+                "/api/v2/CashDevice/AcceptFromEscrow?deviceID=synthetic-device-id",
+                "/api/v2/CashDevice/DisableAcceptor?deviceID=synthetic-device-id"
+            ]),
+            "The ITL cash command paths or ordering were incorrect.");
+        Check(commands.All(request => request.Body.Length == 0),
+            "A no-body ITL command unexpectedly sent a request body.");
+        Check(commands.All(request => request.Authorization?.StartsWith("Bearer ", StringComparison.Ordinal) == true),
+            "A cash command omitted the bearer token.");
     }
 
     private static async Task HideAuthenticationResponseBody()
@@ -526,6 +557,171 @@ internal static class Program
         }
     }
 
+    private static Task LoadCashControllerConfiguration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-atm-config-test-{Guid.NewGuid():N}");
+        var secrets = Path.Combine(root, "KALASH", "secrets");
+        Directory.CreateDirectory(secrets);
+        var credential = new string('a', 64);
+        File.WriteAllText(
+            Path.Combine(secrets, "atm-01.json"),
+            JsonSerializer.Serialize(new
+            {
+                atmId = "atm-01",
+                origin = "https://kalash-central-548318651344.asia-south1.run.app",
+                token = credential
+            }));
+
+        try
+        {
+            var configuration = CashControllerConfiguration.Load(root);
+            Check(configuration.AtmId == "atm-01", "The registered ATM ID was not loaded.");
+            Check(configuration.CentralUri.Host == "kalash-central-548318651344.asia-south1.run.app",
+                "The registered Central origin was not loaded.");
+            Check(configuration.Credential == credential, "The registered credential was not loaded.");
+            Check(!configuration.ToString().Contains(credential, StringComparison.Ordinal),
+                "The registered credential appeared in the configuration representation.");
+            var overridden = CashControllerConfiguration.Load(
+                root,
+                new Dictionary<string, string?>
+                {
+                    ["KALASH_CENTRAL_URL"] = "https://central.example",
+                    ["KALASH_ATM_ID"] = "atm-test-01"
+                });
+            Check(overridden.AtmId == "atm-test-01", "The explicit ATM ID override was ignored.");
+            Check(overridden.CentralUri.Host == "central.example", "The explicit Central override was ignored.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task RejectInvalidCashControllerConfiguration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-atm-config-test-{Guid.NewGuid():N}");
+        try
+        {
+            var rejectedMissing = false;
+            try
+            {
+                _ = CashControllerConfiguration.Load(root);
+            }
+            catch (ControllerConfigurationException)
+            {
+                rejectedMissing = true;
+            }
+            Check(rejectedMissing, "A missing registered ATM configuration was accepted.");
+
+            var secrets = Path.Combine(root, "KALASH", "secrets");
+            Directory.CreateDirectory(secrets);
+            File.WriteAllText(
+                Path.Combine(secrets, "atm-01.json"),
+                """{"atmId":"atm-other","origin":"http://central.example","token":"do-not-print"}""");
+            var rejectedMalformed = false;
+            try
+            {
+                _ = CashControllerConfiguration.Load(root);
+            }
+            catch (ControllerConfigurationException)
+            {
+                rejectedMalformed = true;
+            }
+            Check(rejectedMalformed, "A mismatched or insecure registered ATM configuration was accepted.");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static async Task CashDiagnosticReconcilesOneNote()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-diagnostic-test-{Guid.NewGuid():N}");
+        try
+        {
+            var device = new FakeLocalCashDiagnosticDevice(
+                [
+                    Status("ACCEPTING"),
+                    Status("IDLE", CashEvent("ESCROW", 10_000)),
+                    Status("IDLE", CashEvent("STORED", 10_000)),
+                    Status("DISABLED")
+                ]);
+            var diagnostic = new CashReceptionDiagnostic(device, new CashDiagnosticJournal(root));
+            var doneCount = 0;
+            var result = await diagnostic.RunFirstNoteAsync(_ =>
+            {
+                doneCount++;
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+
+            Check(result.State == "reconciled" && result.AcceptedPaise == 10_000 && result.AcceptedNotes == 1,
+                "The local diagnostic did not reconcile exactly one ₹100 note.");
+            Check(result.Outcome == "local_diagnostic_only", "The diagnostic result was not isolated from product settlement.");
+            Check(device.EnableCount == 1 && device.AcceptCount == 1 && device.DisableCount == 1,
+                "A diagnostic ITL command was omitted or repeated.");
+            Check(doneCount == 1, "Done was not requested exactly once after STORED.");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task CashDiagnosticRejectsOtherDenomination()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-diagnostic-test-{Guid.NewGuid():N}");
+        try
+        {
+            var device = new FakeLocalCashDiagnosticDevice(
+                [
+                    Status("ACCEPTING"),
+                    Status("IDLE", CashEvent("ESCROW", 20_000))
+                ]);
+            var diagnostic = new CashReceptionDiagnostic(device, new CashDiagnosticJournal(root));
+            var rejected = false;
+            try
+            {
+                await diagnostic.RunFirstNoteAsync(_ => Task.CompletedTask, CancellationToken.None);
+            }
+            catch (InvalidDataException)
+            {
+                rejected = true;
+            }
+
+            Check(rejected, "The diagnostic accepted an unapproved ₹200 denomination.");
+            Check(device.EnableCount == 1 && device.AcceptCount == 0 && device.DisableCount == 1,
+                "An unapproved denomination was stored or the acceptor was not stopped.");
+            var recordPath = Directory.EnumerateFiles(root, "cash-diagnostic-*.json").Single();
+            using var record = JsonDocument.Parse(await File.ReadAllTextAsync(recordPath));
+            Check(record.RootElement.GetProperty("State").GetString() == "needs_reconciliation",
+                "An unexpected escrow note was not marked for reconciliation.");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static ItlDeviceStatusSnapshot Status(string state, params JsonElement[] events) =>
+        new(state, events, DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeMilliseconds());
+
+    private static JsonElement CashEvent(string name, long value)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            type = "CashEventResponse",
+            eventTypeAsString = name,
+            value,
+            countryCode = "INR"
+        }));
+        return document.RootElement.Clone();
+    }
+
     private static CashStartCommand CreateCashCommand()
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -676,6 +872,74 @@ internal static class Program
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult<CashCommandObservation?>(
                 new CashCommandObservation("accepting", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        }
+
+        public Task DisableAcceptorOnceAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DisableCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeLocalCashDiagnosticDevice(
+        IEnumerable<ItlDeviceStatusSnapshot> statuses) : ILocalCashDiagnosticDevice
+    {
+        private readonly Queue<ItlDeviceStatusSnapshot> pendingStatuses = new(statuses);
+        private int inventoryReads;
+
+        public int EnableCount { get; private set; }
+        public int AcceptCount { get; private set; }
+        public int DisableCount { get; private set; }
+
+        public Task<CashDevicePreflight> CheckPreconditionsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CashDevicePreflight(true, "DISABLED", string.Empty));
+
+        public Task<CashDiagnosticInventory> ReadInventoryAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            inventoryReads++;
+            var levels = new Dictionary<long, CashDiagnosticLevel>();
+            foreach (var value in new long[] { 1_000, 2_000, 5_000, 10_000, 20_000, 50_000 })
+            {
+                var accepted = value == 10_000 && inventoryReads > 1 ? 1 : 0;
+                levels.Add(value, new CashDiagnosticLevel(value, accepted, 0));
+            }
+
+            return Task.FromResult(new CashDiagnosticInventory(
+                levels,
+                inventoryReads > 1 ? 1 : 0,
+                0));
+        }
+
+        public Task<bool> ReadNoteInEscrowAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+
+        public ValueTask<ItlDeviceStatusSnapshot?> ReadNextStatusAsync(
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!pendingStatuses.TryDequeue(out var status))
+            {
+                return ValueTask.FromResult<ItlDeviceStatusSnapshot?>(null);
+            }
+
+            return ValueTask.FromResult<ItlDeviceStatusSnapshot?>(status);
+        }
+
+        public Task EnableAcceptorOnceAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnableCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task AcceptFromEscrowOnceAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AcceptCount++;
+            return Task.CompletedTask;
         }
 
         public Task DisableAcceptorOnceAsync(CancellationToken cancellationToken)

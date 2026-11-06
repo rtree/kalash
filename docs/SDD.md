@@ -375,9 +375,18 @@ reporting remain required before the ATM may show acceptance as active.
 Central accepts ordered idempotent command-state reports and changes the visit
 to `accepting` only after a Controller `observed` report with a device state and
 timestamp. The Windows command journal/poller core now models durable dispatch
-and refuses replay after a persisted `dispatching` state. It is not yet wired to
-the long-running Controller process or an ITL device adapter; no hardware
-command is enabled by this implementation.
+and refuses replay after a persisted `dispatching` state. The Windows `run`
+worker now loads the existing ATM credential file, polls Central, and attaches
+one serialized ITL adapter/status poller when exactly one device is connected.
+Product physical acceptance remains hard-disabled in this worker.
+
+The separate `diagnose-cash` command reuses that ITL adapter and has no Central,
+donation, or mint side effects. It requires interactive owner/operator
+confirmation, enables only ₹100, observes `ACCEPTING`, accepts at most one
+matching ₹100 INR ESCROW/STORED event, requires Done, then reconciles payout
+levels and stored/stacked counters. Device state/events are durably journaled
+before delivery to the consumer. The live hardware acceptance-state spelling
+and diagnostic workflow have not yet been verified on the device.
 
 After cash confirmation, reserve onsite mint and permit only that donation's
 optional ATM photo. Finish/Skip/inactivity stops camera tracks, discards unposted
