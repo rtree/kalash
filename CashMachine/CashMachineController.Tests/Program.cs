@@ -22,7 +22,7 @@ internal static class Program
         await Run("override host filtering and signing key in child environment", ChildEnvironmentOverrides);
         await Run("refuse an occupied port without starting a child", RefuseOccupiedPort);
         await Run("stop only the owned child after safe-state approval", StopOwnedChild);
-        await Run("serialize authenticated read-only ITL requests", ReadOnlyItlRequests);
+        await Run("serialize authenticated ITL GET requests", ReadOnlyItlRequests);
         await Run("do not expose failed-auth response bodies", HideAuthenticationResponseBody);
         await Run("verify allowed and rejected Host headers", VerifyHostFiltering);
         await Run("reject an unfiltered Host header", RejectUnfilteredHost);

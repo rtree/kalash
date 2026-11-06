@@ -437,9 +437,10 @@ The host must use an explicit local server directory, refuse an already-used
 port instead of attaching to or stopping its owner, and retain only the process
 handle for the child it starts. Drain but do not record vendor stdout/stderr;
 vendor logs can contain credentials or tokens. Do not force-stop the child while
-device state is active or unknown. M3 host tests use a fake child; no real server,
-device operation, cash command, or Windows service registration is part of M5a
-or the initial M3 preparation.
+device state is active or unknown. M3 host tests use a fake child. M5a includes
+no cash operation or service registration. M3 Stage 1 and disabled Stage 2
+initialization have now been run against the authorized local installation;
+see TASKS for evidence.
 
 The current host source is the package-free
 `CashMachine/CashMachineController/KALASH.CashMachineController.csproj`.
