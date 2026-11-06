@@ -337,6 +337,38 @@ Successful mints refresh Collection silently; pending mints do not increase coun
 M5 crypto will reuse this reception, use phone amount/signing/photos and release
 the ATM after Central confirms the donation, without waiting for mint/photos.
 
+### Reception slice API and rollout gate
+
+The initial M3 slice implements registration only: `awaiting_wallet -> linked`,
+or `expired/closed`. Responses explicitly set `cashAcceptanceEnabled=false` and
+`cryptoDonationEnabled=false`. The UI must say no banknotes may be inserted.
+It creates no cash command, donation, points, mint job or photo authority.
+Controller/device execution is a later M3 step, not a configurable bypass.
+
+- `POST /api/controller/:atmId/pairing`: ATM-bound Controller bearer -> 120-second,
+  single-use pairing code. Only a SHA-256 digest is stored.
+- `POST /api/atm/:atmId/pair`: exchange code for an 8-hour `HttpOnly; SameSite=Strict`
+  cookie, scoped to this ATM API path; `Secure` on HTTPS. Replacement invalidates
+  the old screen and preserves the active reception.
+- `GET /api/atm/:atmId`, `POST .../visits` (`mode`, stable `requestId`),
+  `POST .../visits/:reference/close`: screen-authorized state/create/close.
+  Atomic ATM pointer and request record enforce one reception and no duplicate
+  creation. Close is forbidden if a cash command is attached.
+- `GET /api/visits/:reference?templeId=...`: public context only, no owner wallet,
+  signatures or device credentials. `/mine` additionally requires wallet identity.
+- `POST .../challenge`, `POST .../claim`: wallet-authenticated, explicit cash
+  reception signature/consent. Transactionally consume challenge and claim once.
+  Foreign-owner, wrong-temple, replay into another reception and late claim fail.
+
+Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
+an explicit QR-unavailable reason instead of manufacturing a mobile link.
+`scripts/bootstrap-atm.mjs` provisions the registered ATM without overwriting an
+existing credential; `scripts/pair-atm.mjs` saves its short-lived pairing code
+only in the Controller's protected local secrets directory. Neither logs secrets.
+Registry release verification prints bounded progress and identifies the package
+on network failure. QR uses the already-locked qrcode 1.5.3 as a direct dependency,
+with types 1.5.5; all release evidence is regenerated before executing dependencies.
+
 The canonical regional URL is used for Firebase/Reown/metadata/API origin checks.
 Cloud Run's generated status.url alias is not a second application origin.
 Actual runtime SA/custom-token signing, private DB writes and idle mint have been

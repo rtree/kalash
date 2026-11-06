@@ -25,6 +25,8 @@ async function metadata(name) {
     }).then(async (response) => {
       if (!response.ok) throw new Error(`Registry ${name}: HTTP ${response.status}`);
       return response.json();
+    }).catch((error) => {
+      throw new Error(`Registry metadata verification failed for ${name}: ${error.name}`, { cause: error });
     }));
   }
   return cache.get(name);
@@ -38,6 +40,7 @@ await Promise.all(Array.from({ length: 8 }, async () => {
     const ageMinutes = (referenceUtc.getTime() - Date.parse(publishedUtc)) / 60000;
     const passed = Number.isFinite(ageMinutes) && ageMinutes >= 10080;
     packages.push({ ...entry, publishedUtc: publishedUtc ?? null, passed });
+    if (packages.length % 100 === 0) console.log(`Checked ${packages.length}/${entries.length} locked releases.`);
   }
 }));
 packages.sort((a, b) => `${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`));

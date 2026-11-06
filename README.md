@@ -55,3 +55,32 @@ Cloud Run deployment and verified URLs are recorded in TASKS.
 
 Manufacturer files, keys, `.env`, device logs and photos must remain outside
 Git and build contexts. Cash and payout features are not implied by M1.
+
+## M3 ATM reception (cash acceptance disabled)
+
+The deployed `/atm/atm-01` screen supports a short-lived MetaMask deeplink QR,
+wallet-bound cash-reception consent and state restoration. It does **not** enable
+the acceptor or confirm a cash donation. Never insert banknotes during this phase.
+Onsite crypto remains disabled until M5. Photo withdrawal follow-up is deferred.
+
+On the registered Windows Controller, using the existing ACL-protected
+`%LOCALAPPDATA%\KALASH\secrets` directory and authorized ADC:
+
+```powershell
+node scripts\check-policy.mjs
+$env:PUBLIC_ORIGIN = 'https://kalash-central-548318651344.asia-south1.run.app'
+node scripts\bootstrap-atm.mjs
+node scripts\pair-atm.mjs
+```
+
+Read the saved pairing code locally and enter it on `/atm/atm-01` within 120
+seconds; do not share the code or credential file. A replacement pairing preserves
+the reception and revokes the previous screen. Select Cash reception, scan the
+QR with the phone's external reader, verify the displayed temple/ATM in MetaMask,
+then explicitly sign reception consent. This is not a token approval or payment.
+Closing this registration is allowed only before any cash command exists.
+
+`pnpm run test:atm` includes real Central/Firebase/Firestore API tests (no skips),
+isolated test ATMs/wallets, concurrency/expiry/authorization tests and injected
+provider add-chain tests. It never uses the real acceptor or submits transactions.
+Mobile QR checks use the deployed HTTPS origin, not development-PC localhost.

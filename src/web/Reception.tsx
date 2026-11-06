@@ -29,7 +29,7 @@ function QrCanvas({ text }: { text: string }) {
     }).catch(() => { if (active) setError('QR generation failed. Use the displayed destination link instead.'); });
     return () => { active = false; };
   }, [text]);
-  return <>{error ? <p role="alert">{error}</p> : <canvas ref={canvas} className="reception-qr" aria-label="Open this KALASH page in MetaMask" />}</>;
+  return <><canvas ref={canvas} hidden={Boolean(error)} className="reception-qr" aria-label="Open this KALASH page in MetaMask" />{error && <p role="alert">{error}</p>}</>;
 }
 export function PhoneEntry({ origin, templeId, reference }: { origin: string; templeId: string; reference?: string }) {
   if (new URL(origin).protocol !== 'https:') return <p className="muted">Mobile handoff is available on the deployed HTTPS site.</p>;
@@ -76,16 +76,24 @@ export function AtmPage({ atmId }: { atmId: string }) {
     }
   }, [base, failure]);
   useEffect(() => {
-    void refresh();
-    return () => { version.current++; };
-  }, [refresh]);
-  useEffect(() => {
-    if (!atm || pairing) return;
-    const poll = setInterval(() => { if (!document.hidden) void refresh(); }, 2000);
-    const foreground = () => { if (!document.hidden) void refresh(); };
+    if (pairing) return;
+    let active = true;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      if (!document.hidden) await refresh();
+      inFlight = false;
+      if (active) timer = setTimeout(() => void poll(), 2000);
+    };
+    const foreground = () => {
+      if (!document.hidden) { clearTimeout(timer); void poll(); }
+    };
+    void poll();
     document.addEventListener('visibilitychange', foreground);
-    return () => { clearInterval(poll); document.removeEventListener('visibilitychange', foreground); };
-  }, [Boolean(atm), pairing, refresh]);
+    return () => { active = false; version.current++; clearTimeout(timer); document.removeEventListener('visibilitychange', foreground); };
+  }, [pairing, refresh]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -166,6 +174,7 @@ export function ReceptionPanel({ reference, templeId, wallet, api, onConnect, on
   const [now, setNow] = useState(Date.now());
   const operation = useRef(false);
   const version = useRef(0);
+  const readVersion = useRef(0);
   const base = `/api/visits/${reference}`;
   useEffect(() => {
     let active = true;
@@ -177,11 +186,12 @@ export function ReceptionPanel({ reference, templeId, wallet, api, onConnect, on
       if (inFlight || operation.current || document.hidden) return;
       if (!VISIT_REFERENCE.test(reference)) { setError('Invalid reception reference. Scan a new QR at the ATM.'); return; }
       inFlight = true;
+      const currentRead = ++readVersion.current;
       try {
         const result = await api<OwnerVisit>(`${base}${wallet ? '/mine' : ''}?templeId=${encodeURIComponent(templeId)}`, {}, Boolean(wallet));
-        if (active && generation === version.current && !operation.current) { setVisit(result); setError(''); }
+        if (active && generation === version.current && currentRead === readVersion.current && !operation.current) { setVisit(result); setError(''); }
       } catch (cause) {
-        if (active && generation === version.current) setError(cause instanceof Error ? cause.message : 'Could not restore this reception.');
+        if (active && generation === version.current && currentRead === readVersion.current) setError(cause instanceof Error ? cause.message : 'Could not restore this reception.');
       } finally { inFlight = false; }
     };
     void load();
@@ -194,6 +204,7 @@ export function ReceptionPanel({ reference, templeId, wallet, api, onConnect, on
   const join = async () => {
     if (operation.current) return;
     operation.current = true;
+    readVersion.current++;
     const generation = version.current;
     setBusy(true);
     setError('');

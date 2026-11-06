@@ -51,7 +51,7 @@
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
-| M3/M4 ITL | 保護APIは認証前HTTP401（認証失敗とは未確定） | 後続ゴールで安全な資格情報を用意して認証 | 紙幣・払い出しは人の立ち会いが必要 |
+| M3/M4 ITL | 2026-11-06再開後、既存の保護された端末設定を使用しAuthenticate HTTP200、GetAllCashDevices／GetConnectedUSBDevices HTTP200。USB検出配列0件。消費型status取得・接続／受入／払い出し命令は未実行 | 既存接続IDの非消費型詳細・USB接続／既存Controller所有を確認。共通受付は独立して進める | 電源・USB／VM割当が必要な場合だけ依頼。紙幣・払い出しは別途立ち会い |
 
 ## M1の検証証跡
 
@@ -101,10 +101,11 @@
 
 ## 最新チェックポイント
 
-- UTC 2026-11-06 07:47以降／再開約4分。対象M3-rpc／M3-reception。base `98d5777`、worktree cleanから開始、稼働版は引き続き`00016-w6k`／source `1790e57`。
-- SPEC §3／4／9とSDD §7／8へ最終UXを反映。Crypto金額・写真はスマホ、Cash写真はATM。QRは短命参照、明示claim、Cashは受付拘束署名。QR120秒・Ready後受付120秒・写真無操作30秒を分離。写真取り下げは本人指示で後回し。
-- `node scripts/check-policy.mjs`合格、既存依存を再利用。.NET 10.0.403／Windows ARM64を確認。製品変更・機器操作・送金・追加配備はこの時点で未実施。設計更新は今回のcommit。
-- 次：現行認証・Firestore transaction・Web構成を再利用しATM受付を縦に実装。ITL認証前401の旧観測は実機失敗／未接続の断定に使わない。必要な人操作は認証・接続診断後に具体化。
+- UTC 2026-11-06 08:26以降／再開約42分。対象M3-rpc／M3-reception。最終UX文書`e93a8c7`をpush確認。途中の本人WIP `04bfb51`／`cd26ae8`に作業差分が保存されたため保持。稼働版は引き続き`00016-w6k`／source `1790e57`、新コードは未配備。
+- SPEC §3／4／9とSDD §7／8を更新。Cashの署名拘束・一受付排他・端末ペアリング・不透明deeplink参照・2秒pollを実装中。受付のみの段階を明示し、cash acceptance=false。寄付・mint・写真権限・機器成功は作らない。本人写真と既存送金に変更なし。
+- RPC metadata／SDK customRpcUrls／SIWE前・Donate前のadd-chainパラメータを固定。実injected connector requestの局所テストを追加。受付APIの実Firebase/Firestore・競合／期限／別人・別ATM試験を追加（この時点では未実行）。
+- 依存：qrcode既存1.5.3を直接依存化、型1.5.5のみ追加。変更前policy合格、旧569件の再照合合格、pnpm scripts無効で取得。新570件のregistry再照合がtimeoutしたためbuild/testをまだ実行せず、パッケージ名・100件ごとの進捗を出して診断中。証拠が揃うまでpolicyを迂回しない。
+- ITLは認証200・USB一覧0件。.NET10対応を確認。約10分の保存間隔を超えた間は実装とregistry照合を進行、機器・資金操作なし。次：依存照合→typecheck／局所・実API→UI→配備。USBの実機ゲートは独立して残す。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 

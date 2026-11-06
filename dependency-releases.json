@@ -1,8 +1,8 @@
 {
-  "referenceUtc": "2026-11-06T07:59:02.343Z",
+  "referenceUtc": "2026-11-06T08:25:22.374Z",
   "registry": "https://registry.npmjs.org",
   "minimumAgeMinutes": 10080,
-  "lockfileSha256": "ac0d339b269b4d7d34c649df7e40260a712b1621294912c999c984cd625d5992",
+  "lockfileSha256": "6f8d0db7dd300db98b53580ae69711d4be10873a32efad81a2936c775ca33af9",
   "policySha256": "8cc9c720103b3cdca6645651e76d04a7e03b5a37d0376e8255b0fb83d1cb2a30",
   "passed": true,
   "packages": [
@@ -1312,6 +1312,12 @@
       "name": "@types/node",
       "version": "26.6.6",
       "publishedUtc": "2026-10-28T18:36:36.455Z",
+      "passed": true
+    },
+    {
+      "name": "@types/qrcode",
+      "version": "1.5.5",
+      "publishedUtc": "2023-11-07T13:38:53.701Z",
       "passed": true
     },
     {
