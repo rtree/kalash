@@ -81,6 +81,14 @@ flow `cancelled`, not `expired`: the signed authorization is not revoked on-chai
 and remains valid until its deadline. Warn the owner not to submit that old intent
 manually. The UI must require explicit confirmation that no wallet request is open.
 This path never signs, approves, donates, refunds, or deletes the record.
+An early-cancelled signed intent remains valid until its deadline; `createDonation`
+must reject a new intent for that wallet while any such cancelled signature remains
+valid. After expiry, the guard clears automatically.
+
+The normal approval sequence is to persist the donation intent and approve operation,
+then call the connected wallet provider to request the exact USDC approval. MetaMask
+must display that request before any approval receipt can be checked; the Central
+recovery action is not an approval substitute and never opens MetaMask.
 
 ## 3. Authentication and API contract
 
@@ -98,6 +106,12 @@ Planned same-origin endpoints:
 - `POST /api/donations/:id/verify`: optional txHash hint, owner only; await verification.
 - `POST /api/donations/:id/resolve-approval`: owner-only, proof-checked abandonment of an approval-only flow; never a payment retry.
 - `GET /api/donations/:id`, `GET /api/collection`, `GET /api/history`: owner only.
+
+For owner-only `GET /api/history`, Central may include `approvalAttemptId` only for
+an active intent with no donation submission and exactly one registered approve
+operation matching the owner, Base Sepolia, USDC, and immutable amount. History uses
+this to restore the abandonment control when local browser state is lost; it does
+not expose an approval action or submit a transaction.
 
 Confirm a canonical successful receipt on chain 84532 and the exact immutable
 DonationVault `Donated` event. For direct EOA transactions also require the expected
