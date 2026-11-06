@@ -194,6 +194,8 @@ Interim retirement requires a closed historical intake, no pending outbox or
 unresolved payout dispatch, and a new owned healthy DISABLED/empty-escrow
 readback. The Host may reopen that allowlisted historical state only in disabled
 mode to obtain this evidence; reopening does not clear its lock. Retirement is
+preceded by observing all six successful route results on that new connection,
+even while the allowlisted historical lock remains set. Retirement is
 an audit annotation rather than a fabricated RETURNED/STORED event. Central
 retains the original ledger, command and device evidence. Fee coverage is keyed
 by cash session to avoid charging recognized notes again across retirements.

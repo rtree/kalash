@@ -99,10 +99,12 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
         State.PollInFlight = false;
         await SaveAsync();
         initialized = true;
-        if (State.RouteVerificationRequired && !State.Locked)
+        if (State.RouteVerificationRequired
+            && (!State.Locked || ProductCashPolicy.CanReobserveClosedIntake(State)))
         {
             var until = Now + ProductTiming.InitializationMs;
-            while (Now < until && !State.Locked)
+            while (Now < until
+                && (!State.Locked || ProductCashPolicy.CanReobserveClosedIntake(State)))
             {
                 await PollAsync(token);
                 if (State.SuccessfulRouteResults == 6 && latest?.DeviceState == "DISABLED")

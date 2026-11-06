@@ -66,6 +66,7 @@ internal static class ProductCashTests
         await Run("close reconciles all counters and denomination levels", CloseMismatch);
         await Run("strict cash policy keeps historical reconciliation locked", StrictHistoricalMismatch);
         await Run("interim policy retires only verified closed intake as unresolved audit", InterimHistoricalMismatch);
+        await Run("interim restart verifies new routes before retiring historical lock", InterimHistoricalRestart);
         await Run("interim policy does not retire hardware faults or unknown dispatch", InterimUnsafeHistoricalMismatch);
         await Run("inventory wire fields and mandatory counters", InventoryContract);
         await Run("legacy readback stays unknown rather than inventing a device state", LegacyReadback);
@@ -340,6 +341,25 @@ internal static class ProductCashTests
             && afterNextIntake.HistoricalIntakes.Single().FinalInventory!.Counters == new CashInventoryCounters(57, 2, 53, 1)
             && afterNextIntake.HistoricalIntakes.Single().Notes.Single().AuditDisposition == "unresolved_audit",
             "A new intake overwrote the retired historical ledger or unresolved note audit.");
+    }
+
+    private static async Task InterimHistoricalRestart()
+    {
+        using var policy = new CashPolicyEnvironment("interim-ledger");
+        await using var fixture = await OwnerFixture.Create();
+        SeedHistoricalMismatch(fixture.Owner.State);
+        await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+
+        await fixture.Restart(reopen: true);
+        Check(fixture.Owner.State.Locked && fixture.Owner.State.SuccessfulRouteResults == 6
+            && !fixture.Owner.State.RouteVerificationRequired && !fixture.Owner.State.HistoricalAuditRetired,
+            "Reopened historical intake did not verify routes while retaining its audit lock.");
+        await fixture.Owner.TickAsync(None, allowStart: false);
+        Check(!fixture.Owner.State.Locked && fixture.Owner.State.HistoricalAuditRetired
+            && fixture.Owner.State.Intake!.Notes.Single() is
+                { Stored: false, Returned: false, Credited: false, AuditDisposition: "unresolved_audit" }
+            && fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0 && fixture.Itl.ReturnCount == 0,
+            "Restart failed to retire verified history without replaying or fabricating a note outcome.");
     }
 
     private static async Task InterimUnsafeHistoricalMismatch()
@@ -1617,11 +1637,14 @@ internal static class ProductCashTests
             if (initialize) await Owner.InitializeAsync(None);
         }
 
-        public async Task Restart()
+        public async Task Restart(bool reopen = false)
         {
             await poller.DisposeAsync();
             Journal.Dispose();
             Journal = new(Files.File("product"));
+            if (reopen)
+                await ProductCashHost.OpenDisabledAsync(true, client, Journal,
+                    "COM4", Files.File("ssp-logs"), None);
             await MakeOwner();
         }
 
