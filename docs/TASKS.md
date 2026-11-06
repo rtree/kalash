@@ -1,170 +1,83 @@
-# KALASH current work
+# KALASH 進捗
 
-## Current goal
+## 現在のゴール
 
-- Goal: M2, consent-based photo sharing and public temple boards.
-- Success: camera/file selection -> local preview -> explicit consent -> private validated storage -> public consented board DTO -> owner/temple withdrawal -> immediate public removal and object deletion; verify point-based image sizing.
-- Chain: Base Sepolia 84532 only; test tokens, not real-value settlement.
-- Running URL: https://kalash-central-548318651344.asia-south1.run.app/temples/temple-01
-- Cloud Run live revision `kalash-central-00009-hgk`, source `65cf51cee9a7c908c516d7aac7e4448b940d358e`; local URL remains read/API-capable with MINT_ENABLED=false.
-- DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`; Stamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
-- Integration, shared documents, Git and deployment owner: primary Agent.
-- Initial blocker resolved: real cloud configuration and funding available; Windows native chain tests moved to Cloud Build.
-- Next action: user taps Allow on the Android camera prompt; verify live preview then capture locally and discard, with no upload. In MetaMask's in-app browser the app loads authenticated History and the photo controls; mobile Chrome/WC's VerifyWallet fails on unsupported `personal_sign`. Two newer wallet donations are already confirmed/minted; do not make a duplicate payment.
-- Human requests: no M1 action remains. User selected one-time camera permission; still waiting for the physical Android Allow tap. User has one consented/published photo; any additional personal image requires separate consent. Paper-note attendance remains for M3.
-- Three test-process donations plus two normal MetaMask donations and mints are verified; all cash hardware outcomes remain unverified.
+- ゴール：M2 写真共有・公開ボード。ユーザー選択／撮影→ローカルプレビュー→明示同意→非公開Storage保存→同意済みボード表示→本人による取り下げを通し、ポイント別サイズを検証する。
+- チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
+- 本番URL：https://kalash-central-548318651344.asia-south1.run.app
+- Cloud Run：`kalash-central-00009-hgk`、source `65cf51cee9a7c908c516d7aac7e4448b940d358e`。ローカルはAPI参照用、mint無効。
+- DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
+- M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
+- 次の作業：古いApproval-only操作を証拠付きで解決するUI/APIを実装・検証する。MetaMaskには現在SpendingCap確認画面が表示されていないとのこと。二重送金防止のため新規支払いはまだ行わない。
+- 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
-## Goals and assignments
+## ゴールと担当
 
-| ID | Goal | Owner / edit scope | Dependencies | State | Completion condition | Evidence / next step |
-|---|---|---|---|---|---|---|
-| M1-entry | M1 | Integrator: AGENTS, docs, package policy | none | verified | Input saved, entry commit pushed, preflight passes | Initial59a0f48 and checkpointdf6d6a7 published; remote df6d6a7 confirmed16:32Z; initial lock report539 packages, audit0 |
-| M1-hosts | M1 | Integrator: host/config diagnosis | none | verified | Actual hosts, access and URLs recorded | Windows NodeWeb/Controller/ADB; Linux Cloud Build tests23pass; actual cloud auth verified; tools/agent/user-wait/async all exercised |
-| M1-wallets | M1 | Integrator: private wallet bootstrap | M1-entry | verified | New role wallets protected, public addresses/budgets provided and balances checked | 14 new wallets; actual RPC each funded role 0.1 ETH, donor/temple1 each 5 USDC. Budgets remain original .01/.003/.003/.001 ETH, donor .20 USDC despite excess balance |
-| M1-chain | M1 | Contract Agent: contracts, compile-contracts.mjs, contracts.test.mjs, contracts.abi.json | M1-entry, M1-wallets | verified | Limits, fees, authorization, duplicate defense tested; real deployment | Linux24pass including corrected policy CLI regression; actual deployment receipts and23 isolated chain assertions verified |
-| M1-api | M1 | Integrator: Central/Auth/Firestore | M1-entry | verified | Real authorization, intent, receipt, atomic persistence and mint verified locally and Cloud Run | Cloud7/local8tests0skip; 3real .01 donations/mints; exact points30000; real runtime SA signing/DB/secret and idle mint proven |
-| M1-ui | M1 | UI Agent: isolated scripts/e2e-browser.mjs; Integrator: src/web/shared/test integration | M1-api, M1-chain | verified | First detail/donate/Collection route reloads real results | User confirmed Connect, VerifyWallet, SpendingCap, tx, Central confirm and stamp; attached Collection shows 2 Lotus Courtyard stamps; History shows 2 minted |
-| M1-deploy | M1 | Integrator: Cloud Run/config | M1-api, M1-ui | verified | Same commit HTTPS, SA, deep links, idle mint and policy verified | Delegated receipt fix built and deployed revision `kalash-central-00005-mcx`, health source `790575d4bf141f643532b2024ba94709547a2000`; real API6pass/0skip |
-| M1-e2e | M1 | Integrator: tests, Android/MetaMask | M1-deploy | verified | Real MetaMask path and reload; all M1 outcomes evidenced | User confirmed full normal MetaMask path including cap, tx, Central confirmation and on-chain stamp. Firestore confirms donation `0x92ded6b9f9…` confirmed/minted, tx `0x1027f9b8063b…`, mint `0xa0a91bdc6bd1…`; direct chain stamp balance1. Prior delegated payment also reconciled/minted exactly once |
-| M2 | M2 | Integrator: photos/board | M1-e2e | doing | Real save/consent/withdrawal and sizes verified | Photo API7pass/0skip; user photo published on temple-01. Camera now uses direct `getUserMedia`, deployed revision `00009-hgk`, Cloud Build `30b9c882-5915-44ac-b0ac-e625951feedc`; tapping Take a photo opens Android camera permission prompt. Waiting user Allow before checking preview. MetaMask in-app browser shows verified History/photo controls; mobile Chrome/WC failed VerifyWallet with unsupported `personal_sign`. No payment sent by agent. Two recent owner donations are confirmed/minted. Temple/operator withdrawal auth remains |
-| M3 | M3 | Integrator: Windows Controller/ITL | M2 | todo | Real QR/cash/close/reconcile/stamp | ITL localhost root HTTP404 only; no authenticated/device verification |
-| M4 | M4 | Integrator: settlement/payout | M3 | todo | Real fee/admin/full payout/reconciliation | No device commands sent |
-| M5 | M5 | Integrator: onsite crypto | M4 | todo | Real ATM QR/payment/visit stamp on both screens | Not started |
+| ID | ゴール | 担当・範囲 | 依存 | 状態 | 完了条件・証跡 |
+|---|---|---|---|---|---|
+| M1-entry | M1 | Integrator：AGENTS、仕様、依存ポリシー | なし | 完了 | 初期入力・preflight・公開手順を保存。初期lock検証539件、監査0件 |
+| M1-hosts | M1 | Integrator：ホスト・権限診断 | なし | 完了 | Windows開発、Cloud Build Linux、GCP/Auth/ADBの実態を記録 |
+| M1-wallets | M1 | Integrator：テストWallet | M1-entry | 完了 | 役割別Wallet、残高・予算の確認済み。残高が多くても当初予算を増やさない |
+| M1-chain | M1 | Contracts：Solidity、ABI、テスト | M1-entry、M1-wallets | 完了 | Base SepoliaへVault/Stamp配備、隔離Chainテスト合格 |
+| M1-api | M1 | Integrator：Central/Auth/Firestore | M1-entry | 完了 | 認可、単位、receipt、冪等確定、mintを実Auth/DB/Chainで検証 |
+| M1-ui | M1 | Integrator/UI：Pilgrim UI・E2E | M1-api、M1-chain | 完了 | ユーザーがConnect、VerifyWallet、SpendingCap、送金、Central確定、Stamp/CollectionをPC MetaMaskで確認 |
+| M1-deploy | M1 | Integrator：Cloud Run | M1-api、M1-ui | 完了 | 実オリジン、runtime SA、Health、mint loop確認 |
+| M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCで2件目も確認済み。先行DelegationManager経路はreceipt証拠を照合し1回だけreconcile |
+| M2 | M2 | Integrator：写真・ボード | M1-e2e | 進行中 | 写真の同意・公開・置換・取り下げ・サイズ、実機カメラ確認。運営者取り下げ権限は未実装 |
+| M3 | M3 | Integrator：Windows Controller/ITL | M2 | 未着手 | QR紐付け、紙幣収納、受付終了・照合・Stamp |
+| M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
+| M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
-## Goal-specific blockers
+## 現在のブロッカー
 
-| Affected task | Observed fact | Next diagnosis | Human action / resume condition |
+| 対象 | 確認済み事実 | 次の作業 | 人の操作・再開条件 |
 |---|---|---|---|
-| M1 cloud | Required APIs, Firestore asia-south1, Firebase Web, runtime/build SAs and scoped secret rights created. ADC principal differed from CLI; scoped signing grant corrected. Runtime identity and Firebase custom-token signing verified on live revision | Google sign-in remains a later auth-role check; no M1 blocker | Reown configured in Secret Manager, never pasted |
-| M1 chain/build | Windows ARM64 Ganache leveldown failed; browser fallback failed. User confirms no nested virtualization and authorizes Cloud Build | Compile with solc JS and run Ganache tests in Linux Cloud Build | Not a request for WSL/Docker installation |
-| M1 wallet | Actual balances exceed requested budgets; no automatic budget increase | Persist/respect original budgets before every transaction | Funding no longer blocks M1 |
-| M1 Android | User requested install; Google archive platform-tools_r37.0.1-win.zip SHA1 matched repository metadata; `adb devices -l` shows Samsung SM_S942Z device | Screenshot/inspect then one operation and API evidence | Real camera QR/MetaMask verification still pending |
-| M3/M4 ITL | .NET 10.0.403; runtimes 8.0.33/10.0.14; protected GetAllCashDevices returns HTTP401 before authentication (expected protection, not invalid credentials) | Obtain safe credential source and authenticate later | Safe local credential path and hardware attendance later; not an M1 blocker |
-| M2 Storage | `kalash-donation-photos` in asia-south1; uniform access, public access prevention enforced, soft-delete 0; runtime SA objectAdmin application grant. Synthetic API photo was removed; user's consented temple-01 image remains published | Verify direct camera preview on Android and user can find Collection → Photos / temple board | No second image upload without explicit consent |
+| M2 写真 | `kalash-donation-photos` はasia-south1、Uniform access、Public access prevention有効、soft-delete 0。Cloud Run runtime SAだけがアプリ用ObjectAdmin | 現行写真API／公開ボードを維持 | 個人写真の追加公開には都度明示同意 |
+| M2 カメラ | Android MetaMask内蔵Browserで`getUserMedia`が起動し、撮影・閉じる操作を表示。撮影・アップロードはせずStreamを停止 | 再度撮影する場合は所有者が操作・確認 | 許可プロンプトは本人操作。許可だけでは撮影・公開しない |
+| M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
+| M1/Mobile Approval | MetaMaskのAllowance確認ポップアップは現在出ていない（ユーザー確認）。KALASH画面だけが「USDC approval is not confirmed / No donation has been sent yet」と表示し、Donateを無効化 | 期限切れApproval-only操作を証拠付きで解決するUI/APIを実装 | Browser local stateやFirestoreを手動消去しない。新規0.01送金は別の明示確認が必要 |
+| M3/M4 ITL | 保護APIは認証前HTTP401（認証失敗とは未確定） | 後続ゴールで安全な資格情報を用意して認証 | 紙幣・払い出しは人の立ち会いが必要 |
 
-## Evidence retained
+## M1の検証証跡
 
-- Checkpoints `df6d6a7` and public-build source `eb7599e` published; remote hashes checked. External WIP checkpoints are preserved, not reset or amended.
-- Latest `pnpm audit`: zero known vulnerabilities; six stale GitHub Dependabot alerts are closed/fixed after Sharp upgrade. Optional wallet SDK peer warnings remain; normal MetaMask PC donation and stamp flow verified.
-- Actual Cloud Build `a8edc91e-655f-4fd3-9213-24ed913ba4b6`: SUCCESS, isolated chain 23 tests passed, zero skipped/failed. Evidence `artifacts/contracts-cloud-build.log` and cloud logs. This is not testnet donation evidence.
-- Real deployments succeeded: vault tx `0x7377f2b6b10fe35f9baf3680f1a827829cab609b6e6c1af83790d1f930a968ec`, block54871753; stamp tx `0x02b3d8f17b64dd27c296799f7bd22d2f96c33adcfbad473f9064b0ec3041eb96`, block54871769. See config/deployment.public.json.
-- First real donation `0xa0335880c2902420bf92daf1b3ed8429697571bd67d0cf8361f2a3b89cfd5003`: tx `0xb2d660ff5b2c528550ec84a1942d69c8da1e7202ebfced60bfeb1c5368f49e5c`, mint `0x81aff92eac9df043a05557968ae0f27b09cc4b747b25c5d3ed6ca9e9ccaa20b5`;16:35:34.818 intent ->16:35:43.463 confirmed ->16:35:49.193 minted.
-- Second real donation `0x66b1027ec636fc2386fbb425f3f5d61cebd89becbb986babe19bf3b3830c389c`: tx `0xafff1f02d944a6643ba4974edf79a98bbaf0f16501f63ea3613680588fdbc5bc`, mint `0xed77de0ee2506c93d25222f022c659c3c4bc808d7de244b70c062e0f86986f1d`;16:39:52.584 ->16:40:02.221 ->16:40:07.898. Central discovered transaction by donationId with NO hash hint; exact cumulative20000 point units (2points), two distinct minted records.
-- Both transactions were signed by the bounded test process, NOT normal MetaMask/browser evidence. Repeated verification/reload did not resend or add points.
-- Cloud real API mandatory7pass0skip; local8pass including policy CLI regression: auth/nonce/signature/origin/ownership, cap/precision, unknown operation dedupe, exact points. Firebase client Firestore access denied403 with valid ID token. Actual deny-all rules release created; ten demo temple records bootstrapped without changing wallets.
-- Browser CSP initially blocked Reown domains/fonts and optional telemetry inline script. Corrected endpoint allowlist/HEAD/favicon; UI disabled optional Coinbase/Base/smart-auth. Optional inline telemetry remains blocked; protection is not weakened.
-- Visual evidence actually opened: artifacts/pilgrim-first-detail.png and artifacts/android-first-detail.png. Old screenshot precedes INR/map update. Android authorized Chrome CDP reached wallet chooser; no biometric screens captured.
-- Observed: Node 26.13.0 published 2026-10-28, pnpm 10.34.9 published 2026-10-25T17:54:00.645Z; both older than 168h.
-- Agent execution: diagnostic and contract Agents executed. Long command completed asynchronously and output was retrieved. Structured user-wait returned project/region and host decisions.
-- Remaining untested: Google/email E2E roles, Android in-app MetaMask/camera QR, cash/payout/onsite flows, real user-selected photo and temple/operator withdrawal authorization. Both PC MetaMask donations and Collection/History stamp results are confirmed; no further donation is needed.
+- Cloud Build `a8edc91e-655f-4fd3-9213-24ed913ba4b6`：Contract隔離テスト23件成功、skipなし。Vault/Stamp配備receiptは`config/deployment.public.json`。
+- 初期のテストSigner寄付3件は、通常MetaMask経路ではない。金額・mint・累計は過去のAPIテスト記録を参照し、MetaMask成功と混同しない。
+- 既存のMetaMask取引`0xbb22b84e...17da`は外側が`redeemDelegations`で、直接EOA前提のCentralが`submitting`に停滞。Vaultの`Donated`とUSDCの1+9999単位の移動がintentに一致したため、strict receipt検証を追加後に同一txだけreconcile。新規送金なしでmint `0xb848936a...b4b`、チェーンbalance 1を確認。
+- ユーザーは続いてPC MetaMaskでConnect→VerifyWallet→SpendingCap→送金→Central確定→Stampを確認。FirestoreとChainに2件のMetaMask確定・mintがあり、添付Collection/History画面にも反映。
+- 最近の2件（21:40Z、21:43Z）はCloud Runのintent作成User-AgentがWindows Chrome。どちらもconfirmed/minted。モバイル送金の証拠とは扱わない。
+- FirestoreのOwner別ポイント、API認可・単位・冪等性、deny-all Firestore rulesを実サービスで検証済み。
 
-## Previous checkpoint (M1 wallet investigation)
+## M2実装・検証証跡
 
-- UTC2026-11-05T17:52:17Z, approximately117minutes. Tasks M1-ui/M1-e2e; actual QR/MetaMask SIWE succeeded, amount units fixed and deployed; authenticated reload failed and root hydration fix is being integrated.
-- Live cloud `7f1d89aa1055` / revision00004-jdg. Build `e5326fa8-5f4a-41ff-9f03-5692b2b02b36` succeeded with Linux contract/policy and production unit gates. Earlier corrected-gate actual logs remain in artifacts/diagnostic-cloud-build.log. Most recent public mandatory API+policy/money8tests passed on42048b5; new unit regression makes next full suite9tests.
-- Third test-signer donation `0x9c0a6ff6bd393355d3487e448723267cc8d3059d73c992d930099a5a2feb3851`: tx `0x29a1f0634ddcc0b63f11fe8c05a212ae4f125a64c690ec34bd7942672788aded`, mint `0x61950fce41f468b4de637b0d1230540d8e537aca89021b5374309e946e8fbfb3`. Confirmed16:52:52.317; DB job mintedAt16:52:55.988; first client observation16:53:07.465. Cloud request logs show no app requests16:52:53-16:53:03. Exact total30000 point units; reload across hosts passed without resending.
-- Policy CLI used an incorrect file URL equality on Linux (`file:////...`), so direct CLI gate could be a no-op there despite explicit install restrictions. Fixed using pathToFileURL(resolve(argv1)); negative regression now passed in Linux and deployed. Current report539versions17:01:12Z.
-- Normal Chrome/WalletConnect: fresh canonical-origin connection approved after human unlock; Wagmi still disconnected. Sanitized Chrome logs identify relay WebSocket ERR_NAME_NOT_RESOLVED. OS DNS resolves both official relays; later unauthenticated Chrome WebSocket probes reached their authentication rejection (network reachable at probe time, not session success). Do not attribute this to CSP or credentials without further evidence.
-- The default Connect MetaMask button chose a registered injected connector even in Chrome without a provider, producing immediate Provider not found. Fixed selection to await actual provider presence and otherwise use configured AppKit. Typecheck passed; actual same Android button on source42048b5 now opens AppKit rather than failing.
-- New Android Chrome attempt4519e3d4 used metamask://wc (sanitized scheme/host only verified), but no connection request appeared after unlock; no blanket storage wipe or SDK change. PC integrated-browser QR alternative was offered, human selected it and explicitly confirmed actually scanning the QR with MetaMask. AppKit/Wagmi walletConnect connected at17:30:52Z, initially chain1; injectedMetaMask=false. QR credential itself is not photographed, logged or committed.
-- Base Sepolia SIWE reached the real MetaMask request. Review alert explicitly said Malicious site; Agent inspected and did not acknowledge it. Human independently operated the warning and requested a fresh SIWE. First returned signature was rejected NONCE_EXPIRED; new challenge was manually signed and Firebase login succeeded17:40Z. This does not resolve or declare the warning a false positive. Only an account-free warning crop is retained; private account screenshots deleted.
-- Before donation, found four UI conversions wrongly treating API amount10000units as decimal10000USDC. Fixed approval/donate with strict parseDonationUnits and pending/history formatting directly from units. Exact response/wallet/display regression, visible SIWE expiry/rejection and duplicate verification guard now deployed in7f1d89a.
-- Actual normal-wallet reload failed to restore authenticated UI: Firebase currentUser loads asynchronously, but old effect watched only address/auth object. Fixed onAuthStateChanged subscription, connector-hydration guard, verified Firebase UID/current-wallet match and initial missing-provider handling; local3tests/typecheck/build pass. Also forbid reuse of mismatched-amount or expired intents. Do not claim reload verified until deployed and repeated.
-- Test browser script reached actual SIWE and intent43e1d254... but old units UI stopped before any wallet operation; deadline17:46:31Z passed with no operations/hashes. Progress4intents/.04USDC reserved, original6hashes unchanged. UI Agent is adding explicit proof-checked expired-unsubmitted resolution without deleting progress, marking a donation completed or refunding budget; execute only after auth fix deployment.
-- Separate MetaMask injected-browser deep link showed harmful-site warning. Honored Back to safety; no proceed-anyway or disabled protection. Static MetaMask public blacklist/allowlist hostname/suffix check returned no match; warning domain not proven from screen, so not declared a false positive. Exact browser navigation needs confirmation.
-- User added public canonical origin to Reown. Firebase already allows it. Remaining optional SDK inline analytics blocked by strict CSP, not silently allowed.
-- Actual public OSM map10pins and390px layout screenshot opened: artifacts/public-explore-map.png. Wallet balance screenshot was deleted after inspection; no secrets/QR credentials added to shared records.
-- Next action: deploy hydration fix, verify real authenticated reload, then execute the one explicitly authorized .01 donation and verify durable mint/Collection. Separate browser E2E must resolve only the proven never-submitted expired intent with an explicit guard before its one bounded new donation. No production signing key/public signer. M1 not complete; M2-M5 remain required.
+- 依存：sharp 0.35.5（168時間超）、install scripts無効、lock 569件の公開時刻とhashを確認。`pnpm audit`は既知脆弱性0件、GitHub Dependabotもopen 0件。
+- Cloud Storage：`kalash-donation-photos`（asia-south1）、公開禁止、Uniform bucket access、soft-delete 0。Storageに公開ACLやsigned URLなし。
+- Centralはconfirmed donationに紐づく本人画像だけを受け付け、JPEG/PNG/WebP実デコード、5MB/20MP/単一frame制限、EXIF向きを適用、1600px以下・metadataなしJPEGへ再encode。明示同意なしではuploadしない。1 wallet×templeにつき最新1枚、30日で期限切れ。公開画像はCentral経由で毎回状態確認し、取り下げ後は404。削除失敗はdurable retry queueへ。
+- 画像サイズは本人の累計Pointで4段階。公開DTOにwallet、donation ID、金額、正確なPoint、Storage pathを含めない。
+- Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0`（M2 API）と`30b9c882-5915-44ac-b0ac-e625951feedc`（カメラUI）成功。revision `kalash-central-00009-hgk`、source `65cf51cee9a7c908c516d7aac7e4448b940d358e`。
+- 実Central API 7件成功・skipなし：合成ポートレート、同意拒否、非公開Storage配信、差し替え、他Walletのwithdraw拒否、本人withdraw、取り下げ後404。既存ユーザー写真を残したままテストするようAPIテストを修正済み。
+- ユーザーが`temple-01`に写真を1枚登録。状態published、tier1、期限2026-12-05。画像内容・表示名は読まず、公開一覧とprivate objectの存在のみ確認。
+- `/board/temple-01`はLotus Courtyardの空状態・Navigationを表示。任意Reown inline scriptのCSP警告が1件あるが視覚上の破綻なし。CSPは緩めない。
+- Android撮影：MetaMask内蔵BrowserでCamera permissionを本人が許可した後、Take photo/Close cameraが表示されることを確認。Streamを閉じ、撮影・uploadなし。
 
-## M1 delegated receipt update
+## 現在のモバイル状態（安全な復旧が必要）
 
-- 2026-11-06T04:00+09:00: User shared Blockscout details for the already-paid
-  MetaMask transaction. Direct read-only Base Sepolia receipt verification confirms
-  outer `redeemDelegations` execution, status success, block54906036, exactly one
-  configured DonationVault `Donated` event for the existing donation ID and wallet,
-  amount10000/fee1/registered temple recipient, and exactly two donor-originating
-  configured USDC transfers (1 fee + 9999 temple). No second payment was sent.
-  Central direct-EOA assumptions were root cause. Local fix preserves strict direct
-  sender/target/calldata validation and adds delegated-path exact event + on-chain
-  fee-recipient + complete donor USDC-transfer verification before atomic idempotent
-  confirmation. Added three focused tests (3 pass, 0 skipped); typecheck passes.
-  Not yet deployed or reconciled in Firestore; next: include focused tests in image,
-  run cloud build gate, deploy and have owner verify this same tx/donation through
-  Central, then verify mint/Collection. Do not clear any records or resend.
-- 2026-11-05T19:18Z: Fix `790575d` passed Cloud Build `f3e998a9-6fd2-4af7-949a-bf1dfceeca85`
-  (contract + image gates incl. donation-receipt tests) and real-Central API 6pass/0skip;
-  deployed revision `kalash-central-00005-mcx`, health sourceCommit verified.
-  Operator ran the same `verifyDonation` once for donation `0x52bf6750...99ea4` with tx
-  `0xbb22b84e...17da`: submitting -> confirmed, one mint job reserved, Cloud Run loop
-  minted tx `0xb848936a01bc7c3d25a93d60b5e8eedd95092a12d6c99bc9cdcbc68076f75b4b`
-  (block54922071, success), on-chain stamp balance 1, temple-01 points 10000 units for
-  that wallet. No data cleared, no resend. First normal MetaMask (delegated) donation
-  path was verified end-to-end on chain/DB.
-- 2026-11-05T19:21Z / user confirmation 2026-11-06T04:29+09:00: user completed the
-  second normal MetaMask path: Connect, VerifyWallet, SpendingCap, transaction,
-  Central confirmation and stamp all succeeded. Firestore donation `0x92ded6b9f9…`
-  is confirmed/minted (donation tx `0x1027f9b8063b…`, mint tx `0xa0a91bdc6bd1…`);
-  direct Base Sepolia `balanceOf` is 1. User screenshots show two collected stamps
-  and two minted History entries. M1 end-to-end complete; no further M1 payment
-  requested or initiated.
+- 端末はWindowsからADB 37.0.1で認識。Samsung SM_S942Z、Android 16、物理1080×2340。Chromeは`com.android.chrome`、MetaMaskは`io.metamask`。
+- MetaMask内蔵DApp BrowserでKALASHのHistory/Collection・写真操作を表示。通常Chrome＋WalletConnectのVerifyWalletは`personal_sign` unavailableで失敗したため、認証を迂回しない。
+- Historyへ表示される2件のrecent donationsはどちらもPC Chrome起点で、モバイル購入ではない。3件目の送金は行わない。
+- モバイルDonateボタンは古いApproval-only状態でdisabled。Firestoreでは失効済みintentにapprove operationのみ、txHashなし、donate attemptなし。該当intentのstartBlock以降600ブロック内にUSDC ApprovalもVault Donatedもなく、現Allowanceは0。ユーザーはAllowance確認画面が現在出ていないと報告。
+- ここでBrowser local stateやFirestore記録を手で消さない。次は、この条件を再確認するowner-onlyのguarded resolutionを実装し、期限切れ・無送金の証拠と同意を保ったままUI復旧する。その後に限り、0.01 test USDCのモバイル試験を別の明示確認で行う。
+- 予期しないMetaMaskページが開いた場合は操作・入力しない。所有者が正規KALASH画面へ戻したことを確認する。Wallet unlock、生体認証、カメラ権限、Spend/Donate署名は本人が行う。
 
-## M2 implementation checkpoint
+## 過去のM1調査（要約）
 
-- 2026-11-06T06:20+09:00: sharp 0.34.5 initially exposed three new high advisories.
-  Stopped deployment; upgraded to patched sharp 0.35.5 (published 2026-09-27, >168h)
-  with pnpm install scripts disabled. The lockfile changes are limited to Sharp and
-  its platform binaries; all 569 releases and lock hash verified; `pnpm audit` now
-  reports zero known vulnerabilities. Photo processor enforces JPEG/PNG/WebP input, byte/pixel/page bounds,
-  EXIF orientation, metadata-free 1600px JPEG output, and four integer-point tiers.
-- Private bucket `kalash-donation-photos` is in asia-south1 with uniform access,
-  public access prevention and zero-second soft delete; Cloud Run runtime SA is
-  granted objectAdmin on this bucket. The synthetic API test object was cleaned up;
-  the user later published one photo to temple-01.
-- Implemented confirmed-donation eligibility, explicit-versioned-consent upload,
-  one latest wallet/temple slot, 30-day expiry, same-origin private-object board
-  delivery, owner withdrawal, and durable object cleanup/expiry queues. Public DTO
-  excludes wallet, donation, points and storage object path. Pilgrim donation,
-  History, Collection Photos and public temple-board UI wired.
-- Local policy, typecheck, production build and 9 focused tests pass. API Cloud Build
-  `a80fc3f1-a8d0-4311-8271-66a32f4daac0` succeeded. Camera Cloud Build
-  `30b9c882-5915-44ac-b0ac-e625951feedc` succeeded. Live revision `kalash-central-00009-hgk`
-  source `65cf51cee9a7c908c516d7aac7e4448b940d358e`, `PHOTO_BUCKET` verified.
-  Mandatory live API tests 7pass/0skip include synthetic portrait, consent rejection,
-  private proxy delivery, replacement/old-image 404, cross-wallet withdrawal denial,
-  owner withdrawal and post-withdrawal 404. GCS bucket has no remaining test objects;
-  public board returns an empty list after test cleanup.
-- Browser inspection of `/board/temple-01` shows Lotus Courtyard, the empty-board state
-  and intact navigation. No visible UI defect; the optional inline Reown script remains
-  blocked by strict CSP and reports one console error. Do not weaken CSP for telemetry.
-  No open Dependabot alerts remain after the Sharp patch; `pnpm audit` reports zero.
-- User confirms photo registration. Firestore slot is `published`, size tier1, expiry
-  2026-12-05; matching private object exists and the public board lists exactly one
-  photo. No image bytes/name were read or logged.
-- Mobile device `RFGL41GKP0Z` is authorized (`device`), Samsung SM_S942Z, Android16,
-  1080x2340 and awake; foreground was Launcher. Chrome and MetaMask packages exist.
-  ADB opened mobile Chrome on `/temples/temple-01`; Connect succeeded, the address
-  appeared, and VerifyWallet failed with `personal_sign` unavailable (`viem@2.57.13`).
-  No signature or payment was approved. The documented MetaMask DApp deeplink opened
-  the in-app browser; it shows the KALASH page with History/Collection controls and
-  no VerifyWallet button. History exposes Share a photo / Take a photo / Choose image.
-  Tapping Take a photo called getUserMedia and raised Android's Allow permission prompt.
-  User chose `allow_once`; camera opened and showed Take photo/Close camera controls.
-  Agent closed the live stream without taking or uploading an image. Public photo remains.
-  Firestore shows two recent owner donations (21:40Z, 21:43Z), both `confirmed`/`minted`;
-  Cloud Run request logs identify both intent creation requests as Windows Chrome, not
-  mobile. Neither was initiated by this agent. No third transaction was sent.
-- Mobile MetaMask UI shows an expired approval workflow: older Firestore intents have
-  `approve` operation records, expired deadlines, no txHash and no registered donate
-  attempt; current allowance is zero. The mobile Donate button is disabled with
-  “USDC approval is not confirmed / No donation has been sent yet.” Do not clear or
-  retry blindly. Next: offer a guarded resolution path after user confirms there is
-  no active wallet prompt; then restart one 0.01 mobile test transaction with explicit
-  wallet confirmation. The unrelated existing MetaMask page opened by a deeplink was
-  left untouched; no text was entered or submitted.
-  Stop at any further signature/payment prompt until explicit user action.
-  Temple/operator withdrawal auth and cash-device photo intake remain; do not mark M2 complete.
+- Node 26.13.0、pnpm 10.34.9を固定。依存は168時間条件を満たし、`node scripts/check-policy.mjs`をinstall/build/test/deploy前に実行。
+- GCP project `kalash-donation`、asia-south1、Firebase Auth/Firestore/Secret Manager、Cloud Runを構成。Windows ARM64 Ganache制約はCloud Build Linuxへ移行。
+- PC WalletConnect/MetaMaskではSIWE nonce期限切れ、async Firebase restore、Base unit/USDC allowance表示の問題を修正。Mainnet送金は禁止。
+- AndroidのMetaMask deeplinkが既存ページへ戻る場合があるため、URL originを必ず確認する。CDP/UIAutomatorの生ログや全タブ一覧は個人情報を含むので出力・保存しない。
 
-## Submission
+## 引き継ぎ
 
-Not complete. Commands, public addresses, evidence IDs, deployed revision and outstanding
-actions will be updated here as actual results become available.
+- 完了：M1全体、delegated receipt復旧、M2のprivate photo API/boardとカメラ実装、PC MetaMaskの実寄付、写真のpublic listing。
+- 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
+- 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
+- 次の一手：ローカルStorage/Firestoreを消さず、期限切れApproval-only操作のOn-chain absence/Allowance0をサーバーで再検証してUI上の解決ボタンを作る。テスト後にAndroid MetaMask内蔵Browserで0.01 test USDCを一度だけ確認する。
