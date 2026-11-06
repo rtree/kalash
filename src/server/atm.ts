@@ -376,12 +376,11 @@ export async function claimCashVisit(
   400, 'INVALID_CASH_CONSENT', 'A cash-session signature and confirmed temple are required.');
   const challengeRef = db.collection('cashConsentChallenges').doc(nonce);
   const challenge = (await challengeRef.get()).data();
-  requireValue(challenge && !challenge.used
+  requireValue(challenge
     && challenge.visitId === id && challenge.templeId === templeId
     && challenge.wallet?.toLowerCase() === owner.toLowerCase()
-    && challenge.expiresAt > Date.now()
     && typeof challenge.message === 'string',
-  401, 'CASH_CONSENT_EXPIRED', 'Cash consent expired or belongs to another wallet/session.');
+  401, 'CASH_CONSENT_INVALID', 'Cash consent does not belong to this wallet/session.');
   requireValue(await verifyMessage({
     address: getAddress(owner),
     message: challenge.message,
@@ -390,6 +389,16 @@ export async function claimCashVisit(
 
   const visitRef = visitReference(id);
   const atmRef = atmReference(challenge.atmId);
+  if (challenge.used) {
+    const visit = (await visitRef.get()).data() as VisitRecord | undefined;
+    requireValue(visit && visit.cashSessionId === challenge.cashSessionId
+      && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()
+      && ['awaiting_device', 'accepting', 'closing', 'reconciling', 'confirmed'].includes(visit.state),
+    401, 'CASH_CONSENT_USED', 'Cash consent was already used by another state transition.');
+    return getVisit(id, templeId, owner);
+  }
+  requireValue(challenge.expiresAt > Date.now(),
+    401, 'CASH_CONSENT_EXPIRED', 'Cash consent expired; request a fresh session-bound challenge.');
   await db.runTransaction(async (tx) => {
     const [challengeSnapshot, visitSnapshot, atmSnapshot] = await Promise.all([
       tx.get(challengeRef), tx.get(visitRef), tx.get(atmRef),
@@ -397,6 +406,13 @@ export async function claimCashVisit(
     const currentChallenge = challengeSnapshot.data();
     const visit = visitSnapshot.data() as VisitRecord | undefined;
     const atm = validAtm(atmSnapshot.data() as AtmRecord | undefined);
+    if (currentChallenge?.used) {
+      requireValue(visit && visit.cashSessionId === currentChallenge.cashSessionId
+        && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()
+        && ['awaiting_device', 'accepting', 'closing', 'reconciling', 'confirmed'].includes(visit.state),
+      401, 'CASH_CONSENT_USED', 'Cash consent was already used by another state transition.');
+      return;
+    }
     requireValue(currentChallenge && !currentChallenge.used
       && currentChallenge.expiresAt > Date.now()
       && currentChallenge.visitId === id

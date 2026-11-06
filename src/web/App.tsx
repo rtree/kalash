@@ -522,6 +522,18 @@ export function App({ runtime }: { runtime: Runtime }) {
     });
   };
 
+  const signCashConsent = async (message: string): Promise<Hex> => {
+    if (!walletReady || !address || authenticatedWallet !== address.toLowerCase()) {
+      throw new Error('Verify the wallet for this cash reception before signing its consent.');
+    }
+    if (chainId !== CHAIN_ID) await switchChainAsync(switchToKalashChain);
+    const signingClient = walletClient ?? (await refreshWalletClient()).data;
+    if (!signingClient) {
+      throw new Error('MetaMask signing session is not ready. Reconnect the wallet before authorizing cash.');
+    }
+    return signingClient.signMessage({ account: address, message });
+  };
+
   const persistPending = (next: PendingOperation | null) => {
     setPendingOperation(next);
     if (next) localStorage.setItem(PENDING_OPERATION, JSON.stringify(next));
@@ -898,6 +910,7 @@ export function App({ runtime }: { runtime: Runtime }) {
               reference={receptionReference} templeId={currentTemple.id} wallet={walletReady ? authenticatedWallet : null}
               connected={isConnected}
               api={api} onConnect={() => void connectWallet()} onVerify={signInWallet}
+              onCashConsent={signCashConsent}
               amountOptions={AMOUNTS}
               amount={amount}
               setAmount={(value) => { setCustomAmount(''); setAmount(value); }}
