@@ -328,6 +328,7 @@ internal static class Program
                 throw new InvalidDataException("GetAllCashDevices did not return an array.");
             }
 
+            deviceMayBeConnected = connected.RootElement.GetArrayLength() > 0;
             if (connected.RootElement.GetArrayLength() > 1)
             {
                 throw new InvalidOperationException(
@@ -337,7 +338,6 @@ internal static class Program
             if (connected.RootElement.GetArrayLength() == 1)
             {
                 deviceId = GetConnectedDeviceId(connected.RootElement[0]);
-                deviceMayBeConnected = true;
             }
             else
             {
