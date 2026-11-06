@@ -642,13 +642,28 @@ export function App({ runtime }: { runtime: Runtime }) {
       });
       if (allowance < required) {
         const next = await createOperation(intent, 'approve');
-        const hash = await writeContractAsync({
-          address: config.usdc,
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [config.vault, required],
-          chainId: CHAIN_ID,
-        });
+        setNotice('MetaMask should now show an exact USDC approval request. This is not the donation; do not retry if no wallet prompt appears.');
+        recordWalletTrace('approve-request-start', {
+          connector: connector?.id, chainId: CHAIN_ID, connected: isConnected, addressPresent: Boolean(address),
+        }, next.attemptId);
+        let hash: Hex;
+        try {
+          hash = await writeContractAsync({
+            address: config.usdc,
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [config.vault, required],
+            chainId: CHAIN_ID,
+          });
+        } catch (cause) {
+          recordWalletTrace('approve-request-reject', {
+            connector: connector?.id, chainId: CHAIN_ID, connected: isConnected, addressPresent: Boolean(address),
+          }, next.attemptId);
+          throw cause;
+        }
+        recordWalletTrace('approve-request-resolve', {
+          connector: connector?.id, chainId: CHAIN_ID, connected: isConnected, addressPresent: Boolean(address),
+        }, next.attemptId);
         persistPending({ ...next, txHash: hash });
         setNotice('Exact USDC allowance submitted. Waiting for its receipt before the donation step…');
         const receipt = await waitForReceipt(hash);
@@ -711,7 +726,7 @@ export function App({ runtime }: { runtime: Runtime }) {
       && pendingOperation.attemptId === attemptId;
     if (!pendingMatches && target.approvalAttemptId !== attemptId) return;
     const confirmed = window.confirm(
-      `Central will check Base Sepolia for matching approval/donation events and verify the Vault allowance is zero. There is no donation transaction to retry. Continue only if no MetaMask wallet request is open. If the intent has not expired, this abandons the KALASH flow but does not revoke its signed authorization until ${new Date(target.deadline * 1000).toLocaleTimeString()}; do not manually submit that old intent.`,
+      `This will not open MetaMask or approve USDC. Central will check Base Sepolia for matching approval/donation events and verify the Vault allowance is zero, then abandon this KALASH flow. Continue only if no MetaMask wallet request is open. If the intent has not expired, its signed authorization remains valid until ${new Date(target.deadline * 1000).toLocaleTimeString()}; do not submit it manually.`,
     );
     if (!confirmed) return;
     setBusy(true);
@@ -1087,12 +1102,12 @@ function TempleDetail(props: {
           {props.pendingOperation?.operation === 'approve' && (
             <div className="pending-box">
               <strong>USDC approval is not confirmed</strong>
-              <p>No donation has been sent yet. Do not retry an unknown wallet request.</p>
+              <p>No donation has been sent. The normal Donate flow requests approval in MetaMask; recovery below will not open MetaMask or request approval.</p>
               {props.pendingOperation.txHash && <button className="button button-secondary button-wide" onClick={props.onResumeApproval} disabled={props.busy}>Check approval & continue</button>}
               {!props.pendingOperation.txHash && props.donation?.status === 'intent'
                 && !props.donation.donateAttemptId && !props.donation.txHash
                 && props.pendingOperation.donationId === props.donation.id
-                && <button className="button button-secondary button-wide" onClick={props.onResolveApprovalOnly} disabled={props.busy}>Verify and resolve approval-only attempt</button>}
+                && <button className="button button-secondary button-wide" onClick={props.onResolveApprovalOnly} disabled={props.busy}>Abandon this approval-only attempt</button>}
             </div>
           )}
           {props.donation && (
@@ -1563,13 +1578,13 @@ function HistoryPage(props: {
                         {item.status === 'intent' && approvalAttemptId && !item.donateAttemptId && !item.txHash && (
                           <div className="pending-box">
                             <strong>Approval-only attempt · no donation sent</strong>
-                            <p>Central can verify this attempt. Continue only if no MetaMask wallet request is open.</p>
+                            <p>This recovery will not open MetaMask or request approval. Use it only to abandon this attempt when no wallet request is open.</p>
                             <button
                               className="button button-secondary button-wide"
                               onClick={() => props.onResolveApprovalOnly(item, approvalAttemptId)}
                               disabled={props.busy}
                             >
-                              {props.busy ? 'Checking…' : 'Verify and resolve approval-only attempt'}
+                              {props.busy ? 'Checking…' : 'Abandon this approval-only attempt'}
                             </button>
                           </div>
                         )}

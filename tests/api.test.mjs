@@ -2,7 +2,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { privateKeyToAccount } from 'viem/accounts';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import sharp from 'sharp';
 import { PHOTO_CONSENT_VERSION } from '../src/shared.ts';
 
@@ -14,6 +14,7 @@ const other = privateKeyToAccount(wallets['temple-01'].privateKey);
 let config;
 let token;
 let otherToken;
+let recoveryToken;
 let nonceToReplay;
 let replaySignature;
 async function request(path, { method = 'GET', body, bearer, requestOrigin = origin } = {}) {
@@ -55,6 +56,7 @@ before(async () => {
   nonceToReplay = first.challenge.nonce;
   replaySignature = first.signature;
   otherToken = (await login(other)).token;
+  recoveryToken = (await login(privateKeyToAccount(generatePrivateKey()))).token;
 });
 test('real Firebase session, one-use SIWE and cross-wallet signature rejection', async () => {
   const replay = await request('/api/auth/verify', { method: 'POST', body: { nonce: nonceToReplay, signature: replaySignature } });
@@ -127,24 +129,24 @@ test('real operation registration is idempotent and unknown submission cannot be
   assert.equal(unsafeResolution.status, 409, 'an active donate attempt must never be abandoned as approval-only');
 
   const approvalIntent = await request('/api/donations', {
-    method: 'POST', bearer: token, body: { templeId: 'temple-01', amount: '0.01' },
+    method: 'POST', bearer: recoveryToken, body: { templeId: 'temple-01', amount: '0.01' },
   });
   assert.equal(approvalIntent.status, 201);
   const approval = await approvalIntent.json();
   const approvalAttemptId = crypto.randomUUID();
   assert.equal((await request(`/api/donations/${approval.id}/operation`, {
-    method: 'POST', bearer: token, body: { operation: 'approve', attemptId: approvalAttemptId },
+    method: 'POST', bearer: recoveryToken, body: { operation: 'approve', attemptId: approvalAttemptId },
   })).status, 200);
-  const history = await (await request('/api/history', { bearer: token })).json();
+  const history = await (await request('/api/history', { bearer: recoveryToken })).json();
   assert.equal(history.donations.find((entry) => entry.id === approval.id).approvalAttemptId, approvalAttemptId);
   const foreignHistory = await (await request('/api/history', { bearer: otherToken })).json();
   assert.equal(foreignHistory.donations.some((entry) => entry.id === approval.id), false);
   const missingWalletConfirmation = await request(`/api/donations/${approval.id}/resolve-approval`, {
-    method: 'POST', bearer: token, body: { attemptId: approvalAttemptId },
+    method: 'POST', bearer: recoveryToken, body: { attemptId: approvalAttemptId },
   });
   assert.equal(missingWalletConfirmation.status, 400, 'recovery requires explicit confirmation that no wallet prompt is open');
   const earlyResolution = await request(`/api/donations/${approval.id}/resolve-approval`, {
-    method: 'POST', bearer: token,
+    method: 'POST', bearer: recoveryToken,
     body: { attemptId: approvalAttemptId, confirmNoWalletRequest: true },
   });
   assert.equal(earlyResolution.status, 200);
@@ -155,12 +157,16 @@ test('real operation registration is idempotent and unknown submission cannot be
   assert.equal(resolvedApproval.approvalResolution.confirmedNoWalletRequest, true);
   assert.equal(resolvedApproval.approvalResolution.approvalEvents, 0);
   assert.equal(resolvedApproval.approvalResolution.donatedEvents, 0);
-  assert.equal((await (await request(`/api/donations/${approval.id}`, { bearer: token })).json()).status, 'cancelled');
+  assert.equal((await (await request(`/api/donations/${approval.id}`, { bearer: recoveryToken })).json()).status, 'cancelled');
   const repeatResolution = await request(`/api/donations/${approval.id}/resolve-approval`, {
-    method: 'POST', bearer: token,
+    method: 'POST', bearer: recoveryToken,
     body: { attemptId: approvalAttemptId, confirmNoWalletRequest: true },
   });
   assert.equal(repeatResolution.status, 200, 'recovery is idempotent for the same approval attempt');
+  const blockedNewIntent = await request('/api/donations', {
+    method: 'POST', bearer: recoveryToken, body: { templeId: 'temple-01', amount: '0.01' },
+  });
+  assert.equal(blockedNewIntent.status, 409, 'a new signed intent is blocked until the abandoned signature deadline');
 
   const unknown = await request(`/api/donations/${donation.id}/verify`, { method: 'POST', bearer: token, body: {} });
   assert.equal(unknown.status, 200);

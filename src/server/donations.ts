@@ -34,6 +34,19 @@ export async function createDonation(owner: Address, templeId: unknown, input: u
   try { amount = parseAmount(input); } catch (error) {
     throw new HttpError(400, 'INVALID_AMOUNT', error instanceof Error ? error.message : 'Invalid amount.');
   }
+  const now = Math.floor(Date.now() / 1000);
+  const cancelledIntents = await db.collection('donations')
+    .where('ownerWallet', '==', owner)
+    .where('status', '==', 'cancelled')
+    .get();
+  const stillValid = cancelledIntents.docs
+    .map((doc) => doc.data() as Donation)
+    .filter((donation) => donation.approvalResolution?.outcome === 'cancelled' && donation.deadline > now)
+    .sort((a, b) => a.deadline - b.deadline)[0];
+  if (stillValid) {
+    throw new HttpError(409, 'SIGNED_INTENT_STILL_VALID',
+      `A cancelled approval-only intent remains valid until ${new Date(stillValid.deadline * 1000).toISOString()}. Wait until then before creating another donation.`);
+  }
   const id = `0x${randomBytes(32).toString('hex')}` as Hex;
   const templeKey = keccak256(toHex(temple.id));
   const deadline = Math.floor(Date.now() / 1000) + 600;
