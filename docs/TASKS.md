@@ -148,11 +148,20 @@
   the in-app browser; it shows the KALASH page with History/Collection controls and
   no VerifyWallet button. History exposes Share a photo / Take a photo / Choose image.
   Tapping Take a photo called getUserMedia and raised Android's Allow permission prompt.
-  User chose `allow_once` in chat, but the phone-side Allow tap/preview is not yet confirmed.
-  Firestore shows two recent owner donations (21:40Z, 21:43Z)
-  already `confirmed` and `minted`; neither was initiated by this agent. No third
-  transaction will be sent. Next: verify camera preview after the user grants permission;
-  stop at any further signature/payment prompt until explicit user action.
+  User chose `allow_once`; camera opened and showed Take photo/Close camera controls.
+  Agent closed the live stream without taking or uploading an image. Public photo remains.
+  Firestore shows two recent owner donations (21:40Z, 21:43Z), both `confirmed`/`minted`;
+  Cloud Run request logs identify both intent creation requests as Windows Chrome, not
+  mobile. Neither was initiated by this agent. No third transaction was sent.
+- Mobile MetaMask UI shows an expired approval workflow: older Firestore intents have
+  `approve` operation records, expired deadlines, no txHash and no registered donate
+  attempt; current allowance is zero. The mobile Donate button is disabled with
+  “USDC approval is not confirmed / No donation has been sent yet.” Do not clear or
+  retry blindly. Next: offer a guarded resolution path after user confirms there is
+  no active wallet prompt; then restart one 0.01 mobile test transaction with explicit
+  wallet confirmation. The unrelated existing MetaMask page opened by a deeplink was
+  left untouched; no text was entered or submitted.
+  Stop at any further signature/payment prompt until explicit user action.
   Temple/operator withdrawal auth and cash-device photo intake remain; do not mark M2 complete.
 
 ## Submission
