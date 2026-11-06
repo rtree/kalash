@@ -444,12 +444,13 @@ or the initial M3 preparation.
 The current host source is the package-free
 `CashMachine/CashMachineController/KALASH.CashMachineController.csproj`.
 `run` is explicit; build and tests do not start the vendor server. Configuration
-requires the dedicated server directory, an absolute `dotnet.exe` path, and a
-protected signing-key environment value. The child does not resolve its runtime
-through the parent `PATH`; it receives only platform environment variables plus
-the exact `AllowedHosts` and `Jwt__Key` overrides. Startup checks that the
-process remains alive; API authentication and device readiness are separate
-checks and are never inferred from an open port.
+requires the dedicated server directory and an absolute `dotnet.exe` path. If
+no signing key is supplied, the Controller creates a fresh ephemeral key in
+memory. The child does not resolve its runtime through the parent `PATH`; it
+receives only platform environment variables plus the exact `AllowedHosts` and
+`Jwt__Key` overrides. Startup checks that the process remains alive; API
+authentication and device readiness are separate checks and are never inferred
+from an open port.
 
 `ItlReadOnlyClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
 tokens in memory, refreshes the token before expiry, and serializes each request.
@@ -458,6 +459,16 @@ There is deliberately no `GetDeviceStatus`, `OpenConnection`, route, acceptor,
 or payout method until the staged checks and explicit device-operation scope
 allow them.
 HTTP errors expose status codes, not response bodies; there are no blind retries.
+
+The Stage 1 `inspect` command verifies listener addresses are loopback-only,
+checks that the allowed Host receives an authentication challenge and an
+unlisted Host is rejected, authenticates with protected local credentials, then
+reads `GetConnectedUSBDevices` and `GetAllCashDevices` and stops its child.
+It does not call `GetDeviceStatus`. Stage 2 `OpenConnection` is a separate
+hardware initialization, not read-only: use `EnableAcceptor=false`,
+`EnableAutoAcceptEscrow=false`, and the verified Spectral Payout route. Do not
+insert or dispense notes in this stage; owner approval is required before
+performing it.
 
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
 an explicit QR-unavailable reason instead of manufacturing a mobile link.

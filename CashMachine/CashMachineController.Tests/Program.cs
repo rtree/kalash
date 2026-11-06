@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Net.Sockets;
 using Kalash.CashMachineController;
 
 namespace Kalash.CashMachineController.Tests;
@@ -21,7 +22,11 @@ internal static class Program
         await Run("stop only the owned child after safe-state approval", StopOwnedChild);
         await Run("serialize authenticated read-only ITL requests", ReadOnlyItlRequests);
         await Run("do not expose failed-auth response bodies", HideAuthenticationResponseBody);
-        Console.WriteLine("9 CashMachineController tests passed.");
+        await Run("verify allowed and rejected Host headers", VerifyHostFiltering);
+        await Run("reject an unfiltered Host header", RejectUnfilteredHost);
+        await Run("accept loopback listeners and reject wildcard binding", VerifyLoopbackBinding);
+        await Run("fail when no local listener appears", RejectMissingLoopbackBinding);
+        Console.WriteLine("13 CashMachineController tests passed.");
         return 0;
     }
 
@@ -235,6 +240,87 @@ internal static class Program
             "Authentication response data leaked into the exception message.");
     }
 
+    private static async Task VerifyHostFiltering()
+    {
+        var handler = new CapturingHttpHandler();
+        using var client = new ItlReadOnlyClient("test-user", "test-password", handler);
+        await client.VerifyHostFilteringAsync();
+
+        Check(handler.Requests.Count == 2, "Host filtering did not use both probe requests.");
+        Check(
+            handler.Requests[0].Host == "127.0.0.1:5000"
+                && handler.Requests[1].Host == "not-allowed.invalid",
+            "Host filtering probes used unexpected Host headers.");
+        Check(
+            handler.Requests.All(request => request.Method == HttpMethod.Get && request.Authorization is null),
+            "Host filtering probes were not unauthenticated GET requests.");
+    }
+
+    private static async Task RejectUnfilteredHost()
+    {
+        var handler = new CapturingHttpHandler(rejectUnlistedHost: false);
+        using var client = new ItlReadOnlyClient("test-user", "test-password", handler);
+        var rejected = false;
+        try
+        {
+            await client.VerifyHostFilteringAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            rejected = true;
+        }
+
+        Check(rejected, "The client accepted a Host filter that allowed an unlisted hostname.");
+    }
+
+    private static async Task VerifyLoopbackBinding()
+    {
+        using var process = new FakeManagedChildProcess(102);
+        var verifier = new LoopbackListenerVerifier(
+            () => [new IPEndPoint(IPAddress.Loopback, 5000), new IPEndPoint(IPAddress.IPv6Loopback, 5000)]);
+        var addresses = await verifier.WaitForLoopbackOnlyAsync(
+            process,
+            5000,
+            TimeSpan.FromSeconds(1));
+        Check(
+            addresses.Count == 2 && addresses.All(IPAddress.IsLoopback),
+            "The loopback-only listener set was not accepted.");
+
+        var wildcard = new LoopbackListenerVerifier(
+            () => [new IPEndPoint(IPAddress.Any, 5000)]);
+        var rejected = false;
+        try
+        {
+            await wildcard.WaitForLoopbackOnlyAsync(process, 5000, TimeSpan.FromSeconds(1));
+        }
+        catch (InvalidOperationException)
+        {
+            rejected = true;
+        }
+
+        Check(rejected, "A wildcard listener was accepted as loopback-only.");
+    }
+
+    private static async Task RejectMissingLoopbackBinding()
+    {
+        using var process = new FakeManagedChildProcess(103);
+        var verifier = new LoopbackListenerVerifier(static () => []);
+        var timedOut = false;
+        try
+        {
+            await verifier.WaitForLoopbackOnlyAsync(
+                process,
+                5000,
+                TimeSpan.FromMilliseconds(20));
+        }
+        catch (TimeoutException)
+        {
+            timedOut = true;
+        }
+
+        Check(timedOut, "The verifier accepted a server that did not bind a listener.");
+    }
+
     private static async Task Run(string name, Func<Task> test)
     {
         await test();
@@ -374,7 +460,8 @@ internal static class Program
 
     private sealed class CapturingHttpHandler(
         HttpStatusCode authenticationStatus = HttpStatusCode.OK,
-        string authenticationResponseBody = """{"token":"synthetic-test-token","expires_seconds":3600}""")
+        string authenticationResponseBody = """{"token":"synthetic-test-token","expires_seconds":3600}""",
+        bool rejectUnlistedHost = true)
         : HttpMessageHandler
     {
         public List<CapturedRequest> Requests { get; } = [];
@@ -389,6 +476,7 @@ internal static class Program
             Requests.Add(new CapturedRequest(
                 request.Method,
                 request.RequestUri?.PathAndQuery ?? string.Empty,
+                request.Headers.Host,
                 request.Headers.Authorization?.ToString(),
                 body));
 
@@ -400,6 +488,16 @@ internal static class Program
                 };
             }
 
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri?.AbsolutePath == "/api/v2/CashDevice/GetConnectedUSBDevices"
+                && request.Headers.Authorization is null)
+            {
+                var status = request.Headers.Host == "not-allowed.invalid" && rejectUnlistedHost
+                    ? HttpStatusCode.BadRequest
+                    : HttpStatusCode.Unauthorized;
+                return new HttpResponseMessage(status);
+            }
+
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{}", Encoding.UTF8, "application/json")
@@ -407,5 +505,10 @@ internal static class Program
         }
     }
 
-    private sealed record CapturedRequest(HttpMethod Method, string Path, string? Authorization, string Body);
+    private sealed record CapturedRequest(
+        HttpMethod Method,
+        string Path,
+        string? Host,
+        string? Authorization,
+        string Body);
 }

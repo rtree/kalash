@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 
 namespace Kalash.CashMachineController;
@@ -101,6 +102,47 @@ public sealed class SystemPortAvailabilityGuard : IPortAvailabilityGuard
             throw new InvalidOperationException(
                 $"TCP port {port} is already in use. The controller will not attach to or stop its owner.");
         }
+    }
+}
+
+public sealed class LoopbackListenerVerifier(Func<IPEndPoint[]>? listenerProvider = null)
+{
+    private readonly Func<IPEndPoint[]> listenerProvider = listenerProvider
+        ?? IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners;
+
+    public async Task<IReadOnlyList<IPAddress>> WaitForLoopbackOnlyAsync(
+        IManagedChildProcess child,
+        int port,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var started = Stopwatch.GetTimestamp();
+        while (Stopwatch.GetElapsedTime(started) < timeout)
+        {
+            if (child.HasExited)
+            {
+                var exitCode = await child.WaitForExitAsync(cancellationToken);
+                throw new InvalidOperationException(
+                    $"The REST API Server child exited before binding its port with code {exitCode}.");
+            }
+
+            var listeners = listenerProvider().Where(endpoint => endpoint.Port == port).ToArray();
+            if (listeners.Length > 0)
+            {
+                if (listeners.Any(endpoint => !IPAddress.IsLoopback(endpoint.Address)))
+                {
+                    throw new InvalidOperationException(
+                        $"The REST API Server port {port} is listening on a non-loopback address.");
+                }
+
+                return listeners.Select(endpoint => endpoint.Address).Distinct().ToArray();
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+        }
+
+        throw new TimeoutException(
+            $"The REST API Server did not bind its loopback port {port} before the startup deadline.");
     }
 }
 

@@ -18,15 +18,19 @@ dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineC
 ```
 
 The `validate` command checks the local package and child environment overrides
-without launching the server. The `run` command requires a local
-`RESTAPIServer` directory, an absolute `KALASH_ITL_DOTNET` path, and protected
-`KALASH_ITL_JWT_KEY`; it reports only process liveness, not API authentication
-or device readiness.
+without launching the server. The `inspect` command is the Stage 1 check: it
+requires protected `KALASH_ITL_USERNAME` and `KALASH_ITL_PASSWORD`, starts its
+own server child, verifies loopback binding and Host filtering, authenticates,
+reads only USB/device lists, then stops the child. It never opens a device,
+polls events, or issues a cash command. The long-running `run` command requires
+a local `RESTAPIServer` directory and an absolute `KALASH_ITL_DOTNET` path; it
+reports process liveness only.
 
-The test runner does not start the manufacturer server. No cash-device commands
-are implemented. Verify real server startup and ITL/device behavior only in the
-M3-device task with the authorized machine. Windows service registration is a
-separate, later approval and is not part of this scaffold.
+If `KALASH_ITL_JWT_KEY` is absent, the controller creates a fresh ephemeral
+signing key in memory for the server child; it is not persisted. The test runner
+does not start the manufacturer server. No cash-device commands are implemented.
+The Stage 2 `OpenConnection` initialization is a separate, explicit gate;
+Windows service registration is also separate and not part of this scaffold.
 
 Keep credentials and machine-specific paths outside Git. Never log credentials
 or copy manufacturer binaries, manuals, or configuration into this project.

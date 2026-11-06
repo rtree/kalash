@@ -22,11 +22,13 @@ configuration through the child process environment; do not expose or copy the
 setting, and do not edit the vendor distribution.
 
 The local Controller requires `KALASH_ITL_REST_SERVER_DIR` to name this
-dedicated directory, `KALASH_ITL_DOTNET` to be an absolute `dotnet.exe` path,
-and `KALASH_ITL_JWT_KEY` to be supplied by protected local configuration. It
-does not search `PATH` for a runtime. Never put the signing value in
-command-line arguments, source, or logs. The child inherits only a small
-platform environment allowlist plus the two explicit server overrides.
+dedicated directory and `KALASH_ITL_DOTNET` to be an absolute `dotnet.exe` path;
+it does not search `PATH` for a runtime. `inspect` also requires the API
+username and password from protected local configuration. If
+`KALASH_ITL_JWT_KEY` is absent, the Controller creates a fresh ephemeral key
+in memory and passes it only to the server child. Never put credentials or
+signing values in source, command-line arguments, or logs. The child inherits
+only a small platform environment allowlist plus its server overrides.
 
 The provided Manual v14 extract (p.182) identifies `Route: 1` as RECYCLER for
 Spectral Payout. The SDK v2 Postman `Route: 3` example is for NV4000, and

@@ -14,6 +14,9 @@ public sealed class ItlReadOnlyClient : IDisposable
 {
     private static readonly Uri BaseAddress = new("http://127.0.0.1:5000/");
 
+    public const string UsernameEnvironmentVariable = "KALASH_ITL_USERNAME";
+    public const string PasswordEnvironmentVariable = "KALASH_ITL_PASSWORD";
+
     private readonly HttpClient httpClient;
     private readonly string username;
     private readonly string password;
@@ -58,6 +61,36 @@ public sealed class ItlReadOnlyClient : IDisposable
         try
         {
             await RefreshTokenAsync(cancellationToken);
+        }
+        finally
+        {
+            requestGate.Release();
+        }
+    }
+
+    public async Task VerifyHostFilteringAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        await requestGate.WaitAsync(cancellationToken);
+        try
+        {
+            var allowedHostStatus = await GetUnauthenticatedProbeStatusAsync(
+                "127.0.0.1:5000",
+                cancellationToken);
+            if (allowedHostStatus is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+            {
+                throw new InvalidOperationException(
+                    "The REST API did not require authentication for the allowed loopback Host.");
+            }
+
+            var rejectedHostStatus = await GetUnauthenticatedProbeStatusAsync(
+                "not-allowed.invalid",
+                cancellationToken);
+            if (rejectedHostStatus is not (HttpStatusCode.BadRequest or HttpStatusCode.Forbidden))
+            {
+                throw new InvalidOperationException(
+                    "The REST API did not reject an unlisted Host header.");
+            }
         }
         finally
         {
@@ -161,6 +194,21 @@ public sealed class ItlReadOnlyClient : IDisposable
         {
             await RefreshTokenAsync(cancellationToken);
         }
+    }
+
+    private async Task<HttpStatusCode> GetUnauthenticatedProbeStatusAsync(
+        string hostHeader,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "api/v2/CashDevice/GetConnectedUSBDevices");
+        request.Headers.Host = hostHeader;
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        return response.StatusCode;
     }
 
     private async Task RefreshTokenAsync(CancellationToken cancellationToken)
