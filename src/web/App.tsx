@@ -15,6 +15,8 @@ import {
 import type { Runtime } from './runtime.ts';
 import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
 import { switchToKalashChain } from './walletNetwork.ts';
+import { PhoneEntry, ReceptionPanel } from './Reception.tsx';
+import { VISIT_REFERENCE } from '../atm.ts';
 
 const erc20Abi = parseAbi([
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -235,6 +237,7 @@ export function App({ runtime }: { runtime: Runtime }) {
   const { writeContractAsync } = useWriteContract();
 
   const [path, setPath] = useState(window.location.pathname);
+  const [search, setSearch] = useState(window.location.search);
   const [authenticatedWallet, setAuthenticatedWallet] = useState<string | null>(null);
   const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
   const [connectingAuth, setConnectingAuth] = useState(false);
@@ -258,6 +261,7 @@ export function App({ runtime }: { runtime: Runtime }) {
   const previousAddress = useRef<string | null>(null);
   const currentTempleId = path.match(/^\/temples\/([^/]+)\/?$/)?.[1];
   const currentTemple = temples.find((temple) => temple.id === currentTempleId);
+  const receptionReference = new URLSearchParams(search).get('visit');
   const boardTempleId = path.match(/^\/board\/([^/]+)\/?$/)?.[1];
 
   const api = useCallback(async <T,>(url: string, init: RequestInit = {}, privateRequest = false): Promise<T> => {
@@ -283,7 +287,8 @@ export function App({ runtime }: { runtime: Runtime }) {
 
   const navigate = useCallback((nextPath: string) => {
     window.history.pushState({}, '', nextPath);
-    setPath(nextPath);
+    setPath(new URL(nextPath, window.location.origin).pathname);
+    setSearch(new URL(nextPath, window.location.origin).search);
     window.scrollTo({ top: 0, behavior: 'instant' });
     setError('');
   }, []);
@@ -291,6 +296,7 @@ export function App({ runtime }: { runtime: Runtime }) {
   useEffect(() => {
     const onPopState = () => {
       setPath(window.location.pathname);
+      setSearch(window.location.search);
       setError('');
     };
     window.addEventListener('popstate', onPopState);
@@ -865,7 +871,23 @@ export function App({ runtime }: { runtime: Runtime }) {
         {error && <div className="notice notice-danger" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
         {notice && <div className="notice notice-info" role="status"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}>×</button></div>}
 
-        {detailRoute && currentTemple ? (
+        {currentTemple && (receptionReference === null || VISIT_REFERENCE.test(receptionReference)) && <PhoneEntry
+          origin={config.origin} templeId={currentTemple.id} reference={receptionReference ?? undefined}
+        />}
+        {currentTemple && receptionReference !== null ? (
+          <ReceptionPanel
+            key={`${currentTemple.id}:${receptionReference}`}
+            reference={receptionReference} templeId={currentTemple.id} wallet={walletReady ? authenticatedWallet : null}
+            api={api} onConnect={() => void connectWallet()} onVerify={signInWallet}
+            signMessage={async (message) => {
+              await ensureNetwork();
+              const signingClient = (await refreshWalletClient()).data;
+              if (!signingClient || !address) throw new Error('Reconnect MetaMask before signing this reception.');
+              return signingClient.signMessage({ account: address, message });
+            }}
+            onCollection={() => navigate('/collection')}
+          />
+        ) : detailRoute && currentTemple ? (
           <TempleDetail
             temple={currentTemple}
             config={config}

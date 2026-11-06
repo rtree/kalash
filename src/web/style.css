@@ -18,6 +18,28 @@
 }
 
 * { box-sizing: border-box; }
+.reception-card { max-width: 720px; margin: 24px auto; padding: 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--cream); line-height: 1.65; }
+.reception-card label { display: block; margin: 20px 0; }
+.reception-card input[type="password"] { display: block; width: 100%; margin-top: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.reception-consent { padding: 12px; background: white; border-radius: 8px; }
+.reception-consent input { width: 22px; height: 22px; vertical-align: middle; margin-right: 10px; }
+.reception-actions, .atm-methods { display: flex; flex-wrap: wrap; gap: 16px; }
+.atm-methods > button { flex: 1; min-width: 200px; }
+.atm-shell { padding-bottom: 24px; }
+.atm-main { padding-top: 40px; text-align: center; }
+.atm-shell .button { min-height: 72px; }
+.atm-shell small { font-weight: 400; }
+.reception-qr { display: block; width: min(336px, 100%); height: auto !important; margin: 16px auto; }
+.reception-target { overflow-wrap: anywhere; font-size: 13px; }
+.phone-entry { max-width: 720px; margin: 20px auto; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.phone-entry summary { min-height: 44px; cursor: pointer; color: var(--green); font-weight: 700; }
+.phone-entry p { line-height: 1.6; }
+.reception-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+@media (max-width: 600px) {
+  .phone-entry-qr { display: none; }
+  .reception-card { padding: 20px 16px; }
+  .reception-actions > button { width: 100%; }
+}
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #fff; }
 button, input { font: inherit; }
 button { cursor: pointer; }

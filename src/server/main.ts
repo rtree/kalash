@@ -12,6 +12,7 @@ import {
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
+import { claimVisit, closeVisit, createPairing, createVisit, getAtm, getVisit, pairScreen, visitChallenge } from './atm.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -126,8 +127,58 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     const body = await jsonBody(request);
     return send(response, await verifyChallenge(body.nonce, body.signature));
   }
+  const controllerPairing = path.match(/^\/api\/controller\/([a-z0-9-]+)\/pairing$/);
+  if (request.method === 'POST' && controllerPairing) {
+    rateLimit(request, 'atm-pairing', 10);
+    const body = await jsonBody(request);
+    requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Pairing takes no body fields.');
+    return send(response, await createPairing(controllerPairing[1]!, request.headers.authorization));
+  }
+  const atmMatch = path.match(/^\/api\/atm\/([a-z0-9-]+)(?:\/(pair|visits)(?:\/([a-f0-9]{64})\/close)?)?$/);
+  if (atmMatch) {
+    const atmId = atmMatch[1]!;
+    if (request.method === 'GET' && !atmMatch[2]) return send(response, await getAtm(atmId, request.headers.cookie));
+    if (request.method === 'POST') {
+      const body = await jsonBody(request);
+      if (atmMatch[2] === 'pair' && !atmMatch[3]) {
+        rateLimit(request, 'atm-pairing', 10);
+        requireValue(Object.keys(body).every((key) => key === 'code'), 400, 'UNKNOWN_FIELD', 'Only a pairing code is accepted.');
+        response.setHeader('Set-Cookie', await pairScreen(atmId, body.code));
+        return send(response, { paired: true });
+      }
+      if (atmMatch[2] === 'visits' && !atmMatch[3]) {
+        requireValue(Object.keys(body).every((key) => ['mode', 'requestId'].includes(key)),
+          400, 'UNKNOWN_FIELD', 'Only reception mode and request ID are accepted.');
+        return send(response, await createVisit(atmId, request.headers.cookie, body.mode, body.requestId), 201);
+      }
+      if (atmMatch[2] === 'visits' && atmMatch[3]) {
+        requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Closing reception takes no body fields.');
+        return send(response, await closeVisit(atmId, request.headers.cookie, atmMatch[3]));
+      }
+    }
+  }
+  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|challenge|claim))?$/);
+  if (request.method === 'GET' && visitMatch && !visitMatch[2]) {
+    return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? ''));
+  }
   const owner = await identity(request.headers.authorization);
   rateLimit(request, owner.toLowerCase(), 100);
+  if (visitMatch) {
+    if (request.method === 'GET' && visitMatch[2] === 'mine') {
+      return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? '', owner));
+    }
+    if (request.method === 'POST' && visitMatch[2] === 'challenge') {
+      const body = await jsonBody(request);
+      requireValue(Object.keys(body).every((key) => key === 'templeId'), 400, 'UNKNOWN_FIELD', 'Only the temple reference is accepted.');
+      return send(response, await visitChallenge(visitMatch[1]!, body.templeId, owner));
+    }
+    if (request.method === 'POST' && visitMatch[2] === 'claim') {
+      const body = await jsonBody(request);
+      requireValue(Object.keys(body).every((key) => ['templeId', 'nonce', 'signature', 'consent'].includes(key)),
+        400, 'UNKNOWN_FIELD', 'Only reception consent and its signature are accepted.');
+      return send(response, await claimVisit(visitMatch[1]!, owner, body));
+    }
+  }
   const eligibilityMatch = path.match(/^\/api\/photos\/eligibility\/(0x[0-9a-f]{64})$/i);
   if (request.method === 'GET' && eligibilityMatch) {
     return send(response, await getPhotoEligibility(eligibilityMatch[1]!, owner));
