@@ -66,10 +66,12 @@ test('M1 contracts on an isolated Shanghai chain', { timeout: 180_000 }, async (
     [templeId, secondTempleId], [temple.address, temple.address],
   ]);
   const stamp = await deploy('KalashStamp', [minter.address]);
+  const cashFeeVault = await deploy('CashFeeVault', [token.address, authorizer.address, fee.address]);
   await success(token, deployer, 'mint', [donor.address, 20_000_000n]);
   await success(token, deployer, 'mint', [outsider.address, 20_000_000n]);
   await success(token, donor, 'approve', [vault.address, maxUint256]);
   await success(token, outsider, 'approve', [vault.address, maxUint256]);
+  await success(token, donor, 'approve', [cashFeeVault.address, 2_000_000n]);
   const domain = {
     name: 'KALASH Donation', version: '1', chainId: chain.id, verifyingContract: vault.address,
   };
@@ -93,6 +95,29 @@ test('M1 contracts on an isolated Shanghai chain', { timeout: 180_000 }, async (
   }
   const sign = (message, signer = authorizer.signer, signedDomain = domain) =>
     signer.signTypedData({ domain: signedDomain, types, primaryType: 'Donation', message });
+  await t.test('cash fee binds invoice, temple, payer, exact uncapped amount and consumes once', async () => {
+    const message = { invoiceId: stringToHex('cash-fee-invoice', { size: 32 }),
+      payer: donor.address, templeId, amount: 1_500_000n, deadline };
+    const feeDomain = { name: 'KALASH Cash Fee', version: '1', chainId: chain.id, verifyingContract: cashFeeVault.address };
+    const feeTypes = { CashFee: [
+      { name: 'invoiceId', type: 'bytes32' }, { name: 'payer', type: 'address' }, { name: 'templeId', type: 'bytes32' },
+      { name: 'amount', type: 'uint256' }, { name: 'deadline', type: 'uint256' },
+    ] };
+    const signature = await authorizer.signer.signTypedData({ domain: feeDomain, types: feeTypes, primaryType: 'CashFee', message });
+    const args = [message.invoiceId, templeId, message.amount, deadline, signature];
+    const before = await read(token, 'balanceOf', [fee.address]);
+    for (const [sender, changed] of [[outsider, args], [donor, [message.invoiceId, secondTempleId, message.amount, deadline, signature]],
+      [donor, [message.invoiceId, templeId, message.amount - 1n, deadline, signature]]]) {
+      assert.equal((await send(cashFeeVault, sender, 'payFee', changed)).status, 'reverted');
+      assert.equal(await read(cashFeeVault, 'consumed', [message.invoiceId]), false);
+    }
+    const receipt = await success(cashFeeVault, donor, 'payFee', args);
+    assert.equal(await read(token, 'balanceOf', [fee.address]), before + message.amount);
+    assert.equal(events(receipt, cashFeeVault, 'FeePaid').length, 1);
+    assert.equal(await read(cashFeeVault, 'consumed', [message.invoiceId]), true);
+    assert.equal((await send(cashFeeVault, donor, 'payFee', args)).status, 'reverted');
+    assert.equal(await read(token, 'balanceOf', [fee.address]), before + message.amount);
+  });
   const donationArgs = (message, signature) => [
     message.donationId, message.templeId, message.kind, message.amount, message.deadline, signature,
   ];

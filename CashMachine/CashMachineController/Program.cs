@@ -216,8 +216,10 @@ internal static partial class Program
                 if (centralConfiguration.ProductCashEnabled)
                 {
                     productOwner = new ProductCashExecutionOwner(centralConfiguration.AtmId, central, central,
-                        new ItlProductCashDevice(itl, deviceStatusPoller, deviceId), productJournal!,
-                        CashCommandJournal.FromLocalApplicationData(), physicalAcceptanceAuthorized: true);
+                        new ItlProductCashDevice(itl, deviceStatusPoller, deviceId,
+                            centralConfiguration.ProductPayoutEnabled), productJournal!,
+                        CashCommandJournal.FromLocalApplicationData(), physicalAcceptanceAuthorized: true,
+                        physicalPayoutAuthorized: centralConfiguration.ProductPayoutEnabled);
                     device = productOwner;
                 }
                 else

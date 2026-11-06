@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { CASH_ACCEPTANCE_MS, cashAccepting, metaMaskLink, templeTarget, VISIT_REFERENCE, type AtmDto, type VisitDto } from '../atm.ts';
 import { DeviceTransitionMs } from '../timing.ts';
 import { formatPaise, formatUsdc } from '../shared.ts';
+import { payoutApprovalLink } from '../payout.ts';
 
 type Api = <T>(path: string, init?: RequestInit, privateRequest?: boolean) => Promise<T>;
 type OwnerVisit = VisitDto & { linkedToYou: boolean; donationId?: string | null };
@@ -53,6 +54,9 @@ export function AtmPage({ atmId }: { atmId: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [stopVisit, setStopVisit] = useState<string | null>(null);
+  const [adminMode, setAdminMode] = useState(false);
+  const [payoutApproval, setPayoutApproval] = useState<{ approvalId: string; url: string } | null>(null);
+  const payoutRequestId = useRef<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const version = useRef(0);
   const working = useRef(false);
@@ -141,7 +145,30 @@ export function AtmPage({ atmId }: { atmId: string }) {
         <label>Screen pairing code<input autoComplete="off" type="password" value={code} onChange={(event) => setCode(event.target.value)} maxLength={16} required /></label>
         <button className="button button-primary button-wide" disabled={busy}>Pair screen</button>
       </form> : !atm ? <button className="button button-outline" onClick={() => void refresh()}>Restore screen</button>
-        : !atm.visit ? <section className="reception-card">
+        : !atm.visit && (adminMode || atm.payout) ? <section className="reception-card">
+          <p className="eyebrow">Temple Admin</p>
+          <h2>Settle fees and approve full payout</h2>
+          <p>This screen cannot authorize dispensing. Only the registered temple administrator can sign the one-use approval on their phone.</p>
+          <a className="button button-outline" href={`/temple-admin/${encodeURIComponent(atmId)}`} target="_blank" rel="noreferrer">Open fee settlement</a>
+          {atm.payout ? <p role="status">Payout {atm.payout.payoutId}: {atm.payout.state}, {formatPaise(atm.payout.amountPaise)}.
+            {atm.payout.state === 'unknown' ? ' Keep the machine stopped and reconcile; do not resubmit.' : ' Be present to collect banknotes when the device presents them.'}</p> : <>
+            <button className="button button-primary" disabled={busy || atm.cashMachineStatus !== 'ready'}
+              onClick={() => void act(async () => {
+                payoutRequestId.current ??= crypto.randomUUID();
+                setPayoutApproval(await screenApi<{ approvalId: string; url: string }>(`${base}/payout-approval`,
+                  { requestId: payoutRequestId.current }));
+              })}>Pay Out · Show approval QR</button>
+            {payoutApproval && <>
+              {new URL(payoutApproval.url).protocol === 'https:'
+                ? <QrCanvas text={payoutApprovalLink(new URL(payoutApproval.url).origin, atmId, payoutApproval.approvalId)} />
+                : <p role="alert">Payout QR requires the deployed HTTPS site.</p>}
+              <p className="reception-target">{payoutApproval.url}</p>
+              <p>QR is single-use and expires after two minutes. Check temple, ATM and full cash amount on your phone before signing.</p>
+            </>}
+          </>}
+          <button className="button button-outline" disabled={busy || Boolean(atm.payout)}
+            onClick={() => { setAdminMode(false); setPayoutApproval(null); payoutRequestId.current = null; }}>Back to Donate Screen</button>
+        </section> : !atm.visit ? <section className="reception-card">
           <h2>Choose how to give</h2>
           <p>Cash machine: <strong>{atm.cashMachineStatus}</strong>. {atm.cashDisabledReason}</p>
           <div className="atm-methods">
@@ -159,6 +186,7 @@ export function AtmPage({ atmId }: { atmId: string }) {
             </button>
           </div>
           <p>No cash operation or device command is sent by this screen.</p>
+          <button className="text-button" disabled={busy} onClick={() => setAdminMode(true)}>Temple Admin</button>
         </section> : <section className="reception-card">
           {waiting ? <>
             <h2>{atm.visit.mode === 'cash' ? 'Authorize this cash reception on your phone' : 'Continue your Crypto donation on your phone'}</h2>

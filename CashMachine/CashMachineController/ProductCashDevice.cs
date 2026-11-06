@@ -25,7 +25,8 @@ public interface IProductInitializationDevice : IProductCashDevice
 }
 
 public sealed class ItlProductCashDevice(
-    ItlControllerClient client, ItlDeviceStatusPoller poller, string deviceId) : IProductInitializationDevice
+    ItlControllerClient client, ItlDeviceStatusPoller poller, string deviceId,
+    bool physicalPayoutAuthorized = false) : IProductInitializationDevice, IProductPayoutDevice
 {
     public Task<IReadOnlyList<CashRawSnapshot>> RecoverAsync(CancellationToken token) => poller.RecoverOwnedAsync(token);
     public Task<CashRawSnapshot> PollAsync(CancellationToken token) => poller.PollOwnedAsync(token);
@@ -34,6 +35,8 @@ public sealed class ItlProductCashDevice(
     public Task AcceptAsync(CancellationToken token) => client.AcceptFromEscrowOnceAsync(deviceId, token);
     public Task ReturnAsync(CancellationToken token) => client.ReturnFromEscrowOnceAsync(deviceId, token);
     public Task DisconnectOnceAsync(CancellationToken token) => client.DisconnectDeviceAsync(deviceId, token);
+    public Task DispenseOnceAsync(long amountPaise, CancellationToken token) =>
+        client.DispenseProductValueOnceAsync(physicalPayoutAuthorized, deviceId, amountPaise, token);
 
     public async Task<bool> IsDisconnectedAsync(CancellationToken token)
     {

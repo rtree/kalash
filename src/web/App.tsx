@@ -16,6 +16,7 @@ import type { Runtime } from './runtime.ts';
 import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
 import { switchToKalashChain } from './walletNetwork.ts';
 import { PhoneEntry, ReceptionPanel } from './Reception.tsx';
+import { TempleAdmin } from './TempleAdmin.tsx';
 import { VISIT_REFERENCE } from '../atm.ts';
 
 const erc20Abi = parseAbi([
@@ -263,6 +264,7 @@ export function App({ runtime }: { runtime: Runtime }) {
   const currentTemple = temples.find((temple) => temple.id === currentTempleId);
   const receptionReference = new URLSearchParams(search).get('visit');
   const boardTempleId = path.match(/^\/board\/([^/]+)\/?$/)?.[1];
+  const adminAtmId = path.match(/^\/temple-admin\/([a-z0-9-]+)\/?$/)?.[1];
 
   const api = useCallback(async <T,>(url: string, init: RequestInit = {}, privateRequest = false): Promise<T> => {
     const headers = new Headers(init.headers);
@@ -913,6 +915,8 @@ export function App({ runtime }: { runtime: Runtime }) {
       <main>
         {error && <div className="notice notice-danger" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
         {notice && <div className="notice notice-info" role="status"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice('')}>×</button></div>}
+        {adminAtmId && <TempleAdmin atmId={adminAtmId} approvalId={new URLSearchParams(search).get('approval')}
+          wallet={walletReady ? authenticatedWallet : null} config={config} api={api} onSign={signCashConsent} />}
 
         {currentTemple && receptionReference === null && <PhoneEntry
           origin={config.origin} templeId={currentTemple.id} reference={receptionReference ?? undefined}
@@ -1022,7 +1026,7 @@ export function App({ runtime }: { runtime: Runtime }) {
             onPhotoEligibility={getPhotoEligibility}
             onUploadPhoto={publishPhoto}
           />
-        ) : (
+        ) : adminAtmId ? null : (
           <ExplorePage temples={matchingTemples} query={query} setQuery={setQuery} view={exploreView} setView={setExploreView} onTemple={(temple) => navigate(`/temples/${temple.id}`)} />
         )}
       </main>

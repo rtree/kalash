@@ -7,6 +7,7 @@ import { createPublicClient, createWalletClient, erc20Abi, getAddress, http, typ
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
 import { CHAIN_ID, USDC, type PublicConfig } from '../shared.ts';
+import { cashFeeAbi } from '../payout.ts';
 
 export const project = process.env.GOOGLE_CLOUD_PROJECT ?? 'kalash-donation';
 export const origin = process.env.PUBLIC_ORIGIN ?? 'http://localhost:3000';
@@ -35,7 +36,7 @@ export const signer = createWalletClient({ account: minter, chain: baseSepolia, 
 if (await chain.getChainId() !== CHAIN_ID) throw new Error('RPC chain must be Base Sepolia');
 if (!await chain.getCode({ address: USDC })) throw new Error('USDC contract missing');
 if (await chain.readContract({ address: USDC, abi: erc20Abi, functionName: 'decimals' }) !== 6) throw new Error('USDC decimals mismatch');
-interface Deployment { chainId: number; vault: Address; stamp: Address; startBlock: string }
+interface Deployment { chainId: number; vault: Address; stamp: Address; startBlock: string; cashFeeVault?: Address }
 export const deployment: Deployment | null = existsSync('config/deployment.public.json')
   ? JSON.parse(readFileSync('config/deployment.public.json', 'utf8')) : null;
 if (deployment) {
@@ -45,9 +46,22 @@ if (deployment) {
   for (const address of [deployment.vault, deployment.stamp]) {
     if (!await chain.getCode({ address })) throw new Error('Configured contract has no code');
   }
+  if (deployment.cashFeeVault) {
+    deployment.cashFeeVault = getAddress(deployment.cashFeeVault);
+    const [code, token, authorizer, recipient] = await Promise.all([
+      chain.getCode({ address: deployment.cashFeeVault }),
+      chain.readContract({ address: deployment.cashFeeVault, abi: cashFeeAbi, functionName: 'token' }),
+      chain.readContract({ address: deployment.cashFeeVault, abi: cashFeeAbi, functionName: 'authorizer' }),
+      chain.readContract({ address: deployment.cashFeeVault, abi: cashFeeAbi, functionName: 'feeRecipient' }),
+    ]);
+    const expectedRecipient = JSON.parse(readFileSync('config/wallets.public.json', 'utf8')).wallets['fee-recipient'];
+    if (!code || getAddress(token) !== USDC || getAddress(authorizer) !== minter.address
+      || getAddress(recipient) !== getAddress(expectedRecipient)) throw new Error('CashFeeVault configuration mismatch');
+  }
 }
 const firebase = JSON.parse(readFileSync('config/firebase.public.json', 'utf8')) as PublicConfig['firebase'];
 export const publicConfig: PublicConfig = {
   chainId: CHAIN_ID, usdc: USDC, vault: deployment?.vault ?? null, stamp: deployment?.stamp ?? null,
+  cashFeeVault: deployment?.cashFeeVault ?? null,
   reownProjectId: await secret('kalash-reown-project-id'), firebase, origin,
 };

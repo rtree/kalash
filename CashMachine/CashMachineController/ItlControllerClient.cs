@@ -208,6 +208,31 @@ public sealed class ItlControllerClient : IDisposable
         return PostDeviceCommandAsync("ReturnFromEscrow", deviceId, cancellationToken);
     }
 
+    public async Task DispenseValueOnceAsync(
+        string deviceId,
+        long amountPaise,
+        CancellationToken cancellationToken = default)
+    {
+        if (amountPaise <= 0 || amountPaise > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amountPaise), "Payout amount must be a positive paise integer.");
+        }
+
+        await PostDeviceJsonCommandAsync(
+            "DispenseValue",
+            deviceId,
+            new DispenseValueRequest((int)amountPaise, "INR"),
+            cancellationToken);
+    }
+
+    public Task DispenseProductValueOnceAsync(bool ownerAttendedAuthorized, string deviceId, long amountPaise,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ownerAttendedAuthorized)
+            throw new InvalidOperationException("The owner-attended product payout gate is off.");
+        return DispenseValueOnceAsync(deviceId, amountPaise, cancellationToken);
+    }
+
     public async Task DisconnectDeviceAsync(
         string deviceId,
         CancellationToken cancellationToken = default)
@@ -317,6 +342,46 @@ public sealed class ItlControllerClient : IDisposable
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 $"api/v2/CashDevice/{operation}?deviceID={encodedDeviceId}");
+            request.Headers.Authorization = new AuthenticationHeaderValue(
+                "Bearer",
+                await GetBearerTokenAsync(cancellationToken));
+            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs));
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+            EnsureSuccess(response);
+        }
+        finally
+        {
+            requestGate.Release();
+        }
+    }
+
+    private async Task PostDeviceJsonCommandAsync(
+        string operation,
+        string deviceId,
+        object payload,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            throw new ArgumentException("ITL deviceID is required.", nameof(deviceId));
+        }
+
+        ThrowIfDisposed();
+        await requestGate.WaitAsync(cancellationToken);
+        try
+        {
+            var encodedDeviceId = Uri.EscapeDataString(deviceId);
+            using var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(payload));
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"api/v2/CashDevice/{operation}?deviceID={encodedDeviceId}")
+            {
+                Content = content
+            };
             request.Headers.Authorization = new AuthenticationHeaderValue(
                 "Bearer",
                 await GetBearerTokenAsync(cancellationToken));
@@ -447,4 +512,5 @@ public sealed class ItlControllerClient : IDisposable
         bool EnablePayout);
     private sealed record DenominationInhibit(string Denomination, bool Inhibit);
     private sealed record DenominationRoute(string Denomination, int Route);
+    private sealed record DispenseValueRequest(int Value, string CountryCode);
 }

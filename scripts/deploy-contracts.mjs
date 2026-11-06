@@ -72,14 +72,26 @@ async function deploy(name, args) {
   console.log(JSON.stringify({ contract: name, address: state.address, transactionHash: state.hash, blockNumber: state.blockNumber }));
   return state;
 }
-const ids = Array.from({ length: 10 }, (_, index) => `temple-${String(index + 1).padStart(2, '0')}`);
-const vault = await deploy('DonationVault', [
-  usdc, wallets.minter.address, wallets['fee-recipient'].address,
-  ids.map((id) => keccak256(toHex(id))), ids.map((id) => wallets[id].address),
-]);
-const stamp = await deploy('KalashStamp', [wallets.minter.address]);
-writeFileSync('config/deployment.public.json', `${JSON.stringify({
-  chainId: 84532, usdc, vault: vault.address, stamp: stamp.address,
-  vaultTxHash: vault.hash, stampTxHash: stamp.hash,
-  startBlock: vault.blockNumber, compiler: 'solc 0.8.38 / shanghai',
-}, null, 2)}\n`);
+if (process.argv.includes('--cash-fee-only')) {
+  const current = JSON.parse(readFileSync('config/deployment.public.json', 'utf8'));
+  if (current.chainId !== 84532 || current.usdc?.toLowerCase() !== usdc.toLowerCase()
+    || !current.vault || !current.stamp) throw new Error('Existing public deployment mismatch; no fee deployment sent');
+  const cashFeeVault = await deploy('CashFeeVault', [usdc, wallets.minter.address, wallets['fee-recipient'].address]);
+  writeFileSync('config/deployment.public.json', `${JSON.stringify({
+    ...current, cashFeeVault: cashFeeVault.address, cashFeeVaultTxHash: cashFeeVault.hash,
+    cashFeeStartBlock: cashFeeVault.blockNumber,
+  }, null, 2)}\n`);
+} else {
+  const ids = Array.from({ length: 10 }, (_, index) => `temple-${String(index + 1).padStart(2, '0')}`);
+  const vault = await deploy('DonationVault', [
+    usdc, wallets.minter.address, wallets['fee-recipient'].address,
+    ids.map((id) => keccak256(toHex(id))), ids.map((id) => wallets[id].address),
+  ]);
+  const stamp = await deploy('KalashStamp', [wallets.minter.address]);
+  const current = existsSync('config/deployment.public.json') ? JSON.parse(readFileSync('config/deployment.public.json', 'utf8')) : {};
+  writeFileSync('config/deployment.public.json', `${JSON.stringify({
+    ...current, chainId: 84532, usdc, vault: vault.address, stamp: stamp.address,
+    vaultTxHash: vault.hash, stampTxHash: stamp.hash,
+    startBlock: vault.blockNumber, compiler: 'solc 0.8.38 / shanghai',
+  }, null, 2)}\n`);
+}

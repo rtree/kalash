@@ -57,6 +57,7 @@ internal static class ProductCashTests
     public static async Task RunAsync(bool includePayout = true)
     {
         passed = 0;
+        if (includePayout) await ProductPayoutTests.RunAsync();
         await Run("same denomination has distinct note keys and session cap", SameDenomination);
         await Run("in-flight note prevents a second physical decision", InFlight);
         await Run("INR value, session, demo value and demo note caps", Limits);

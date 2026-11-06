@@ -4,7 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace Kalash.CashMachineController;
 
-public sealed class CashControllerConfiguration(Uri centralUri, string atmId, string credential, bool productCashEnabled = false)
+public sealed class CashControllerConfiguration(Uri centralUri, string atmId, string credential, bool productCashEnabled = false,
+    bool productPayoutEnabled = false)
 {
     private const string DefaultAtmId = "atm-01";
     private const int MaximumConfigurationBytes = 16 * 1024;
@@ -12,8 +13,18 @@ public sealed class CashControllerConfiguration(Uri centralUri, string atmId, st
     public string AtmId { get; } = atmId;
     public string Credential { get; } = credential;
     public bool ProductCashEnabled { get; } = productCashEnabled;
+    public bool ProductPayoutEnabled { get; } = productPayoutEnabled;
     public const string ProductCashEnableVariable = "KALASH_PRODUCT_CASH_ENABLE";
     public const string ProductCashEnableValue = "OWNER_ATTENDED_PRODUCT_CASH";
+    public const string ProductPayoutEnableVariable = "KALASH_PRODUCT_PAYOUT_ENABLE";
+    public const string ProductPayoutEnableValue = "OWNER_ATTENDED_PRODUCT_PAYOUT";
+
+    public static bool ParseProductPayoutGate(string? value) => value switch
+    {
+        null or "" or "false" => false,
+        ProductPayoutEnableValue => true,
+        _ => throw new ControllerConfigurationException("The product payout gate is invalid; payout remains disabled.")
+    };
 
     public static bool ParseProductCashGate(string? value) => value switch
     {
@@ -99,7 +110,12 @@ public sealed class CashControllerConfiguration(Uri centralUri, string atmId, st
         }
 
         settings.TryGetValue(ProductCashEnableVariable, out var gate);
-        return new CashControllerConfiguration(centralUri, atmId, registered.Token!, ParseProductCashGate(gate));
+        settings.TryGetValue(ProductPayoutEnableVariable, out var payoutGate);
+        var cash = ParseProductCashGate(gate);
+        var payout = ParseProductPayoutGate(payoutGate);
+        if (payout && !cash)
+            throw new ControllerConfigurationException("Product payout requires the existing serialized product cash owner.");
+        return new CashControllerConfiguration(centralUri, atmId, registered.Token!, cash, payout);
     }
 
     private static IReadOnlyDictionary<string, string?> ReadEnvironmentOverrides()
@@ -108,7 +124,8 @@ public sealed class CashControllerConfiguration(Uri centralUri, string atmId, st
         {
             ["KALASH_CENTRAL_URL"] = Environment.GetEnvironmentVariable("KALASH_CENTRAL_URL"),
             ["KALASH_ATM_ID"] = Environment.GetEnvironmentVariable("KALASH_ATM_ID"),
-            [ProductCashEnableVariable] = Environment.GetEnvironmentVariable(ProductCashEnableVariable)
+            [ProductCashEnableVariable] = Environment.GetEnvironmentVariable(ProductCashEnableVariable),
+            [ProductPayoutEnableVariable] = Environment.GetEnvironmentVariable(ProductPayoutEnableVariable)
         };
     }
 

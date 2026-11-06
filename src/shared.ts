@@ -114,6 +114,7 @@ export interface PublicConfig {
   usdc: Address;
   vault: Address | null;
   stamp: Address | null;
+  cashFeeVault?: Address | null;
   reownProjectId: string | null;
   firebase: { apiKey: string; authDomain: string; projectId: string; appId: string; storageBucket: string };
   origin: string;

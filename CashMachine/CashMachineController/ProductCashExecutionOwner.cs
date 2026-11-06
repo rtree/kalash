@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Kalash.CashMachineController;
 
 // Command, readback, event consumption and note dispatch all run on this one execution owner.
-public sealed class ProductCashExecutionOwner : ICashStartDevice
+public sealed partial class ProductCashExecutionOwner : ICashStartDevice
 {
     private readonly string atmId;
     private readonly ICashCommandCentral commands;
@@ -34,7 +34,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
 
     public ProductCashExecutionOwner(string atmId, ICashCommandCentral commands, ICashEventCentral central,
         IProductCashDevice device, ProductCashJournal journal, CashCommandJournal commandJournal,
-        bool physicalAcceptanceAuthorized, TimeProvider? timeProvider = null)
+        bool physicalAcceptanceAuthorized, TimeProvider? timeProvider = null, bool physicalPayoutAuthorized = false)
     {
         if (!physicalAcceptanceAuthorized)
             throw new InvalidOperationException("Product cash requires the explicit physical enable gate.");
@@ -47,6 +47,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         this.journal = journal;
         this.commandJournal = commandJournal;
         clock = timeProvider ?? TimeProvider.System;
+        this.physicalPayoutAuthorized = physicalPayoutAuthorized;
         processor = new CashStartCommandProcessor(atmId, commands, this, commandJournal, true, clock);
     }
 
@@ -70,6 +71,12 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     {
         if (initialized) throw new InvalidOperationException("Product owner already initialized.");
         State = await journal.LoadAsync(token);
+        if (State.Payouts.Any(payout => !payout.Reconciled && payout.State is "dispatching" or "unknown"))
+            LockPayout("controller_restart_payout_unknown");
+        foreach (var payout in State.Payouts.Where(payout => payout.State is "received" or "validated"))
+            QueuePayout(payout, "precondition_failed", "controller_restart_before_payout_dispatch");
+        foreach (var payout in State.Payouts.Where(payout => payout.State == "observed"))
+            QueuePayout(payout, "reported", evidence: payout.CompletionEvidence);
         if (State.ConnectionDispatchPending) State.Reconcile("connection_dispatch_unknown", Now);
         var recovered = await device.RecoverAsync(token);
         if (State.PollInFlight || recovered.Any(raw => raw.Sequence > State.RawSequence)
@@ -128,6 +135,8 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         finally
         {
+            if (ActivePayout is { } payout)
+                await PayoutUnknownAsync(payout, "controller_shutdown_payout_unknown");
             // Cancellation stops acceptance, not the existing event reader.
             if (State.Intake is { Closed: false })
             {
@@ -183,6 +192,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 Log("cash_outbox_unacknowledged", exception);
             }
             await ReportHealthIfDueAsync(token);
+            await TickPayoutAsync(token, allowStart);
 
             if (State.Intake is { Closed: false } active)
             {
@@ -205,7 +215,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 await StopIfClosingAsync(token);
                 await FinishIfClosedAsync(token);
             }
-            else if (allowStart && healthReady && permissionRefreshed && Now >= nextCommandPoll && !State.Locked
+            else if (allowStart && healthReady && !PayoutBlocksIntake && permissionRefreshed && Now >= nextCommandPoll && !State.Locked
                 && (!State.SingleHundred || singleHundredSession is null)
                 && State.Outbox.Count == 0 && permission is { State: "awaiting_device", CloseRequested: false })
             {
@@ -333,7 +343,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     public async Task<CashDevicePreflight> CheckPreconditionsAsync(CashStartCommand command, CancellationToken token)
     {
         command.Validate(atmId, Now);
-        if (!healthReady || State.Locked || !State.ManualEscrowConfigured || State.Intake is { Closed: false } || State.Outbox.Count != 0
+        if (!healthReady || PayoutBlocksIntake || State.Locked || !State.ManualEscrowConfigured || State.Intake is { Closed: false } || State.Outbox.Count != 0
             || State.CompletedSessions.Contains(command.CashSessionId))
             return new(false, "unknown", "product_journal_not_clear");
         permission = await central.GetCashSessionAsync(token);
@@ -483,10 +493,12 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         {
             if (raw.Sequence != State.RawSequence + 1) State.Reconcile("raw_sequence_gap", Now);
             foreach (var item in raw.Status.Events)
-                Observe(item, raw.Status.ObservedAt, ref acceptanceObserved, ref lastStateEvent);
+                if (ActivePayout is { } payout) ObservePayout(payout, item, raw);
+                else Observe(item, raw.Status.ObservedAt, ref acceptanceObserved, ref lastStateEvent);
             State.RawSequence = raw.Sequence;
         }
-        if (lastStateEvent is { } last && last.State != raw.Status.DeviceState)
+        ObservePayoutIdle(raw);
+        if (ActivePayout is null && lastStateEvent is { } last && last.State != raw.Status.DeviceState)
             State.Reconcile("device_state_summary_mismatch", raw.Status.ObservedAt);
         if (!State.Locked && State.Intake is { Started: false, EnableAcknowledgedAt: not null, CloseReason: null } starting
             && raw.Sequence > starting.DisabledRawSequence && raw.Status.DeviceState == "IDLE"
@@ -646,6 +658,11 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     {
         if (Now < nextHealthReport) return;
         nextHealthReport = Now + 5_000;
+        if (PayoutBlocksIntake)
+        {
+            await ReportUnavailableAsync(token);
+            return;
+        }
         var healthReportAttempted = false;
         try
         {
@@ -756,7 +773,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
 
     private async Task<bool> VerifyCleanShutdownAsync(CancellationToken token)
     {
-        if (State.Locked || State.Outbox.Count != 0
+        if (ActivePayout is not null || State.Locked || State.Outbox.Count != 0
             || State.Intake is { } intake
                 && (!intake.Closed || !intake.DisabledObserved || intake.FinalInventory is null
                     || intake.Pending is not null || intake.Reasons.Count != 0))

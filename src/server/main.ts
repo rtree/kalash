@@ -15,6 +15,11 @@ import { mintTick } from './mint.ts';
 import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, doneCashVisit, doneOwnedCashVisit, getAtm, getControllerCashCommand, getVisit, pairScreen, reportControllerCashCommand, reportControllerHealth, validateControllerCredential } from './atm.ts';
 import { getControllerCashSession, reportControllerCashEvent } from './cash.ts';
 import {
+  approvePayout, cashFeeTick, createCashFeeInvoice, createPayoutApproval, getPayoutApproval, getPayoutCommand,
+  getTemplePayout, recordCashFeeSubmission, reportPayoutInventory, verifyCashFee,
+  reportPayoutCommand, createPayoutReconciliation, getPayoutReconciliationCommand,
+} from './payout.ts';
+import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
 } from './photos.ts';
@@ -148,6 +153,21 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     }
   }
   const controllerCommandRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/commands$/);
+  const payoutControllerRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/(payout-command|payout-inventory|payout-command-reports|payout-reconciliation-command)$/);
+  if (payoutControllerRoute) {
+    if (request.method === 'GET' && payoutControllerRoute[2] === 'payout-command') {
+      return send(response, await getPayoutCommand(payoutControllerRoute[1]!, request.headers.authorization));
+    }
+    if (request.method === 'POST' && payoutControllerRoute[2] === 'payout-inventory') {
+      return send(response, await reportPayoutInventory(payoutControllerRoute[1]!, request.headers.authorization, await jsonBody(request)));
+    }
+    if (request.method === 'POST' && payoutControllerRoute[2] === 'payout-command-reports') {
+      return send(response, await reportPayoutCommand(payoutControllerRoute[1]!, request.headers.authorization, await jsonBody(request)));
+    }
+    if (request.method === 'GET' && payoutControllerRoute[2] === 'payout-reconciliation-command') {
+      return send(response, await getPayoutReconciliationCommand(payoutControllerRoute[1]!, request.headers.authorization));
+    }
+  }
   if (request.method === 'GET' && controllerCommandRoute) {
     rateLimit(request, `controller-command:${controllerCommandRoute[1]}`, 30);
     return send(response, await getControllerCashCommand(
@@ -177,6 +197,14 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     await validateControllerCredential(controllerRoute[1]!, request.headers.authorization);
     const body = await jsonBody(request);
     return send(response, await reportControllerHealth(controllerRoute[1]!, request.headers.authorization, body));
+  }
+  const screenPayoutRoute = path.match(/^\/api\/atm\/([a-z0-9-]+)\/payout-approval$/);
+  if (request.method === 'POST' && screenPayoutRoute) {
+    return send(response, await createPayoutApproval(screenPayoutRoute[1]!, await jsonBody(request), undefined, request.headers.cookie));
+  }
+  const approvalContext = path.match(/^\/api\/payout-approvals\/([a-f0-9-]{36})$/i);
+  if (request.method === 'GET' && approvalContext) {
+    return send(response, await getPayoutApproval(approvalContext[1]!));
   }
   const atmMatch = path.match(/^\/api\/atm\/([a-z0-9-]+)(?:\/(pair|visits)(?:\/([a-f0-9]{64})\/(close|done))?)?$/);
   if (atmMatch) {
@@ -208,6 +236,27 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   }
   const owner = await identity(request.headers.authorization);
   rateLimit(request, owner.toLowerCase(), 100);
+  const templeAdminRoute = path.match(/^\/api\/temple-admin\/([a-z0-9-]+)(?:\/(invoice|approval|invoices|approvals|reconciliation)(?:\/(0x[a-f0-9]{64}|[a-f0-9-]{36})\/(verify|operation|approve))?)?$/i);
+  if (templeAdminRoute) {
+    const atmId = templeAdminRoute[1]!;
+    if (request.method === 'GET' && !templeAdminRoute[2]) return send(response, await getTemplePayout(atmId, owner));
+    if (request.method === 'POST') {
+      const body = await jsonBody(request);
+      if (templeAdminRoute[2] === 'invoice' && !templeAdminRoute[3]) return send(response, await createCashFeeInvoice(atmId, owner, body), 201);
+      if (templeAdminRoute[2] === 'approval' && !templeAdminRoute[3]) return send(response, await createPayoutApproval(atmId, body, owner), 201);
+      if (templeAdminRoute[2] === 'reconciliation' && !templeAdminRoute[3])
+        return send(response, await createPayoutReconciliation(atmId, owner, body));
+      if (templeAdminRoute[2] === 'invoices' && templeAdminRoute[3]) {
+        if (templeAdminRoute[4] === 'verify') return send(response, await verifyCashFee(atmId, owner, templeAdminRoute[3], body));
+        if (templeAdminRoute[4] === 'operation') {
+          requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Submission recording takes no extra fields.');
+          return send(response, await recordCashFeeSubmission(atmId, owner, templeAdminRoute[3]));
+        }
+      }
+      if (templeAdminRoute[2] === 'approvals' && templeAdminRoute[3] && templeAdminRoute[4] === 'approve')
+        return send(response, await approvePayout(atmId, owner, templeAdminRoute[3], body));
+    }
+  }
   if (visitMatch) {
     if (request.method === 'GET' && visitMatch[2] === 'mine') {
       return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? '', owner));
@@ -350,6 +399,11 @@ server.listen(Number(process.env.PORT ?? 3000), '0.0.0.0', () => {
   console.log(JSON.stringify({ event: 'central_listening', origin, project, chainId: 84532 }));
 });
 const timer = setInterval(() => { void mintTick(); }, 1000);
+const feeTimer = setInterval(() => {
+  void cashFeeTick().catch((error: unknown) => {
+    console.error(JSON.stringify({ event: 'cash_fee_tick_failed', error: error instanceof Error ? error.name : 'UnknownError' }));
+  });
+}, 3000);
 const photoTimer = setInterval(() => {
   void cleanupPhotoLifecycle().catch((error: unknown) => {
     console.error(JSON.stringify({
@@ -366,6 +420,7 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
+  clearInterval(feeTimer);
   clearInterval(photoTimer);
   clearInterval(cleanup);
   server.close();

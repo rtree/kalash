@@ -71,11 +71,13 @@ public sealed class ProductCashState
     public List<string> CompletedSessions { get; init; } = [];
     public List<CashEventEnvelope> Outbox { get; init; } = [];
     public ProductCashIntake? Intake { get; set; }
+    public List<ProductPayout> Payouts { get; init; } = [];
 
     public void Begin(CashStartCommand command, CashInventory baseline, long[] enabled)
     {
         baseline.Validate();
-        if (Locked || Intake is { Closed: false } || Outbox.Count != 0
+        if (Locked || Payouts.Any(payout => !payout.Reconciled && payout.State is not ("reported" or "precondition_failed"))
+            || Intake is { Closed: false } || Outbox.Count != 0
             || CompletedSessions.Contains(command.CashSessionId)
             || baseline.Paise >= 100_000 || baseline.Notes >= 10
             || (SingleHundred && (baseline.Paise + 10_000 > 100_000 || !enabled.SequenceEqual([10_000L])))
@@ -288,6 +290,11 @@ public sealed class ProductCashJournal : IDisposable
                 || item.DeviceEventId != $"{state.StreamId}:{item.Sequence}").Any())
             throw new InvalidDataException("The product cash journal ordering is corrupt.");
         state.Intake?.Baseline.Validate();
+        foreach (var payout in state.Payouts) payout.ValidatePersisted();
+        if (state.Payouts.Select(payout => payout.Command.CommandId).Distinct().Count() != state.Payouts.Count
+            || state.Payouts.Select(payout => payout.Command.PayoutId).Distinct().Count() != state.Payouts.Count
+            || state.Payouts.Select(payout => payout.Command.ApprovalId).Distinct().Count() != state.Payouts.Count)
+            throw new InvalidDataException("Payout identities must be unique in the durable journal.");
         return state;
     }
 

@@ -15,7 +15,7 @@ export async function compileContracts({ writeArtifacts = true } = {}) {
   const { default: solc } = await import('solc');
   if (!solc.version().startsWith('0.8.38+')) throw new Error('Expected solc 0.8.38');
   const sources = {};
-  for (const name of ['DonationVault.sol', 'KalashStamp.sol', 'test/MockUSDC.sol']) {
+  for (const name of ['DonationVault.sol', 'KalashStamp.sol', 'CashFeeVault.sol', 'test/MockUSDC.sol']) {
     sources[`contracts/${name}`] = {
       content: await readFile(path.join(root, 'contracts', ...name.split('/')), 'utf8'),
     };
@@ -43,6 +43,7 @@ export async function compileContracts({ writeArtifacts = true } = {}) {
   for (const [source, name] of [
     ['contracts/DonationVault.sol', 'DonationVault'],
     ['contracts/KalashStamp.sol', 'KalashStamp'],
+    ['contracts/CashFeeVault.sol', 'CashFeeVault'],
     ['contracts/test/MockUSDC.sol', 'MockUSDC'],
   ]) {
     const compiled = result.contracts[source][name];
@@ -50,9 +51,9 @@ export async function compileContracts({ writeArtifacts = true } = {}) {
   }
   if (writeArtifacts) {
     await mkdir(path.join(root, 'config'), { recursive: true });
-    const { DonationVault, KalashStamp } = artifacts;
+    const { DonationVault, KalashStamp, CashFeeVault } = artifacts;
     await writeFile(path.join(root, 'config', 'contracts.abi.json'),
-      `${JSON.stringify({ DonationVault, KalashStamp }, null, 2)}\n`);
+      `${JSON.stringify({ DonationVault, KalashStamp, CashFeeVault }, null, 2)}\n`);
   }
   return artifacts;
 }

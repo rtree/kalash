@@ -5,6 +5,39 @@ the distinct product/process identity `KALASH.CashMachineController`. It
 contains the local REST API Server process host, ITL adapter and separately
 gated local cash diagnostic; build outputs are ignored by Git.
 
+## Product payout safety gate
+
+The resident `run` host wires payout through the existing serialized product
+owner and `ItlProductCashDevice`, without another consuming reader. The separate
+`KALASH_PRODUCT_PAYOUT_ENABLE=OWNER_ATTENDED_PRODUCT_PAYOUT` gate is off by
+default, requires the existing product-cash gate, and must not be enabled before
+explicit real-payout approval. `Run-Local.ps1` uses these process environment
+settings; neither build nor tests starts hardware.
+
+The adapter sends one authenticated `DispenseValue` with the full approved
+recycler amount, excluding cashbox. Durable dispatching/unknown never retries.
+Completion needs DISPENSED, transaction COMPLETED, a later owned idle/disabled
+poll, explicit empty escrow, and matching levels/counters. The owner's explicit
+decision removes the separate bezel-empty preflight check: no operator
+attestation or fabricated bezel-empty observation is sent. Device handling is
+trusted, while actual NOTE_HELD_IN_BEZEL/NOTE_IN_BEZEL_HOLD events remain waiting
+states, not completion. Missing bezel readback alone does not block payout.
+
+Unknown outcomes preserve a monotone, counter-verified partial end-state when
+explicit physical readiness is available. Fresh operator authorization from
+`GET /api/controller/:atmId/payout-reconciliation-command` binds command/payout,
+new approval UUID, baseline/current inventories and expiry. Exact Central ACK
+and unchanged physical readback retire only payout-related locks; the original
+command is never repeated. Central retains the already-settled remaining value
+and issues a new payout/command/approval for that remainder.
+
+The prior health 503 cannot be attributed to later host disconnect/REST-stop:
+`RunAsync` returns only after its health/report calls finish, before those host
+operations. Health readback performs USB/list/complete-device/levels/counters
+GETs; old sanitized logs omit which one failed. New diagnostics include only
+the safe operation name and status, never bodies or credentials. The precise
+upstream 503 cause remains unverified; readiness failures still fail closed.
+
 The controller will manage only the manufacturer REST API Server child process
 that it starts from an explicitly configured local installation. It must not
 discover or stop processes by a shared executable name or port. The server must

@@ -46,7 +46,7 @@ export async function getControllerCashSession(atmId: string, authorization: str
     if (['closed', 'confirmed'].includes(visit.state)) return { session: null };
     const expired = visit.state === 'accepting' && (visit.cashDeadline ?? 0) <= Date.now();
     const stop = expired ? cashCloseUpdate(visit, 'deadline')
-      : atm.cashReconciliationRequired ? { ...cashCloseUpdate(visit, 'fault'), state: 'reconciling' as const } : null;
+      : atm.cashReconciliationRequired || atm.activePayoutId ? { ...cashCloseUpdate(visit, 'fault'), state: 'reconciling' as const } : null;
     if (stop) tx.update(visitRef, stop);
     return { session: {
       visitId: visit.id, cashSessionId: visit.cashSessionId,

@@ -178,6 +178,43 @@ Actual ABI/bytecode: `config/contracts.abi.json`; deployments and receipt hashes
 DonationVault `0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`,
 KalashStamp `0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`.
 
+### M4 cash fee and payout (implementation in progress)
+
+The owner-approved demo administrator/fee payer for temple-01 is explicitly
+registered in `config/temple-admins.public.json`. Wallet ownership is verified
+through the existing one-use SIWE/Firebase session; this demo role does not
+change the temple donation recipient or grant access to other temples.
+Cash remains configured ON independently of fresh device readiness; an active
+payout blocks new Cash/Crypto reception, cash consent and start reports.
+
+`CashFeeVault` consumes a signed invoice ID once, binding payer, temple,
+exact amount, deadline, chain and vault. The fee is 3% at INR100/USDC
+(`creditedPaise * 3` USDC units), not the Crypto fee or intent cap. Its deployment
+is separate from the existing DonationVault/Stamp; a missing address explicitly
+disables payment. Startup verifies token, authorizer and fee recipient.
+
+`cashFeeInvoices`, `cashFeeCoverage` and `cashFeeChainEvents` preserve exact
+reconciled cash sources and canonical FeePaid/USDC Transfer evidence.
+Existing donations remain immutable. Submission is durably marked before the
+wallet call. Unknown/hash-less results recover the same invoice from its
+bounded on-chain event query without resending. A three-second Central worker
+continues read-only receipt verification if the browser closes.
+
+The paired ATM Temple Admin screen generates a short-lived opaque approval QR
+only after all cash is settled and the Controller has published fresh DISABLED,
+empty escrow and complete inventory. Per the owner's attended-demo decision,
+neither hardware nor operator bezel-empty confirmation is a gate; no synthetic
+`bezelEmpty` assertion is serialized. Held-note events still mean collection
+waiting, not successful completion. The registered administrator
+signs the origin/chain/temple/ATM/device/payout/amount/baseline/invoice/expiry
+message. Approval atomically creates one `cashPayouts` record and sets
+`atms.activePayoutId`. Full payout inventory must match credited cash minus
+verified dispensing; cashbox inventory is excluded. Counter, event and inventory
+reconciliation remain mandatory. Partial-end recovery requires a separate
+signed reconciliation approval, then an unchanged Controller readback before
+unlocking. Fee coverage is retained for a new approval of the settled remainder.
+Real fee/payout receipts are not yet verified; see TASKS for current status.
+
 EIP712 domain `KALASH Donation`, version `1`, chainId84532, verifyingContract=vault.
 `Donation(bytes32 donationId,address donor,bytes32 templeId,uint8 kind,uint256 amount,uint256 deadline)`.
 Temple key is keccak256(UTF8 templeId); remote kind0, onsite kind1.

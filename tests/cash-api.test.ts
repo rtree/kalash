@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { Hex } from 'viem';
+import { encodeAbiParameters, encodeEventTopics, erc20Abi, TransactionReceiptNotFoundError, type Hex, type Log } from 'viem';
+import { cashFeeAbi, type CashFeeInvoice } from '../src/payout.ts';
+import { USDC } from '../src/shared.ts';
 import { CASH_DENOMINATIONS, type CashEvent, type CashEventData, type CashInventory } from '../src/cash.ts';
 
 // Local serializable transaction double, NOT a Firestore emulator or live-service test.
@@ -12,7 +14,21 @@ class LocalStore {
   failNextCommit = false;
   private tail: Promise<unknown> = Promise.resolve();
   collection(path: string): any {
-    return { doc: (id: string) => this.ref(`${path}/${id}`) };
+    const query = (field?: string, expected?: unknown, maximum = Infinity): any => ({
+      doc: (id: string) => this.ref(`${path}/${id}`),
+      where: (key: string, operator: string, value: unknown) => {
+        assert.equal(operator, '==');
+        return query(key, value, maximum);
+      },
+      limit: (limit: number) => query(field, expected, limit),
+      get: async () => {
+        const docs = [...this.records.entries()].filter(([key, data]) => key.startsWith(`${path}/`)
+          && key.slice(path.length + 1).indexOf('/') === -1 && (!field || data[field] === expected))
+          .slice(0, maximum).map(([key]) => ({ ...this.snapshot(key), id: key.slice(path.length + 1) }));
+        return { docs, size: docs.length };
+      },
+    });
+    return query();
   }
   private snapshot(path: string) {
     const data = structuredClone(this.records.get(path));
@@ -25,6 +41,7 @@ class LocalStore {
       get: async () => this.snapshot(path),
       create: async (data: unknown) => this.runTransaction(async (tx: any) => tx.create({ path }, data)),
       update: async (data: unknown) => this.runTransaction(async (tx: any) => tx.update({ path }, data)),
+      set: async (data: unknown) => this.runTransaction(async (tx: any) => tx.set({ path }, data)),
     };
   }
   async runTransaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
@@ -59,6 +76,14 @@ class LocalStore {
 const store = new LocalStore();
 const wallet = privateKeyToAccount(`0x${randomBytes(32).toString('hex')}` as Hex);
 const other = privateKeyToAccount(`0x${randomBytes(32).toString('hex')}` as Hex);
+const adminWallet = privateKeyToAccount(`0x${randomBytes(32).toString('hex')}` as Hex);
+const originalReadFile = readFileSync;
+mock.module('node:fs', { namedExports: {
+  readFileSync: (...args: Parameters<typeof readFileSync>) => args[0] === 'config/temple-admins.public.json'
+    ? JSON.stringify({ chainId: 84532, templeWalletAdmins: { 'temple-01': adminWallet.address } })
+    : originalReadFile(...args),
+} });
+let feeReceipt: { status: 'success' | 'reverted'; to: Hex; from: Hex; blockHash: Hex; blockNumber: bigint; logs: Log[] } | null = null;
 const origin = 'http://127.0.0.1';
 const auth = `Bearer ${'c'.repeat(64)}`;
 const cookie = `kalash_atm=${'b'.repeat(64)}`;
@@ -69,12 +94,24 @@ const atmId = 'atm-01';
 const visitPath = `visits/${visitId}`;
 const sessionPath = `cashSessions/${cashSessionId}`;
 mock.module('../src/server/config.ts', { namedExports: {
-  db: store, origin, project: 'local-cash-tests-only', auth: {}, chain: {}, signer: {}, minter: {},
-  deployment: { stamp: '0x0000000000000000000000000000000000000001', vault: '0x0000000000000000000000000000000000000002' },
+  db: store, origin, project: 'local-cash-tests-only', auth: {}, signer: {}, minter: other,
+  chain: {
+    getBlockNumber: async () => 1n,
+    getChainId: async () => 84532,
+    getContractEvents: async () => [],
+    getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+      if (!feeReceipt) throw new TransactionReceiptNotFoundError({ hash });
+      return feeReceipt;
+    },
+    getBlock: async () => ({ number: 1n, hash: `0x${'d'.repeat(64)}`, timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
+  },
+  deployment: { stamp: '0x0000000000000000000000000000000000000001', vault: '0x0000000000000000000000000000000000000002',
+    cashFeeVault: '0x0000000000000000000000000000000000000003' },
   publicConfig: {},
 } });
 mock.module('../src/server/authentication.ts', { namedExports: {
   identity: async (authorization: string) => {
+    if (authorization === 'Bearer payout-test-owner') return wallet.address;
     if (authorization === 'Bearer local-owner') return wallet.address;
     if (authorization === 'Bearer local-other') return other.address;
     const { HttpError } = await import('../src/server/errors.ts');
@@ -89,6 +126,7 @@ mock.module('../src/server/photos.ts', { namedExports: Object.fromEntries([
 ].map((name) => [name, () => { throw new Error('Photos are outside the local cash store test boundary'); }])) });
 const atm = await import('../src/server/atm.ts');
 const cash = await import('../src/server/cash.ts');
+const payout = await import('../src/server/payout.ts');
 const { createCentralServer } = await import('../src/server/main.ts');
 const server = createCentralServer();
 let url: string;
@@ -108,6 +146,7 @@ function inventory(count = 0): CashInventory {
 function seed() {
   store.records.clear();
   store.failNextCommit = false;
+  feeReceipt = null;
   const now = Date.now();
   store.records.set(`atms/${atmId}`, {
     id: atmId, name: 'Local ATM', templeId: 'temple-01', enabled: true, cashEnabled: true,
@@ -132,6 +171,233 @@ function seed() {
   });
 }
 beforeEach(seed);
+test('payout rejects donor-wallet admin escalation and cannot discover fee invoices', async () => {
+  await assert.rejects(payout.getTemplePayout(atmId, wallet.address), { code: 'TEMPLE_ADMIN_REQUIRED' });
+  const response = await fetch(`${url}/api/temple-admin/${atmId}`, { headers: { Authorization: 'Bearer payout-test-owner' } });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'TEMPLE_ADMIN_REQUIRED');
+});
+test('active payout disables Cash/Crypto creation and signed cash starts without changing the cash flag', async () => {
+  const registered = store.read(`atms/${atmId}`);
+  store.records.set(`atms/${atmId}`, { ...registered, activeVisitId: null,
+    activePayoutId: '12345678-1234-4234-8234-123456789abc' });
+  const view = await atm.getAtm(atmId, cookie);
+  assert.equal(view.cashReceptionAvailable, false);
+  assert.equal(view.cryptoDonationEnabled, false);
+  assert.equal(store.read(`atms/${atmId}`).cashEnabled, true);
+  await assert.rejects(atm.createVisit(atmId, cookie, 'cash', randomUUID()), { code: 'PAYOUT_IN_PROGRESS' });
+  await assert.rejects(atm.createVisit(atmId, cookie, 'crypto', randomUUID()), { code: 'PAYOUT_IN_PROGRESS' });
+});
+test('payout inventory rejects foreign controller, nonempty escrow and open reception without bezel check', async () => {
+  const report = { observedAt: Date.now(), deviceId: 'local-double', deviceState: 'DISABLED',
+    escrowEmpty: true, inventory: inventory(), rawSequence: 1 };
+  await assert.rejects(payout.reportPayoutInventory(atmId, 'Bearer wrong', report), { code: 'CONTROLLER_AUTH_REQUIRED' });
+  await assert.rejects(payout.reportPayoutInventory(atmId, auth, { ...report, escrowEmpty: false }), { code: 'PAYOUT_INVENTORY_UNVERIFIED' });
+  await assert.rejects(payout.reportPayoutInventory(atmId, auth, report), { code: 'PAYOUT_INVENTORY_NOT_IDLE' });
+  store.records.set(`atms/${atmId}`, { ...store.read(`atms/${atmId}`), activeVisitId: null });
+  assert.deepEqual(await payout.reportPayoutInventory(atmId, auth, report), { accepted: true });
+  assert.deepEqual(store.read(`atms/${atmId}`).payoutInventory, report);
+  const refreshed = { ...report, observedAt: report.observedAt + 1 };
+  assert.deepEqual(await payout.reportPayoutInventory(atmId, auth, refreshed), { accepted: true });
+  assert.deepEqual(store.read(`atms/${atmId}`).payoutInventory, refreshed);
+  await assert.rejects(payout.reportPayoutInventory(atmId, auth, report), { code: 'STALE_PAYOUT_INVENTORY' });
+  await assert.rejects(payout.reportPayoutInventory(atmId, auth, { ...report, inventory: inventory(1) }), { code: 'STALE_PAYOUT_INVENTORY' });
+});
+test('paired screen cannot bypass admin membership, fee settlement or active donation with payout QR', async () => {
+  await assert.rejects(payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, 'kalash_atm=wrong'),
+    { code: 'ATM_PAIRING_REQUIRED' });
+  await assert.rejects(payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie),
+    { code: 'ATM_BUSY_OR_LOCKED' });
+  assert.equal(store.count('cashPayouts'), 0);
+});
+test('payout and inventory HTTP routes require registered Controller and exact origin', async () => {
+  const noAuth = await fetch(`${url}/api/controller/${atmId}/payout-command`);
+  assert.equal(noAuth.status, 401);
+  const originMismatch = await fetch(`${url}/api/controller/${atmId}/payout-inventory`, {
+    method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json', Origin: 'http://foreign.invalid' }, body: '{}',
+  });
+  assert.equal(originMismatch.status, 403);
+});
+async function settledCashSource(count = 1) {
+  await start();
+  for (let index = 1; index <= count; index++) await stored(index, index * 2);
+  store.records.set(visitPath, { ...store.read(visitPath), cashCloseRequested: true });
+  await post(closeEvent(count * 2 + 2, count));
+  await atm.closeVisit(atmId, cookie, visitId);
+  await payout.reportPayoutInventory(atmId, auth, { observedAt: Date.now(), deviceId: 'local-double',
+    deviceState: 'DISABLED', escrowEmpty: true, inventory: inventory(count), rawSequence: 2 });
+  return payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+}
+function feeLogs(invoice: CashFeeInvoice, hash: Hex): Log[] {
+  const blockHash = `0x${'d'.repeat(64)}` as Hex;
+  const common = { blockHash, blockNumber: 1n, transactionHash: hash, transactionIndex: 0, removed: false };
+  const concrete = (topics: ReturnType<typeof encodeEventTopics>): Log['topics'] => {
+    const entries = topics.map((topic) => {
+      assert.ok(typeof topic === 'string'); return topic;
+    });
+    const first = entries.shift(); assert.ok(first);
+    return [first, ...entries];
+  };
+  return [
+    { ...common, address: invoice.vault, logIndex: 0,
+      topics: concrete(encodeEventTopics({ abi: cashFeeAbi, eventName: 'FeePaid',
+        args: { invoiceId: invoice.invoiceId, payer: invoice.payer, templeId: invoice.templeKey } })),
+      data: encodeAbiParameters([{ type: 'uint256' }, { type: 'address' }], [BigInt(invoice.amount), invoice.recipient]) },
+    { ...common, address: USDC, logIndex: 1, topics: concrete(encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer',
+      args: { from: invoice.payer, to: invoice.recipient } })),
+      data: encodeAbiParameters([{ type: 'uint256' }], [BigInt(invoice.amount)]) },
+  ];
+}
+async function payInvoice(invoice: CashFeeInvoice) {
+  const hash = `0x${'e'.repeat(64)}` as Hex;
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  feeReceipt = { status: 'success', to: invoice.vault, from: adminWallet.address, blockHash: `0x${'d'.repeat(64)}`,
+    blockNumber: 1n, logs: feeLogs(invoice, hash) };
+  return payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, { txHash: hash });
+}
+test('exact cash invoice requires one reconciled source, survives unknown payment and reserves no second fee', async () => {
+  const invoice = await settledCashSource();
+  assert.equal(invoice.amount, '30000');
+  assert.equal(invoice.cashPaise, '10000');
+  assert.equal(invoice.payer, adminWallet.address);
+  await assert.rejects(payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() }), { code: 'INVOICE_ALREADY_PENDING' });
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  await assert.rejects(payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId), { code: 'FEE_SUBMISSION_UNAVAILABLE' });
+  const pending = await payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, {});
+  assert.equal(pending.status, 'unknown');
+  assert.equal(store.count('cashFeeCoverage'), 0);
+  assert.equal(store.read(visitPath).state, 'closed');
+});
+test('FeePaid/transfer evidence atomically covers exact donations without rewriting donation history', async () => {
+  const invoice = await settledCashSource();
+  const sourcePath = `donations/${invoice.donationIds[0]}`;
+  const before = store.read(sourcePath);
+  const paid = await payInvoice(invoice);
+  assert.equal(paid.status, 'paid');
+  assert.equal(store.count('cashFeeCoverage'), 1);
+  assert.deepEqual(store.read(sourcePath), before);
+  assert.equal((await payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, {})).status, 'paid');
+  assert.equal(store.count('cashFeeChainEvents'), 1);
+  await assert.rejects(payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() }), { code: 'NO_UNSETTLED_CASH' });
+});
+test('unsettled payout is rejected; real admin signature creates one exclusive durable command', async () => {
+  const invoice = await settledCashSource();
+  await assert.rejects(payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie), { code: 'UNSETTLED_CASH' });
+  await payInvoice(invoice);
+  const approval = await payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie);
+  const context = await payout.getPayoutApproval(approval.approvalId);
+  const foreign = await other.signMessage({ message: context.message });
+  await assert.rejects(payout.approvePayout(atmId, adminWallet.address, approval.approvalId, { signature: foreign }),
+    { code: 'PAYOUT_SIGNATURE_INVALID' });
+  assert.equal(store.count('cashPayouts'), 0);
+  const signature = await adminWallet.signMessage({ message: context.message });
+  const approved = await payout.approvePayout(atmId, adminWallet.address, approval.approvalId, { signature });
+  const repeated = await payout.approvePayout(atmId, adminWallet.address, approval.approvalId, { signature });
+  assert.deepEqual(repeated, approved);
+  assert.equal(store.count('cashPayouts'), 1);
+  const delivered = await payout.getPayoutCommand(atmId, auth);
+  assert.equal(delivered.command?.amountPaise, '10000');
+  assert.equal(delivered.command?.payoutId, approved.payoutId);
+  assert.equal(store.read(`atms/${atmId}`).activePayoutId, approved.payoutId);
+  assert.equal(store.read(`atms/${atmId}`).cashEnabled, true);
+  await assert.rejects(atm.createVisit(atmId, cookie, 'cash', randomUUID()), { code: 'PAYOUT_IN_PROGRESS' });
+});
+test('cash inventory change after QR cannot dispatch the approved snapshot', async () => {
+  const invoice = await settledCashSource(); await payInvoice(invoice);
+  const approval = await payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie);
+  const context = await payout.getPayoutApproval(approval.approvalId);
+  const registered = store.read(`atms/${atmId}`);
+  store.records.set(`atms/${atmId}`, { ...registered,
+    payoutInventory: { ...registered.payoutInventory, inventory: inventory(2) } });
+  await assert.rejects(payout.approvePayout(atmId, adminWallet.address, approval.approvalId,
+    { signature: await adminWallet.signMessage({ message: context.message }) }), { code: 'PAYOUT_BASELINE_CHANGED' });
+  assert.equal(store.count('cashPayouts'), 0);
+});
+test('expired start authorization retires only an undispatched payout without resending or changing money', async (t) => {
+  const invoice = await settledCashSource(); await payInvoice(invoice);
+  const approval = await payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie);
+  const context = await payout.getPayoutApproval(approval.approvalId);
+  const result = await payout.approvePayout(atmId, adminWallet.address, approval.approvalId,
+    { signature: await adminWallet.signMessage({ message: context.message }) });
+  const record = store.read(`cashPayouts/${result.payoutId}`);
+  t.mock.timers.enable({ apis: ['Date'], now: record.command.expiresAt });
+  assert.deepEqual(await payout.getPayoutCommand(atmId, auth), { command: null });
+  assert.equal(store.read(`cashPayouts/${result.payoutId}`).state, 'precondition_failed');
+  assert.equal(store.read(`atms/${atmId}`).activePayoutId, null);
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, undefined);
+  assert.equal(store.read(`cashPayoutAccounts/${atmId}`).dispensedPaise, '0');
+  assert.equal(store.count('cashFeeCoverage'), 1);
+});
+async function approvedPayout(count = 1) {
+  const invoice = await settledCashSource(count); await payInvoice(invoice);
+  const approval = await payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie);
+  const context = await payout.getPayoutApproval(approval.approvalId);
+  await payout.approvePayout(atmId, adminWallet.address, approval.approvalId,
+    { signature: await adminWallet.signMessage({ message: context.message }) });
+  const delivered = await payout.getPayoutCommand(atmId, auth);
+  assert.ok(delivered.command);
+  return delivered.command;
+}
+test('payout completion needs dispatch, DISPENSED, COMPLETED, later idle and exact counters; ACK is idempotent', async () => {
+  const command = await approvedPayout();
+  const report = (state: string, extra: Record<string, unknown> = {}) =>
+    payout.reportPayoutCommand(atmId, auth, { commandId: command.commandId, state, ...extra });
+  await assert.rejects(report('dispatching'), { code: 'PAYOUT_STATE_CONFLICT' });
+  for (const state of ['received', 'validated', 'dispatching']) await report(state);
+  const after = inventory(1); after.levels.forEach((level) => { level.payout = 0; }); after.counters.dispensed = 1;
+  const evidence = { before: command.baseline, after, deviceId: 'local-double', streamId,
+    dispatchRawSequence: 2, dispensedRawSequence: 3, dispensedObservedAt: command.createdAt + 1,
+    completedRawSequence: 4, completedObservedAt: command.createdAt + 2, idleRawSequence: 4,
+    idleObservedAt: command.createdAt + 3, deviceState: 'DISABLED', escrowEmpty: true };
+  await assert.rejects(report('observed', { evidence: { ...evidence, escrowEmpty: false } }), { code: 'PAYOUT_COMPLETION_MISMATCH' });
+  await assert.rejects(report('observed', { evidence: { ...evidence, idleObservedAt: evidence.completedObservedAt } }),
+    { code: 'PAYOUT_COMPLETION_MISMATCH' });
+  assert.equal(store.read(`cashPayouts/${command.payoutId}`).state, 'dispatching');
+  await report('observed', { evidence });
+  const ack = await report('reported');
+  assert.deepEqual(await report('reported'), ack);
+  assert.equal(store.read(`atms/${atmId}`).activePayoutId, null);
+  assert.equal(store.read(`cashPayoutAccounts/${atmId}`).dispensedPaise, '10000');
+  assert.equal(store.count('cashFeeCoverage'), 1);
+});
+test('unknown partial payout stays locked until signed reconciliation; settled remainder is not charged twice', async () => {
+  const command = await approvedPayout(2);
+  const report = (state: string, extra: Record<string, unknown> = {}) =>
+    payout.reportPayoutCommand(atmId, auth, { commandId: command.commandId, state, ...extra });
+  for (const state of ['received', 'validated', 'dispatching']) await report(state);
+  const after = inventory(2); after.levels.find((level) => level.valuePaise === '10000')!.payout = 1; after.counters.dispensed = 1;
+  const endState = { before: command.baseline, after, deviceId: 'local-double', streamId, rawSequence: 6,
+    observedAt: Date.now(), deviceState: 'DISABLED', escrowEmpty: true,
+    dispensedPaise: '10000', remainingPaise: '10000' };
+  await report('unknown', { reason: 'synthetic_interrupted_payout', endState });
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, true);
+  assert.equal((await payout.getPayoutCommand(atmId, auth)).command, null);
+  await assert.rejects(report('reported'), { code: 'PAYOUT_STATE_CONFLICT' });
+  await assert.rejects(payout.createPayoutReconciliation(atmId, wallet.address, { payoutId: command.payoutId }),
+    { code: 'TEMPLE_ADMIN_REQUIRED' });
+  const challenge = await payout.createPayoutReconciliation(atmId, adminWallet.address, { payoutId: command.payoutId });
+  assert.ok('message' in challenge && typeof challenge.message === 'string');
+  await payout.createPayoutReconciliation(atmId, adminWallet.address, { payoutId: command.payoutId,
+    signature: await adminWallet.signMessage({ message: challenge.message }) });
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, true);
+  const authorization = await payout.getPayoutReconciliationCommand(atmId, auth); assert.ok(authorization.command);
+  const reconciled = { reason: 'operator_reconciled_partial_end_state', endState,
+    reconciliationApprovalId: authorization.command.approvalId };
+  await report('unknown', reconciled); await report('unknown', reconciled);
+  assert.equal(store.read(`atms/${atmId}`).cashReconciliationRequired, false);
+  assert.equal(store.read(`cashPayoutAccounts/${atmId}`).dispensedPaise, '10000');
+  await payout.reportPayoutInventory(atmId, auth, { observedAt: Date.now(), deviceId: 'local-double', deviceState: 'DISABLED',
+    escrowEmpty: true, inventory: after, rawSequence: 7 });
+  await assert.rejects(payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() }), { code: 'NO_UNSETTLED_CASH' });
+  const next = await payout.createPayoutApproval(atmId, { requestId: randomUUID() }, undefined, cookie);
+  const context = await payout.getPayoutApproval(next.approvalId);
+  await payout.approvePayout(atmId, adminWallet.address, next.approvalId,
+    { signature: await adminWallet.signMessage({ message: context.message }) });
+  const remaining = await payout.getPayoutCommand(atmId, auth);
+  assert.equal(remaining.command?.amountPaise, '10000');
+  assert.notEqual(remaining.command?.payoutId, command.payoutId);
+  assert.equal(store.count('cashFeeCoverage'), 1);
+});
 const makeEvent = (sequence: number, data: CashEventData): CashEvent => ({
   streamId, sequence, deviceEventId: `${streamId}:${sequence}`, occurredAt: Date.now(),
   visitId, cashSessionId, ...data,
