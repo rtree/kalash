@@ -33,6 +33,8 @@ export interface VisitDto {
   cashLimitPaise: string;
   cashAcceptedPaise?: string;
   cashDeadline?: number | null;
+  cashCloseRequested?: boolean;
+  cashCloseReason?: 'done' | 'deadline' | 'capacity' | 'offline' | 'fault' | null;
   donationState: 'pending' | 'confirmed' | 'failed' | null;
   donationId?: string | null;
 }

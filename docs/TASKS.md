@@ -16,7 +16,7 @@
 - Central ATM `atm-01` は登録済み。API test後のFirestore確認でenabled=true、cashEnabled=false、active receptionなし。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：Cash visit/signature、Central command/event ledger、Controller journal/poller/acceptor state、INR settlement/mint、ATM/donor UIを一貫実装。コード／mandatory tests完了までacceptor enable・実紙幣は行わない。CashFeeVault・3% USDC後払い・payoutはStage C。
+- 次の作業：製品cashのController／Central／Done／確定を統合検証し、配備元と実APIを照合。acceptor enable・実紙幣・Wallet署名は今回まだ行わない。CashFeeVault・3% USDC後払い・payoutはStage C。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -43,7 +43,8 @@
 | M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | Manual v14 p.182のSpectral Payout Route=1、NV4000用Postman例Route=3、acceptRoute=7の読戻しを区別。別firmware/datasetへ一般化しない |
 | M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。18件のController tests pass。 |
 | M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | done | Stage 1 verified。Stage 2 OpenConnection一回成功、6 route-result=true、status DISABLED。GET readback deviceModel/type/base=2/3/0、firmware/dataset一致、isOpen/isStarted=true、deviceError/dispenseState=0、noteInEscrow=false。6 INR levels/counters/currency取得。DisconnectDevice成功、connected list 0、所有REST child正常停止。現金操作なし |
-| M3-cash | M3 Stage B | Integrator：Central／ATM／Controller | M3-device | doing | Senior decisions (2026-11-06): INR off-chain ledger; 3% USDC fee after intake; existing onsite `kind=1`; ₹400/session and ₹1,000/10-note demo caps; continue to Stage C after Stamp. `ed6cfd0` provides ordered Central command reports and durable command journal. `0cff0a8` adds protected ATM-file loading, Central worker, serialized ITL adapter/status poller and local-only one-note diagnostic; `f9054dc` rejects unexpected events. Diagnostic: at most one ₹100 note, matching ESCROW/STORED, Done, levels/counter reconciliation; no donation/mint path. User confirmed test/demo and permitted API reads/writes and deployment. Cloud Build `700c03ce-66d5-4906-a545-02b306485052` deployed revision `kalash-central-00019-jdc` (`666c516...`); health/source match. `GET /api/controller/atm-01/commands` returned 200 twice with identical empty results. Live `pnpm run test:atm`: 9/9 pass, 0 skipped. Firestore recheck: ATM enabled, cashEnabled=false, no active reception. Controller build plus 27 tests pass. No ITL cash operation or paper was used. Real `ACCEPTING` state/capacity semantics remain unverified. Next: implement durable device-event ledger delivery and Done/reconciliation to Central. Physical test requires one owner-attended ₹100 diagnostic session; no unapproved cash operation |
+| M3-cash | M3 Stage B | Integrator：Central／ATM／Controller | M3-device | doing | INRオフチェーン、寺院3% USDC後払い、既存onsite kind1、₹400/session・demo ₹1,000/10枚。命令journal `ed6cfd0`、既存host/adapter `0cff0a8`、診断fail-closed `f9054dc`を保持し製品event/Doneを接続（M3-cash-local）。既承認test/demoのAPI read/write・配備権限あり。直近実配備`00019-jdc`/`666c516...`、live ATM API9/9・skip0、ATM cashEnabled=false。今回未確認：新event APIの配備/実DB、実ACCEPTING・STORED・全counter、署名済み一枚→Done→Stamp。診断の成功を製品E2Eに代用せず、人の立ち会い・事前在高・承認済み回収方法で製品経路を確認する |
+| M3-cash-local | M3 Stage B | Central担当／Controller担当／Integrator（上記所有範囲） | M3-cash | verified（局所実装、実機ではない） | 単一機器owner・永続判断/Outbox・Central順序/紙幣台帳・Done・原子的寄付/points/mint待ち・INR UIを接続。`pnpm run test:cash` 46/46・skip0、typecheck/build成功。C#担当の製品/命令23件成功報告、cross-language/full regression統合中。実DB・実機・mint receiptは別証拠が必要 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
@@ -109,6 +110,9 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 16:30／今回再開約29分、M3-cash-local。Central/Controllerを2担当で実装し、Integratorが型・UI・Doneと検証入口を接続。`pnpm run test:cash` 46/46・skip0、typecheck/build成功（16:26）。package script変更でpolicy fingerprintが変わり一度停止したため、既存release verifierで570件を再検証して復旧。依存追加・installなし。Dockerfileにも必須cash HTTP/store試験を追加。
+- UI実測は隔離localhostの明示fixtureのみ：100.00/400.00 INR、Done表示、受付中Close無効を画面で確認。Done一回でclosing／挿入停止表示となり、confirmed表示なし・Close無効を確認。実Cash/Central保存の証拠には数えない。SDD §2/§8.2を実装契約へ更新。`f7f2929`はorigin/main一致でpush確認済み。
+- 実稼働はread-only再確認で`00019-jdc`・traffic100%、health source `666c516...`のまま。次：cross-language契約と全Controller回帰を確認、製品変更だけをcommit/push。既存診断回収差分はステージせず保持。実紙幣・署名・Payoutは未実施。
 - UTC 2026-11-06 16:09確認／今回再開約8分、M3-cash。実Central healthをread-only確認：ready、chain84532、source `666c5165f2cc9a8757c6cbb9cf348b0f7a39bace`。今回の製品イベント経路はこの稼働版には未配備。実API書込み・機器・署名・配備なし。
 - 最初の突破：未統合のcash/crypto型境界を接続。Crypto receipt/operationとcash台帳を分離し、cashはGETで発行状況を確認、INRと寺院後払いfeeを表示。`node scripts/check-policy.mjs`、typecheck、対象shared/receipt試験7/7成功・skip0。以後のATM変更と担当作業は統合試験待ち。SDD §2を更新。
 - 保存境界：Integratorの型・表示・文書を今回commit。Central担当はイベント台帳／Done／原子的確定、Controller担当は単一ループ／状態／Outboxを作業中。既存診断回収差分は別に保持し製品の成功扱いにしない。次：両担当を統合しexact contract・順序／再起動／照合異常を検証、実機は未確認のまま別途立ち会い条件を示す。

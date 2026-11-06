@@ -51,6 +51,7 @@ export function AtmPage({ atmId }: { atmId: string }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [stopVisit, setStopVisit] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const version = useRef(0);
   const working = useRef(false);
@@ -110,7 +111,7 @@ export function AtmPage({ atmId }: { atmId: string }) {
   };
   const seconds = atm?.visit ? Math.max(0, Math.ceil((atm.visit.expiresAt - now) / 1000)) : 0;
   const waiting = atm?.visit?.state === 'awaiting_wallet' && seconds > 0;
-  const accepting = !error && cashAccepting(atm?.visit, now);
+  const accepting = !error && !busy && stopVisit !== atm?.visit?.id && cashAccepting(atm?.visit, now);
   const cashSeconds = Math.max(0, Math.ceil(((atm?.visit?.cashDeadline ?? 0) - now) / 1000));
   const cashLocked = atm?.visit?.mode === 'cash'
     && ['awaiting_device', 'accepting', 'closing', 'reconciling', 'needs_reconciliation'].includes(atm.visit.state);
@@ -180,6 +181,10 @@ export function AtmPage({ atmId }: { atmId: string }) {
             <p>Storage recorded: {atm.visit.cashAcceptedPaise === undefined ? 'Awaiting Central' : `${formatPaise(atm.visit.cashAcceptedPaise)} INR`} · limit {formatPaise(atm.visit.cashLimitPaise)} INR.</p>
             <p role="timer">{cashSeconds} seconds remaining. Storage is not a confirmed donation until closing reconciliation.</p>
             <p>Insert only one supported INR note at a time. Stop when the timer expires or the screen says closing.</p>
+            <button className="button button-primary button-wide" disabled={busy} onClick={() => void act(async () => {
+              setStopVisit(atm.visit!.id);
+              setAtm(await screenApi<AtmDto>(`${base}/visits/${atm.visit!.id}/done`, {}));
+            })}>Done · Stop and reconcile</button>
           </> : atm.visit.state === 'closing' || atm.visit.state === 'reconciling' || atm.visit.state === 'needs_reconciliation' ? <>
             <h2>Reconciling cash reception</h2>
             <p>{atm.visit.state === 'needs_reconciliation' ? 'Operator reconciliation is required. This ATM stays locked; no donation or stamp is confirmed from uncertain cash.' : 'Keep this screen open. Do not insert another note or close this reception.'}</p>
@@ -218,6 +223,7 @@ export function ReceptionPanel({
   const [error, setError] = useState('');
   const [consent, setConsent] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [stopVisit, setStopVisit] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const operation = useRef(false);
   const version = useRef(0);
@@ -289,6 +295,23 @@ export function ReceptionPanel({
     } finally { operation.current = false; setJoining(false); }
   };
   const seconds = visit ? Math.max(0, Math.ceil((visit.expiresAt - now) / 1000)) : 0;
+  const done = async () => {
+    if (operation.current) return;
+    operation.current = true;
+    readVersion.current++;
+    const generation = version.current;
+    setJoining(true);
+    setStopVisit(reference);
+    setError('');
+    try {
+      const result = await api<OwnerVisit>(`${base}/cash-done`, {
+        method: 'POST', body: JSON.stringify({ templeId }),
+      }, true);
+      if (generation === version.current) setVisit(result);
+    } catch (cause) {
+      if (generation === version.current) setError(cause instanceof Error ? cause.message : 'The stop request is not confirmed. Do not insert another note; restore this reception.');
+    } finally { operation.current = false; setJoining(false); }
+  };
   return <section className="reception-card reception-phone">
     <p className="eyebrow">{visit?.mode === 'cash' ? 'ONSITE CASH DONATION' : 'ONSITE CRYPTO DONATION'}</p>
     <h1>{visit?.templeName ?? 'Check the ATM reception'}</h1>
@@ -314,9 +337,10 @@ export function ReceptionPanel({
         <h2>Waiting for the cash machine</h2>
         <p>Your wallet is linked to this cash session. Wait until the ATM confirms Ready and explicitly starts the 120-second acceptance window. Do not insert notes yet.</p>
       </> : visit.state === 'accepting' && visit.mode === 'cash' ? <>
-        <h2>{!error && cashAccepting(visit, now) ? 'Cash acceptance active' : 'Do not insert banknotes'}</h2>
+        <h2>{!error && !joining && stopVisit !== reference && cashAccepting(visit, now) ? 'Cash acceptance active' : 'Do not insert banknotes'}</h2>
         <p>Storage recorded: {visit.cashAcceptedPaise === undefined ? 'Awaiting Central' : `${formatPaise(visit.cashAcceptedPaise)} INR`} · limit {formatPaise(visit.cashLimitPaise)} INR.</p>
         <p role="timer">{Math.max(0, Math.ceil(((visit.cashDeadline ?? 0) - now) / 1000))} seconds remaining. Only insert a note while the ATM explicitly shows acceptance active. Press Done at the ATM to stop and reconcile.</p>
+        {visit.linkedToYou && <button className="button button-primary button-wide" disabled={busy || joining} onClick={() => void done()}>Done · Stop and reconcile</button>}
       </> : visit.state === 'closing' || visit.state === 'reconciling' || visit.state === 'needs_reconciliation' ? <>
         <h2>Reconciling cash reception</h2>
         <p>{visit.state === 'needs_reconciliation' ? 'Operator reconciliation is required. Do not insert another note or retry; no donation or stamp is confirmed from uncertain cash.' : 'Central is reconciling physical storage and event records. Do not insert another note or retry.'}</p>

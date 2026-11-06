@@ -12,7 +12,8 @@ import {
 } from './donations.ts';
 import { HttpError, requireValue } from './errors.ts';
 import { mintTick } from './mint.ts';
-import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, getAtm, getControllerCashCommand, getVisit, pairScreen, reportControllerCashCommand, reportControllerHealth, validateControllerCredential } from './atm.ts';
+import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, createPairing, createVisit, doneCashVisit, doneOwnedCashVisit, getAtm, getControllerCashCommand, getVisit, pairScreen, reportControllerCashCommand, reportControllerHealth, validateControllerCredential } from './atm.ts';
+import { getControllerCashSession, reportControllerCashEvent } from './cash.ts';
 import {
   cleanupPhotoLifecycle, getBoardPhoto, getPhotoEligibility, listBoardPhotos, listOwnedPhotos,
   uploadPhoto, withdrawPhoto,
@@ -93,7 +94,14 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     requireValue(request.method === 'GET' || request.method === 'HEAD', 405, 'METHOD_NOT_ALLOWED', 'Only GET/HEAD is supported.');
     return staticFile(path, response);
   }
-  rateLimit(request, path.startsWith('/api/auth/') ? 'auth' : 'api', path.startsWith('/api/auth/') ? 20 : 120);
+  const controllerAtmId = path.match(/^\/api\/controller\/([a-z0-9-]+)\//)?.[1];
+  if (controllerAtmId) {
+    rateLimit(request, 'controller-api', 300);
+    await validateControllerCredential(controllerAtmId, request.headers.authorization);
+    rateLimit(request, `controller:${controllerAtmId}`, 240);
+  } else {
+    rateLimit(request, path.startsWith('/api/auth/') ? 'auth' : 'api', path.startsWith('/api/auth/') ? 20 : 120);
+  }
   if (request.method === 'POST') {
     requireValue(request.headers.origin === new URL(origin).origin,
       403, 'ORIGIN_MISMATCH', 'Request origin does not match this KALASH deployment.');
@@ -127,6 +135,18 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     const body = await jsonBody(request);
     return send(response, await verifyChallenge(body.nonce, body.signature));
   }
+  const controllerCashRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/(cash-session|cash-events)$/);
+  if (controllerCashRoute) {
+    if (request.method === 'GET' && controllerCashRoute[2] === 'cash-session') {
+      return send(response, await getControllerCashSession(controllerCashRoute[1]!, request.headers.authorization));
+    }
+    if (request.method === 'POST' && controllerCashRoute[2] === 'cash-events') {
+      await validateControllerCredential(controllerCashRoute[1]!, request.headers.authorization);
+      return send(response, await reportControllerCashEvent(
+        controllerCashRoute[1]!, request.headers.authorization, await jsonBody(request),
+      ));
+    }
+  }
   const controllerCommandRoute = path.match(/^\/api\/controller\/([a-z0-9-]+)\/commands$/);
   if (request.method === 'GET' && controllerCommandRoute) {
     rateLimit(request, `controller-command:${controllerCommandRoute[1]}`, 30);
@@ -158,7 +178,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     const body = await jsonBody(request);
     return send(response, await reportControllerHealth(controllerRoute[1]!, request.headers.authorization, body));
   }
-  const atmMatch = path.match(/^\/api\/atm\/([a-z0-9-]+)(?:\/(pair|visits)(?:\/([a-f0-9]{64})\/close)?)?$/);
+  const atmMatch = path.match(/^\/api\/atm\/([a-z0-9-]+)(?:\/(pair|visits)(?:\/([a-f0-9]{64})\/(close|done))?)?$/);
   if (atmMatch) {
     const atmId = atmMatch[1]!;
     if (request.method === 'GET' && !atmMatch[2]) return send(response, await getAtm(atmId, request.headers.cookie));
@@ -177,11 +197,12 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       }
       if (atmMatch[2] === 'visits' && atmMatch[3]) {
         requireValue(Object.keys(body).length === 0, 400, 'UNKNOWN_FIELD', 'Closing reception takes no body fields.');
+        if (atmMatch[4] === 'done') return send(response, await doneCashVisit(atmId, request.headers.cookie, atmMatch[3]));
         return send(response, await closeVisit(atmId, request.headers.cookie, atmMatch[3]));
       }
     }
   }
-  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|claim|donation|cash-challenge|cash-claim))?$/);
+  const visitMatch = path.match(/^\/api\/visits\/([a-f0-9]{64})(?:\/(mine|claim|donation|cash-challenge|cash-claim|cash-done))?$/);
   if (request.method === 'GET' && visitMatch && !visitMatch[2]) {
     return send(response, await getVisit(visitMatch[1]!, url.searchParams.get('templeId') ?? ''));
   }
@@ -210,6 +231,12 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       return send(response, await claimCashVisit(
         visitMatch[1]!, owner, body.templeId, body.nonce, body.signature,
       ));
+    }
+    if (request.method === 'POST' && visitMatch[2] === 'cash-done') {
+      const body = await jsonBody(request);
+      requireValue(Object.keys(body).length === 1 && typeof body.templeId === 'string',
+        400, 'UNKNOWN_FIELD', 'Only the confirmed temple is accepted.');
+      return send(response, await doneOwnedCashVisit(visitMatch[1]!, owner, body.templeId));
     }
     if (request.method === 'POST' && visitMatch[2] === 'donation') {
       const body = await jsonBody(request);
@@ -297,7 +324,8 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   }
   throw new HttpError(404, 'NOT_FOUND', 'API route not found.');
 }
-const server = createServer((request, response) => {
+export function createCentralServer() {
+  const server = createServer((request, response) => {
   void handle(request, response).catch((error: unknown) => {
     const requestId = randomUUID();
     const authFailure = error instanceof Error && 'code' in error
@@ -311,9 +339,13 @@ const server = createServer((request, response) => {
     }, status);
     else response.destroy();
   });
-});
-server.requestTimeout = 30000;
-server.headersTimeout = 15000;
+  });
+  server.requestTimeout = 30000;
+  server.headersTimeout = 15000;
+  return server;
+}
+if (import.meta.main) {
+const server = createCentralServer();
 server.listen(Number(process.env.PORT ?? 3000), '0.0.0.0', () => {
   console.log(JSON.stringify({ event: 'central_listening', origin, project, chainId: 84532 }));
 });
@@ -340,3 +372,4 @@ async function stop() {
 }
 process.on('SIGINT', () => { void stop(); });
 process.on('SIGTERM', () => { void stop(); });
+}

@@ -387,7 +387,46 @@ timestamp. The Windows command journal/poller core now models durable dispatch
 and refuses replay after a persisted `dispatching` state. The Windows `run`
 worker now loads the existing ATM credential file, polls Central, and attaches
 one serialized ITL adapter/status poller when exactly one device is connected.
-Product physical acceptance remains hard-disabled in this worker.
+Product physical acceptance is off by default. Only the explicit
+`KALASH_PRODUCT_CASH_ENABLE=OWNER_ATTENDED_PRODUCT_CASH` configuration selects
+the product owner; it does not replace Central cash enablement, signed consent,
+device preflight or owner attendance. The default worker never enables cash.
+
+The product owner is the sole consuming ITL reader and physical action sender.
+It persists note identity/accept decision/dispatch intent and events before
+escrow actions, uses the existing command journal to forbid physical replay,
+and replays only durable Outbox envelopes after restart. Unknown dispatch and
+the non-atomic raw-event consumption/persistence window fail closed for
+operator reconciliation rather than reconstructing notes from inventory.
+
+`GET /api/controller/:atmId/cash-session` returns the active bound session and
+durable close request. `POST /api/controller/:atmId/cash-events` accepts the
+strict `streamId, sequence, deviceEventId, occurredAt, visitId, cashSessionId,
+type, data` envelope in `src/cash.ts`. Sequence persists across sessions and
+restarts, begins at 1, and advances exactly once. `deviceEventId` is
+`streamId:sequence`. An identical duplicate receives the same ACK only after
+DB processing; gaps, changed payloads, new-stream resets and conflicting note
+keys reject and lock. The Controller ACKs only the exact stream and sequence.
+
+Central stores `cashSessions/{cashSessionId}`, per-ATM
+`cashEvents/{streamId}:{sequence}`, `cashStreams/{streamId}` and rejected
+payload evidence. `cashBudgets/demo` counts cumulative stored/pending paise
+and notes independently of session limits. Limits remain INR 400/session
+(including in-flight accepts), INR 1,000 and 10 notes for the demo.
+
+Paired-screen `POST /api/atm/:atmId/visits/:visitId/done` and owner
+`POST /api/visits/:visitId/cash-done` only persist stop requests. The same
+device loop keeps observing late STORED while disabling. Closing requires
+explicit disabled/empty escrow, six unique INR denomination levels, all four
+stored/stacked/dispensed/transferredToStack counters and matching Central totals.
+Timeout alone is never success. Reasons precede the closing event; unresolved
+or conflicting evidence preserves `needs_reconciliation` and the ATM lock.
+Zero closes without donation/mint. Valid nonzero closing atomically creates
+the deterministic cash donation, wallet/temple totals and the existing mint job.
+The net/fee fields are equivalent accounting units, not transferred funds.
+Confirmed cash remains visible until the paired screen uses Finish (`/close`).
+Browsers show INR, a finite deadline and Done; a local stop request suppresses
+acceptance instructions even if its HTTP response is lost.
 
 The separate `diagnose-cash` command reuses that ITL adapter and has no Central,
 donation, or mint side effects. It requires interactive owner/operator
@@ -485,10 +524,10 @@ from an open port.
 
 `ItlControllerClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
 tokens in memory, refreshes the token before expiry, and serializes each request.
-`ItlControllerClient` exposes authentication and non-consuming USB/device/
-inventory GETs plus only the specifically gated `OpenConnection`,
-`GetDeviceStatus`, and `DisconnectDevice` initialization sequence. There is no
-credential-update, acceptor-enable, escrow accept/return, or payout method.
+`ItlControllerClient` exposes authentication, USB/device/inventory GETs and
+specifically gated initialization, acceptor and manual escrow methods. The
+product execution owner serializes those operations; tests/builds never start
+hardware. Credential updates and product payouts are not part of M3 intake.
 HTTP errors expose status codes, not response bodies; there are no blind retries.
 
 The Stage 1 `inspect` command loads the default v2 Authenticate sample from the

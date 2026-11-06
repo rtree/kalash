@@ -38,6 +38,12 @@ persists transaction progress and resumes without resending completed donations.
 `--new-donation` explicitly starts another capped 0.01 USDC test.
 This script is not normal MetaMask browser evidence.
 
+`pnpm run test:cash` exercises the local cash HTTP routes, transaction store
+doubles, ordered note ledger, Done reconciliation, atomic donation/mint
+reservation and Crypto regressions. It must run nonzero tests with no skips;
+it does not prove live Firestore, hardware acceptance or a minted stamp.
+These tests also run in the Central image build.
+
 ## Supported chain tests / cloud build
 
 Windows ARM64 Ganache's native leveldown cannot run here. Compile with
@@ -92,3 +98,18 @@ cash during M5a.
 isolated test ATMs/wallets, concurrency/expiry/authorization tests and injected
 provider add-chain tests. It never uses the real acceptor or submits transactions.
 Mobile QR checks use the deployed HTTPS origin, not development-PC localhost.
+
+## M3 cash product integration (physical operation off by default)
+
+The Controller product path uses one device execution owner, durable note/dispatch
+state and an ordered Outbox. Central stores matching note events and only confirms
+cash after Done/deadline stopping and full inventory/counter reconciliation.
+Confirmed cash uses INR and existing on-site stamps, not a Donation Vault payment.
+The temple's 3% fee remains unpaid; product payout is not implemented by this path.
+
+Both a registered Central ATM with cash enabled and the Controller's explicit
+owner-attended product gate are required. Do not enable either merely to inspect
+the UI or run tests. See the [Controller guide](CashMachine/CashMachineController/README.md)
+and [current blockers](docs/TASKS.md) for the gate, local state recovery and the
+separate real-note verification requirements. A Done click requests stopping;
+it never clears unresolved cash or implies a donation by itself.

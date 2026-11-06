@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getAddress, verifyMessage, type Address, type Hex } from 'viem';
 import { ATM_ID, CASH_LIMIT_PAISE, VISIT_REFERENCE, VISIT_TTL_MS, cashMachineStatus, metaMaskLink, templeTarget, visitState, type AtmDto, type CashMachineStatus, type VisitDto, type VisitState } from '../atm.ts';
 import { CHAIN_ID } from '../shared.ts';
+import { CASH_DEMO_LIMIT_PAISE, CASH_DEMO_NOTE_LIMIT, type CashCloseReason } from '../cash.ts';
 import { db, origin } from './config.ts';
 import { temples } from './catalog.ts';
 import { requireValue } from './errors.ts';
@@ -10,7 +11,7 @@ const SCREEN_TTL_MS = 8 * 60 * 60 * 1000;
 const PAIR_TTL_MS = 120_000;
 export const SCREEN_COOKIE = 'kalash_atm';
 export const credentialHash = (value: string) => createHash('sha256').update(value).digest('hex');
-interface AtmRecord {
+export interface AtmRecord {
   id: string;
   name: string;
   templeId: string;
@@ -21,8 +22,10 @@ interface AtmRecord {
   screenHash?: string;
   screenExpiresAt?: number;
   controllerHealth?: ControllerHealth;
+  cashStreamId?: string;
+  cashReconciliationRequired?: boolean;
 }
-interface VisitRecord {
+export interface VisitRecord {
   id: string;
   atmId: string;
   templeId: string;
@@ -36,6 +39,10 @@ interface VisitRecord {
   donationId?: string;
   linkedAt?: number;
   cashConsentChallenge?: string;
+  cashCloseRequested?: boolean;
+  cashCloseReason?: CashCloseReason | null;
+  cashCloseRequestedAt?: number;
+  cashStreamId?: string;
 }
 interface ControllerHealth {
   sequence: number;
@@ -58,16 +65,17 @@ interface ControllerCommand {
   cashSessionId: string;
   expiresAt: number;
   createdAt: number;
+  reportHash?: string;
 }
-function atmReference(id: unknown) {
+export function atmReference(id: unknown) {
   requireValue(typeof id === 'string' && ATM_ID.test(id), 400, 'INVALID_ATM', 'Invalid ATM reference.');
   return db.collection('atms').doc(id);
 }
-function visitReference(id: unknown) {
+export function visitReference(id: unknown) {
   requireValue(typeof id === 'string' && VISIT_REFERENCE.test(id), 400, 'INVALID_VISIT', 'Invalid reception reference.');
   return db.collection('visits').doc(id);
 }
-function validAtm(data: AtmRecord | undefined): AtmRecord {
+export function validAtm(data: AtmRecord | undefined): AtmRecord {
   requireValue(data?.enabled && temples.some((item) => item.id === data.templeId && item.onsite),
     403, 'ATM_UNAVAILABLE', 'This ATM is not registered for onsite reception.');
   return data;
@@ -90,21 +98,32 @@ function validScreen(data: AtmRecord | undefined, hash: string): AtmRecord {
     401, 'ATM_PAIRING_REQUIRED', 'Screen authorization expired. Pair it from the registered Controller.');
   return atm;
 }
-function dto(visit: VisitRecord, atm: AtmRecord, donationStatus?: string, owner?: Address): VisitDto {
+function dto(visit: VisitRecord, atm: AtmRecord, donationStatus?: string, owner?: Address, screen = false): VisitDto {
   const donationState = !visit.donationId ? null
     : donationStatus === 'confirmed' ? 'confirmed'
       : ['failed', 'expired', 'cancelled'].includes(donationStatus ?? '') ? 'failed' : 'pending';
   return {
     id: visit.id, templeId: visit.templeId, templeName: temples.find((item) => item.id === visit.templeId)!.name,
-    atmId: atm.id, atmName: atm.name, mode: visit.mode, state: visitState(visit.state, visit.expiresAt, Date.now()),
+    atmId: atm.id, atmName: atm.name, mode: visit.mode,
+    state: visit.mode === 'cash' && atm.cashReconciliationRequired ? 'reconciling'
+      : visit.mode === 'cash' && visit.state === 'accepting' && (visit.cashDeadline ?? 0) <= Date.now()
+      ? 'closing' : visitState(visit.state, visit.expiresAt, Date.now()),
     expiresAt: visit.expiresAt,
     cashSessionId: owner && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()
       ? visit.cashSessionId : null,
     cashAcceptanceEnabled: visit.mode === 'cash' && visit.state === 'accepting'
-      && (visit.cashDeadline ?? 0) > Date.now(),
+      && !atm.cashReconciliationRequired && !visit.cashCloseRequested && (visit.cashDeadline ?? 0) > Date.now(),
     cashLimitPaise: CASH_LIMIT_PAISE,
-    ...(owner && visit.ownerWallet?.toLowerCase() === owner.toLowerCase()
-      ? { cashAcceptedPaise: visit.cashAcceptedPaise ?? '0' } : {}),
+    cashDeadline: visit.cashDeadline ?? null,
+    ...(screen || (owner && visit.ownerWallet?.toLowerCase() === owner.toLowerCase())
+      ? {
+        cashAcceptedPaise: visit.cashAcceptedPaise ?? '0',
+        cashCloseRequested: atm.cashReconciliationRequired === true || visit.cashCloseRequested === true
+          || (visit.mode === 'cash' && visit.state === 'accepting' && (visit.cashDeadline ?? 0) <= Date.now()),
+        cashCloseReason: visit.cashCloseReason ?? (atm.cashReconciliationRequired ? 'fault' : null)
+          ?? (visit.mode === 'cash' && visit.state === 'accepting' && (visit.cashDeadline ?? 0) <= Date.now() ? 'deadline' : null),
+        donationId: visit.donationId ?? null,
+      } : {}),
     donationState,
   };
 }
@@ -189,7 +208,7 @@ export async function getControllerCashCommand(atmId: string, authorization: str
     if (command?.expiresAt !== undefined && command.expiresAt <= Date.now()) {
       return { command: null };
     }
-    requireValue(atm.cashEnabled === true
+    requireValue(atm.cashEnabled === true && !atm.cashReconciliationRequired
       && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
     409, 'CASH_CONTROLLER_NOT_READY', 'A fresh authorized Controller readiness report is required.');
     requireValue(commandSnapshot.exists && command
@@ -220,6 +239,7 @@ export async function reportControllerCashCommand(
   400, 'INVALID_CASH_COMMAND_REPORT', 'The Controller command report is invalid.');
   const atmRef = atmReference(atmId);
   const commandRef = db.collection('controllerCommands').doc(body.commandId);
+  const reportHash = credentialHash(JSON.stringify(Object.entries(body).sort(([a], [b]) => a.localeCompare(b))));
   return db.runTransaction(async (tx) => {
     const [atmSnapshot, commandSnapshot] = await Promise.all([tx.get(atmRef), tx.get(commandRef)]);
     const atm = validAtm(atmSnapshot.data() as AtmRecord | undefined);
@@ -248,6 +268,8 @@ export async function reportControllerCashCommand(
       reported: [],
     };
     if (command.state === next) {
+      requireValue(command.reportHash === reportHash, 409, 'CASH_COMMAND_DUPLICATE_MISMATCH',
+        'The repeated command state must have the same observation payload.');
       return { accepted: true, state: command.state };
     }
     requireValue(transitions[command.state]?.includes(next),
@@ -255,17 +277,19 @@ export async function reportControllerCashCommand(
     if (next === 'dispatching' || next === 'observed') {
       requireValue(atm.activeVisitId === visit.id && visit.state === 'awaiting_device'
         && command.expiresAt > Date.now() && visit.cashConsentChallenge
-        && atm.cashEnabled === true && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
+        && atm.cashEnabled === true && !atm.cashReconciliationRequired
+        && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
       409, 'CASH_COMMAND_NOT_AUTHORIZED', 'Current signed reception authorization or Controller readiness is no longer valid.');
     }
     if (next === 'observed') {
       requireValue(typeof body.observedAt === 'number' && Math.abs(Date.now() - body.observedAt) <= 30_000,
         400, 'INVALID_CASH_COMMAND_REPORT', 'A recent device observation timestamp is required.');
-      requireValue(typeof body.deviceState === 'string' && body.deviceState.length > 0,
-        400, 'INVALID_CASH_COMMAND_REPORT', 'The observed device state is required.');
-      const deadline = Date.now() + 120_000;
+      requireValue(body.deviceState === 'ACCEPTING',
+        400, 'INVALID_CASH_COMMAND_REPORT', 'An actual ACCEPTING device observation is required.');
+      const acceptingAt = Math.min(body.observedAt, Date.now());
+      const deadline = acceptingAt + 120_000;
       tx.update(visitRef, {
-        state: 'accepting', cashDeadline: deadline, acceptingAt: Date.now(),
+        state: 'accepting', cashDeadline: deadline, acceptingAt,
         controllerDeviceState: body.deviceState,
       });
     } else if (next === 'unknown') {
@@ -287,7 +311,7 @@ export async function reportControllerCashCommand(
       requireValue(visit.state === 'accepting', 409, 'CASH_COMMAND_STATE_CONFLICT', 'Only an observed accepting command can be acknowledged.');
     }
     tx.update(commandRef, {
-      state: next,
+      state: next, reportHash,
       ...(typeof body.observedAt === 'number' ? { observedAt: body.observedAt } : {}),
       ...(typeof body.deviceState === 'string' ? { deviceState: body.deviceState } : {}),
       ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
@@ -327,10 +351,18 @@ export async function getAtm(atmId: string, cookie: string | undefined): Promise
     }
   }
   const donation = visit?.donationId ? (await db.collection('donations').doc(visit.donationId).get()).data() : undefined;
-  const view = visit ? dto(visit, atm, donation?.status) : null;
+  const view = visit ? dto(visit, atm, donation?.status, undefined, true) : null;
   const status = cashMachineStatus(atm.controllerHealth ?? null, Date.now());
-  const cashReceptionAvailable = atm.cashEnabled === true && status === 'ready' && !view;
-  const cashDisabledReason = status === 'offline'
+  const budget = (await db.collection('cashBudgets').doc('demo').get()).data();
+  const budgetAvailable = BigInt(budget?.storedPaise ?? '0') + BigInt(budget?.pendingPaise ?? '0') < BigInt(CASH_DEMO_LIMIT_PAISE)
+    && (budget?.storedNotes ?? 0) + (budget?.pendingNotes ?? 0) < CASH_DEMO_NOTE_LIMIT;
+  const cashReceptionAvailable = atm.cashEnabled === true && status === 'ready' && !view
+    && !atm.cashReconciliationRequired && budgetAvailable;
+  const cashDisabledReason = atm.cashReconciliationRequired
+    ? 'Cash evidence requires operator reconciliation. This ATM remains locked.'
+    : !budgetAvailable
+      ? 'The demo cash limit of ₹1000 or 10 notes has been reached.'
+      : status === 'offline'
     ? 'Controller health is unavailable or stale. Cash is disabled; Crypto remains available.'
     : status === 'disconnected'
       ? 'NV200 is not USB-connected and ready. Cash is disabled; Crypto remains available.'
@@ -346,7 +378,7 @@ export async function getAtm(atmId: string, cookie: string | undefined): Promise
     cashMachineStatus: status, cashDisabledReason,
     cashAcceptanceEnabled: view?.cashAcceptanceEnabled ?? false,
     cashReceptionAvailable,
-    cryptoDonationEnabled: !view,
+    cryptoDonationEnabled: !view && !atm.cashReconciliationRequired,
   };
 }
 export async function createVisit(atmId: string, cookie: string | undefined, mode: unknown, requestId: unknown) {
@@ -359,10 +391,16 @@ export async function createVisit(atmId: string, cookie: string | undefined, mod
   const id = randomBytes(32).toString('hex');
   const newRef = visitReference(id);
   await db.runTransaction(async (tx) => {
-    const [atmSnapshot, existingRequest] = await Promise.all([tx.get(atmRef), tx.get(requestRef)]);
+    const [atmSnapshot, existingRequest, budgetSnapshot] = await Promise.all([
+      tx.get(atmRef), tx.get(requestRef), tx.get(db.collection('cashBudgets').doc('demo')),
+    ]);
     const atm = validScreen(atmSnapshot.data() as AtmRecord | undefined, screenHash);
+    requireValue(!atm.cashReconciliationRequired, 409, 'RECONCILIATION_REQUIRED', 'Cash evidence requires operator reconciliation.');
     if (mode === 'cash') {
+      const budget = budgetSnapshot.data();
       requireValue(atm.cashEnabled === true
+        && BigInt(budget?.storedPaise ?? '0') + BigInt(budget?.pendingPaise ?? '0') < BigInt(CASH_DEMO_LIMIT_PAISE)
+        && (budget?.storedNotes ?? 0) + (budget?.pendingNotes ?? 0) < CASH_DEMO_NOTE_LIMIT
         && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
       409, 'CASH_UNAVAILABLE', 'Cash is disabled until this registered Controller is freshly ready and Cash is enabled for the ATM.');
     }
@@ -401,11 +439,18 @@ export async function closeVisit(atmId: string, cookie: string | undefined, id: 
     const visit = visitSnapshot.data() as VisitRecord | undefined;
     requireValue(visit && visit.atmId === atm.id && visit.templeId === atm.templeId,
       403, 'WRONG_ATM', 'This reception belongs to another ATM.');
+    requireValue(!atm.cashReconciliationRequired, 409, 'RECONCILIATION_REQUIRED', 'Cash evidence requires operator reconciliation.');
     if (visit.state === 'closed') return;
+    if (visit.mode === 'cash' && visit.cashConsentChallenge && visit.state !== 'confirmed') {
+      requireValue(atm.activeVisitId === id, 409, 'VISIT_NOT_OPEN', 'This cash reception is no longer active.');
+      tx.update(visitRef, cashCloseUpdate(visit));
+      return;
+    }
     const donationSnapshot = visit.donationId
       ? await tx.get(db.collection('donations').doc(visit.donationId)) : undefined;
     requireValue(atm.activeVisitId === id
       && (['awaiting_wallet', 'linked', 'expired'].includes(visit.state)
+        || (visit.mode === 'cash' && visit.state === 'confirmed')
         || (visit.state === 'donation_pending'
           && ['failed', 'expired', 'cancelled'].includes(donationSnapshot?.get('status') ?? ''))),
     409, 'RECONCILIATION_REQUIRED', 'A pending or unknown donation cannot be closed. Verify it first.');
@@ -413,6 +458,46 @@ export async function closeVisit(atmId: string, cookie: string | undefined, id: 
     tx.update(atmRef, { activeVisitId: null });
   });
   return getAtm(atmId, cookie);
+}
+export function cashCloseUpdate(visit: VisitRecord, reason: CashCloseReason = 'done') {
+  return {
+    state: ['reconciling', 'needs_reconciliation'].includes(visit.state) ? visit.state : 'closing',
+    cashCloseRequested: true,
+    cashCloseReason: visit.cashCloseReason ?? reason,
+    cashCloseRequestedAt: visit.cashCloseRequestedAt ?? Date.now(),
+  };
+}
+export async function doneCashVisit(atmId: string, cookie: string | undefined, id: string) {
+  const hash = screenCredential(cookie);
+  const atmRef = atmReference(atmId);
+  const visitRef = visitReference(id);
+  await db.runTransaction(async (tx) => {
+    const [atmSnapshot, visitSnapshot] = await Promise.all([tx.get(atmRef), tx.get(visitRef)]);
+    const atm = validScreen(atmSnapshot.data() as AtmRecord | undefined, hash);
+    const visit = visitSnapshot.data() as VisitRecord | undefined;
+    requireValue(visit && visit.atmId === atm.id && visit.templeId === atm.templeId
+      && visit.mode === 'cash' && visit.cashConsentChallenge,
+    403, 'CASH_VISIT_MISMATCH', 'A consented cash reception belonging to this ATM is required.');
+    if (['closed', 'confirmed'].includes(visit.state)) return;
+    requireValue(atm.activeVisitId === id, 409, 'VISIT_NOT_OPEN', 'The cash reception is no longer active.');
+    tx.update(visitRef, cashCloseUpdate(visit));
+  });
+  return getAtm(atmId, cookie);
+}
+export async function doneOwnedCashVisit(id: string, owner: Address, templeId: unknown) {
+  const ref = visitReference(id);
+  await db.runTransaction(async (tx) => {
+    const visit = (await tx.get(ref)).data() as VisitRecord | undefined;
+    requireValue(visit && visit.mode === 'cash' && visit.templeId === templeId
+      && visit.ownerWallet?.toLowerCase() === owner.toLowerCase() && visit.cashConsentChallenge,
+    403, 'CASH_VISIT_NOT_OWNER', 'Only the consented wallet can finish this cash reception.');
+    const atm = validAtm((await tx.get(atmReference(visit.atmId))).data() as AtmRecord | undefined);
+    if (['closed', 'confirmed'].includes(visit.state)) return;
+    requireValue(atm.activeVisitId === id && atm.templeId === visit.templeId,
+      409, 'VISIT_NOT_OPEN', 'The cash reception is no longer active.');
+    tx.update(ref, cashCloseUpdate(visit));
+  });
+  return getVisit(id, String(templeId), owner);
 }
 export async function getVisit(id: string, templeId: string, owner?: Address) {
   let visit = (await visitReference(id).get()).data() as VisitRecord | undefined;
@@ -467,7 +552,7 @@ export async function createCashConsentChallenge(id: string, owner: Address, tem
     && visit.state === 'awaiting_wallet' && visit.cashSessionId,
   409, 'CASH_VISIT_NOT_OPEN', 'This cash reception is not awaiting wallet consent.');
   const atm = validAtm((await atmReference(visit.atmId).get()).data() as AtmRecord | undefined);
-  requireValue(atm.activeVisitId === id && atm.cashEnabled === true
+  requireValue(atm.activeVisitId === id && atm.cashEnabled === true && !atm.cashReconciliationRequired
     && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
   409, 'CASH_CONTROLLER_NOT_READY', 'A fresh authorized Controller readiness report is required for cash consent.');
   unclaimed(visit, atm);
@@ -486,6 +571,7 @@ export async function createCashConsentChallenge(id: string, owner: Address, tem
     `Temple: ${templeName} (${visit.templeId})`,
     `ATM: ${atm.name} (${atm.id})`,
     `Cash session: ${visit.cashSessionId}`,
+    `Visit: ${visit.id}`,
     `Purpose: cash`,
     `Maximum: ${CASH_LIMIT_PAISE} paise`,
     `Nonce: ${nonce}`,
@@ -566,7 +652,7 @@ export async function claimCashVisit(
     requireValue(visit && visit.mode === 'cash' && visit.state === 'awaiting_wallet'
       && typeof visit.cashSessionId === 'string'
       && visit.atmId === atm.id && visit.templeId === templeId
-      && atm.activeVisitId === id && atm.cashEnabled === true
+      && atm.activeVisitId === id && atm.cashEnabled === true && !atm.cashReconciliationRequired
       && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
     409, 'CASH_VISIT_NOT_READY', 'Cash reception is no longer active or the Controller is not ready.');
     tx.update(challengeRef, { used: true, usedAt: Date.now() });
