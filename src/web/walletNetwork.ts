@@ -19,4 +19,4 @@ export const switchToKalashChain = {
     rpcUrls: [BASE_SEPOLIA_RPC],
     blockExplorerUrls: [kalashChain.blockExplorers.default.url],
   },
-} as const;
+};
