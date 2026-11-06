@@ -2,17 +2,17 @@
 
 ## 現在のゴール
 
-- UX-mobile限定PoC（本人依頼、独立HTTPSサイトを選択）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／カメラpreviewを検証する。実機テストは本人。資料・実装は`docs/lab/uxmobile/`へ集約。署名・送金・撮影・uploadは対象外。
+- 現在のゴール：M1 モバイル寄付のapprove prompt障害を切り分ける。MetaMask内蔵BrowserでConnect→SIWE→一度だけ0.01 test USDC approval→Donate→Central確認→Stampを本人確認で通す。通常approvalはbrowser ProviderからMetaMaskへ依頼し、Central Abandonは取消専用。
+- 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
 - PoC checkpoint（2026-11-06）：指定調査報告と3人のread-onlyレビューを確認。公式deeplink `https://link.metamask.io/dapp/<host>/<path>?mode=phone&case=external-qr`を採用し、host/path/query全体はencodeしない。local build成功、PoC tests 37 pass・skipなし。Cloud Build `19d52ae7-9269-447d-8aac-4763b176e0f9`成功し、独立revision `kalash-uxmobile-00002-j6c`（image `uxmobile:d9bf3ce0ed07`）へ配備。実HTTPSの`/lab-health.json`は200、payments/uploads=false、QR targetはHTTP200。本人はPCでquery付きURLを開きQR表示済みと報告。共有ブラウザーsnapshotはroot URLだがQRの行き先はquery付き。スマホで実際にQRを読む／最終origin/path/queryへ到達した証拠はまだない。本体と分離、署名・寄付・撮影保存・uploadなし。
-- ゴール：M1 モバイル寄付。MetaMask内蔵Browserのapprove-only停滞を安全に解決し、新しい0.01 test USDC寄付→Central確認→Stamp→Collection再読込を本人のWallet承認で通す。その後M2写真共有へ戻る。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
 - Cloud Run：revision `kalash-central-00016-w6k`、health ready・Base Sepolia・mint有効、source `1790e57`。History recovery、expired-signature guard、Provider approval trace、walletClient preflightを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：PCに表示したQRをAndroidの外部QRリーダー／標準カメラで実際に読む。MetaMaskが起動しただけで成功にせず、スマホの最終origin/path/queryがPoCの`?mode=phone&case=external-qr`と一致するか確認する。未到達なら最初の失敗段階で停止して共有。PoC実機試験中は再配備しない。
+- 次の作業：M1の本体approval prompt試験を再開する。cancelled signatureは期限切れ。Historyの旧expired intentを本人確認後にresolveし、通常Donateを一度だけ行ってMetaMask approval promptを確認する。PoCのAndroid QR試験は別タスクのhuman-waitとする。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
