@@ -167,6 +167,7 @@ test('real operation registration is idempotent and unknown submission cannot be
     method: 'POST', bearer: recoveryToken, body: { templeId: 'temple-01', amount: '0.01' },
   });
   assert.equal(blockedNewIntent.status, 409, 'a new signed intent is blocked until the abandoned signature deadline');
+  assert.match((await blockedNewIntent.json()).message, /No new intent or MetaMask request was created/);
 
   const unknown = await request(`/api/donations/${donation.id}/verify`, { method: 'POST', bearer: token, body: {} });
   assert.equal(unknown.status, 200);

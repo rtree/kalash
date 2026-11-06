@@ -45,7 +45,7 @@ export async function createDonation(owner: Address, templeId: unknown, input: u
     .sort((a, b) => a.deadline - b.deadline)[0];
   if (stillValid) {
     throw new HttpError(409, 'SIGNED_INTENT_STILL_VALID',
-      `A cancelled approval-only intent remains valid until ${new Date(stillValid.deadline * 1000).toISOString()}. Wait until then before creating another donation.`);
+      `A cancelled approval-only signature remains valid until ${new Date(stillValid.deadline * 1000).toISOString()}. No new intent or MetaMask request was created. Wait until it expires before donating again.`);
   }
   const id = `0x${randomBytes(32).toString('hex')}` as Hex;
   const templeKey = keccak256(toHex(temple.id));

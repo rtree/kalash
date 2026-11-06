@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="referrer" content="no-referrer">
+    <title>KALASH UX mobile PoC</title>
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./app.mjs"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#phone-panel">スマホの確認へ移動</a>
+    <header class="page-header">
+      <p class="eyebrow">独立した、小さな接続実験</p>
+      <h1>KALASH UX mobile PoC</h1>
+      <p>PCのQRからスマホへ。Wallet接続とカメラのプレビューだけを、ひとつずつ確認します。</p>
+      <p class="safety"><strong>署名なし・寄付なし・送金なし・撮影保存なし・アップロードなし。</strong><br>
+        このPoCは本体から隔離されています。Reown / WalletConnect / MetaMask SDKは使用しません。</p>
+      <nav aria-label="ページ内の移動">
+        <a href="#terminal-panel">1. PCのQR</a>
+        <a href="#phone-panel">2. Wallet接続</a>
+        <a href="#camera-panel">3. カメラ</a>
+      </nav>
+    </header>
+    <main>
+      <noscript><p class="notice">この確認にはJavaScriptが必要です。無効な間は接続もカメラも起動しません。</p></noscript>
+      <section id="terminal-panel" class="card" aria-labelledby="terminal-title">
+        <p class="eyebrow">01 / PCで表示 → スマホで読む</p>
+        <h2 id="terminal-title">外部QRリーダーから開く</h2>
+        <p>スマホの標準カメラなどでQRを読み、表示されたリンクを本人が開いてください。
+          MetaMaskへの移動はOS・QRリーダー・アプリの設定に依存します。自動移動はしません。</p>
+        <label for="qr-destination">QRの行き先</label>
+        <select id="qr-destination">
+          <option value="isolated">この独立PoC（通常はこちら）</option>
+          <option value="control">既存KALASH本体（URL引き渡しだけの比較）</option>
+        </select>
+        <p id="destination-note" class="notice"></p>
+        <div class="qr-wrap">
+          <canvas id="qr-canvas" width="640" height="640" role="img"
+            aria-label="MetaMaskで行き先を開くためのQR。完全な内容は下のテキストを参照。" hidden></canvas>
+        </div>
+        <p id="qr-status" role="status" aria-live="polite">QRを準備しています。</p>
+        <dl class="url-details">
+          <dt>QRに入る完全なリンク（公開情報）</dt>
+          <dd><code id="qr-payload">—</code></dd>
+          <dt>開くHTTPSの行き先</dt>
+          <dd><code id="target-url">—</code></dd>
+        </dl>
+        <div class="actions">
+          <a id="deep-link" class="button" rel="noreferrer" hidden>MetaMaskで開く</a>
+          <a id="direct-link" class="button secondary" rel="noreferrer" hidden>HTTPSページを直接開く</a>
+        </div>
+        <p class="small">QRはこのページ内で生成します。QR画像生成サービスや短縮URLは使いません。
+          直接開くリンクはMetaMaskへ移動する保証がありません。</p>
+      </section>
+
+      <section id="phone-panel" class="card" tabindex="-1" aria-labelledby="phone-title">
+        <p class="eyebrow">02 / 開いた端末で確認</p>
+        <h2 id="phone-title">Wallet接続だけを試す</h2>
+        <dl class="arrival-details">
+          <dt>URL上のケース</dt><dd id="arrival-case">—</dd>
+          <dt>現在のorigin</dt><dd><code id="arrival-origin">—</code></dd>
+          <dt>現在のpath</dt><dd><code id="arrival-path">—</code></dd>
+        </dl>
+        <p class="small">ケースはURLの自己申告です。QRで到達した証拠ではありません。
+          User-AgentやProviderの有無だけでChrome・MetaMask内蔵Browserを判定しません。</p>
+        <fieldset>
+          <legend>今回、本人が試している環境（自動判定ではありません）</legend>
+          <label class="choice"><input type="radio" name="test-context" value="unspecified" checked> 未選択</label>
+          <label class="choice"><input type="radio" name="test-context" value="pc-extension"> PCのMetaMask拡張</label>
+          <label class="choice"><input type="radio" name="test-context" value="mobile-in-app"> スマホのMetaMask内蔵Browser</label>
+          <label class="choice"><input type="radio" name="test-context" value="external-browser"> スマホの外部ブラウザ</label>
+        </fieldset>
+        <p id="context-status" class="small">環境の自己申告：未選択。保存・送信しません。</p>
+        <p id="provider-status" role="status" aria-live="polite">Providerを確認しています。</p>
+        <label for="provider-select">利用するMetaMask候補を明示的に選択</label>
+        <select id="provider-select" disabled>
+          <option value="">候補を選んでください</option>
+        </select>
+        <p class="small">EIP-6963のrdns=io.metamaskとisMetaMaskを照合します。
+          これらは自己申告で、真正性の証明ではありません。候補のアイコンや外部画像は読み込みません。</p>
+        <div class="actions">
+          <button id="refresh-providers" class="secondary" type="button">候補を再確認</button>
+          <button id="connect-wallet" type="button" disabled>接続をリクエスト</button>
+        </div>
+        <p id="wallet-status" class="status" role="status" aria-live="polite">未接続。自動の接続要求はしません。</p>
+        <dl>
+          <dt>接続アカウント数（アドレスは表示しません）</dt><dd id="wallet-account-count">未確認</dd>
+          <dt>チェーン</dt><dd id="wallet-chain">未確認</dd>
+        </dl>
+        <p class="small">ボタン操作でeth_requestAccountsとeth_chainIdだけを要求します。
+          Base Sepolia（84532）か確認するだけで、チェーン切替・署名・認証・取引は要求しません。
+          接続許可の取り消しはMetaMask側で行ってください。</p>
+      </section>
+
+      <section id="camera-panel" class="card" aria-labelledby="camera-title">
+        <p class="eyebrow">03 / 任意・接続とは別の確認</p>
+        <h2 id="camera-title">カメラのプレビュー</h2>
+        <p>周囲に個人情報が映らない場所で、所有者本人が開始してください。
+          背面カメラを希望しますが、実際の選択は端末に依存します。音声は使いません。</p>
+        <p id="camera-environment" class="notice"></p>
+        <div class="actions">
+          <button id="camera-start" type="button">カメラを開始 / 再試行</button>
+          <button id="camera-stop" class="secondary" type="button" disabled>カメラを停止</button>
+        </div>
+        <p id="camera-status" class="status" role="status" aria-live="polite">未開始。ボタンを押すまでカメラにアクセスしません。</p>
+        <video id="camera-video" autoplay muted playsinline aria-label="カメラのライブプレビュー" hidden></video>
+        <pre id="camera-diagnostics" aria-label="映像サイズとトラック状態">まだ映像を取得していません。</pre>
+        <p class="small">画素の読み取り・撮影・録画・保存・アップロードは行いません。
+          ページを隠す／離れると停止します。許可待ちで停止した場合も、後から得た映像はすぐ停止します。</p>
+      </section>
+    </main>
+    <footer>自動テストは模擬Provider・模擬カメラの確認です。QRの実機移動・Wallet表示・実カメラの成功は、本人の確認が必要です。</footer>
+  </body>
+</html>

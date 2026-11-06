@@ -641,6 +641,10 @@ export function App({ runtime }: { runtime: Runtime }) {
         args: [address, config.vault],
       });
       if (allowance < required) {
+        const signingClient = walletClient ?? (await refreshWalletClient()).data;
+        if (!signingClient) {
+          throw new Error('MetaMask is connected, but its signing session is not ready. Reconnect the wallet before requesting approval.');
+        }
         const next = await createOperation(intent, 'approve');
         setNotice('MetaMask should now show an exact USDC approval request. This is not the donation; do not retry if no wallet prompt appears.');
         recordWalletTrace('approve-request-start', {

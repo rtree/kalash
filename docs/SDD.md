@@ -2,6 +2,17 @@
 
 ## 1. Current scope and execution hosts
 
+### Isolated UX-mobile lab
+
+The user-authorized experiment in `lab/uxmobile/` is separate from the product.
+Its temporary HTTPS service has no Central credentials, database, wallet SDK,
+signing, transactions, uploads, or mint loop. It tests a PC-generated MetaMask
+DApp link, injected EIP-1193/EIP-6963 discovery, and explicit camera preview.
+The production Reown integration and deployment remain unchanged. Real QR-reader
+handoff and mobile camera permission/results require owner-run device tests.
+Subsequent mobile checks use a QR shown on the PC to enter the deployed Cloud Run
+HTTPS lab on the phone, never the development PC's localhost.
+
 M1 first vertical slice: `/temples/temple-01` -> 0.01 test USDC ->
 Central receipt verification -> real stamp -> Collection reload.
 This document defines intended contracts; TASKS records verification, not this file.
@@ -89,6 +100,13 @@ The normal approval sequence is to persist the donation intent and approve opera
 then call the connected wallet provider to request the exact USDC approval. MetaMask
 must display that request before any approval receipt can be checked; the Central
 recovery action is not an approval substitute and never opens MetaMask.
+A wallet write can fail while Viem prepares fees/gas, before the wallet modal appears.
+For example, `Custom eth_getBlockByNumber: Unauthorized` is a wallet/provider RPC
+failure, not an approval or donation result. The browser's public allowance RPC and
+the wallet provider may use different RPC backends; do not infer that the wallet
+endpoint is healthy from the browser read, force gas values, or retry blindly.
+Keep the exact error and sanitized provider trace, and verify the wallet's chain/RPC
+configuration before making another approval attempt.
 
 ## 3. Authentication and API contract
 
