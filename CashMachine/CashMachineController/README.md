@@ -14,8 +14,23 @@ Build and run the fake-child/configuration tests with:
 
 ```powershell
 node scripts\check-policy.mjs
-dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineController.Tests.csproj
+dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineController.Tests.csproj --no-restore -- --product
 ```
+
+The focused product tests use explicit synthetic Central/ITL HTTP transports,
+not hardware evidence. Omit `-- --product` to include the existing controller
+configuration, command replay and diagnostic regression fixtures.
+To export the actual C#-serialized HTTP fixture for cross-language validation:
+
+```powershell
+node scripts\check-policy.mjs
+dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineController.Tests.csproj --no-restore -- --export-cash-wire CashMachine\CashMachineController.Tests\fixtures\product-cash-wire.synthetic.json
+```
+
+The output labels itself synthetic and contains ordered `commandReports`,
+`cashSessionResponses` and `events`. Each `events` element can be passed directly
+to Central's `validateCashEvent`; the fixture includes a reconciled ₹100
+Done/STORED race, not live cash evidence.
 
 For the first real, non-destructive Stage 1 check, run
 `.\CashMachine\CashMachineController\Inspect-Local.ps1`. It reads the vendor's
@@ -65,9 +80,52 @@ The long-running `run` worker loads the registered ATM record from
 `KALASH_ATM_ID` may explicitly override the non-secret connection fields.
 The bearer token is file-only and is never logged. A single ITL status poller
 durably records state changes and events before handing them to the worker.
-Product cash acceptance remains disabled in this worker until authorization is
-connected to the verified Central command flow. No payout command is
-implemented.
+Product cash is **off by default**. Only the exact environment value
+`KALASH_PRODUCT_CASH_ENABLE=OWNER_ATTENDED_PRODUCT_CASH` selects the product
+worker. Unset/empty/`false` preserves no-cash mode; other values fail configuration.
+This is an operator attendance/physical authorization gate, not a substitute for
+Central's signed-consent command, matching visit/session, online permission,
+deadline, verified INR routing and available capacity. Do not set it before
+owner-attended hardware validation. No product payout path is implemented.
+
+When explicitly enabled, `run` opens at most one device with automatic escrow
+acceptance and the acceptor disabled, or attaches only its journal-bound device.
+OpenConnection dispatch is durable and an unknown result is not retried.
+The same execution owner verifies six successful route results and DISABLED,
+per-denomination recyclable payout routing, exact device identity and all four
+counters. The existing command processor owns enable-command replay protection.
+There is no parallel status poller or event drain in product mode.
+
+Product state is stored under
+`%LOCALAPPDATA%\KALASH\cash-product\<atmId>\state.json`; `raw.jsonl` is the
+single reader's durable raw journal. An exclusive file handle protects the state.
+Stable stream/sequence/event IDs survive restart and remain ordered across cash
+sessions. Escrow identity, reserved limits, note decision, dispatch marker and
+outbox event are flushed **before** Accept/Return. HTTP success is not storage.
+Only matching pending STORED can credit INR payout storage; denomination alone
+is not a note key. Limits include in-flight notes: ₹400 per session and the
+₹1,000/10-note total-inventory demo ceiling. Unsupported/ambiguous events,
+STACKED, missing readback fields and faults latch reconciliation.
+
+An exact `{accepted:true,streamId,sequence}` receipt retires only the durable
+outbox head. Lost receipts replay unchanged events, never physical commands.
+An interrupted consuming poll is marked before the request: the raw-consumption
+versus state-commit crash gap locks reconciliation, even if inventory appears
+consistent. Restarting an active intake never automatically resumes acceptance.
+Do not delete/edit journals or clear locks to recover cash.
+
+Done/deadline/offline/capacity stops new acceptance and issues Disable once,
+but continues the **same** reader for in-flight storage/return. Close requires
+observed DISABLED and final escrow, all six payout/cashbox levels, and explicit
+stored/stacked/dispensed/transferredToStack counters. Reasons are queued before
+intake_closed. A timeout alone cannot manufacture a successful close. Unknown
+shutdown leaves the owned REST child for reconciliation instead of killing it.
+
+Hardware uncertainties remain: actual ACCEPTING/state/event spellings, complete
+counter/module shapes, route/fullness semantics and delayed-event timing need
+owner-attended verification with the installed firmware. No synthetic fixture
+proves real note acceptance, physical capacity, Central persistence or donation
+settlement.
 
 If `KALASH_ITL_JWT_KEY` is absent, the controller creates a fresh ephemeral
 signing key in memory for the server child; it is not persisted. The test runner

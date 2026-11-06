@@ -34,9 +34,11 @@ public sealed record CashStartCommand(
             || Type != "start_cash"
             || State is not ("pending" or "received" or "validated" or "dispatching")
             || AtmId != expectedAtmId
+            || !System.Text.RegularExpressions.Regex.IsMatch(TempleId, "^temple-[0-9]{2}$")
             || !System.Text.RegularExpressions.Regex.IsMatch(VisitId, "^[a-f0-9]{64}$")
             || !Guid.TryParseExact(CashSessionId, "D", out _)
             || ExpiresAt <= now || ExpiresAt > CreatedAt + 120_000
+            || CreatedAt <= 0 || ExpiresAt <= CreatedAt
             || CreatedAt > now + 5_000)
         {
             throw new InvalidDataException("Central returned a malformed, expired, or unauthorized cash command.");
@@ -85,7 +87,7 @@ public interface ICashStartDevice
     Task DisableAcceptorOnceAsync(CancellationToken cancellationToken);
 }
 
-public sealed class CentralCashCommandClient : ICashCommandCentral, IDisposable
+public sealed partial class CentralCashCommandClient : ICashCommandCentral, ICashEventCentral, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -95,7 +97,7 @@ public sealed class CentralCashCommandClient : ICashCommandCentral, IDisposable
     private readonly HttpClient client;
     private readonly string atmId;
 
-    public CentralCashCommandClient(Uri centralUri, string atmId, string credential)
+    public CentralCashCommandClient(Uri centralUri, string atmId, string credential, HttpMessageHandler? transport = null)
     {
         if (centralUri.Scheme != Uri.UriSchemeHttps
             || centralUri.AbsolutePath != "/"
@@ -109,7 +111,7 @@ public sealed class CentralCashCommandClient : ICashCommandCentral, IDisposable
         }
 
         this.atmId = atmId;
-        var handler = new SocketsHttpHandler
+        var handler = transport ?? new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
             ConnectTimeout = TimeSpan.FromSeconds(5)

@@ -10,9 +10,32 @@ namespace Kalash.CashMachineController.Tests;
 internal static class Program
 {
     private const string TestSigningKey = "not-a-production-signing-key-for-controller-tests";
-
-    private static async Task<int> Main()
+    private static string FixtureRoot
     {
+        get
+        {
+            var path = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests", ".fixtures"));
+            Directory.CreateDirectory(path);
+            return path;
+        }
+    }
+
+    private static async Task<int> Main(string[] args)
+    {
+        if (args is ["--export-cash-wire", var output])
+        {
+            await ProductCashTests.ExportWireAsync(output);
+            return 0;
+        }
+        if (args is ["--product"])
+        {
+            await Run("cash command journal prevents duplicate execution", CashCommandExecutionIsIdempotent);
+            await Run("cash command mismatch and expired command are rejected", RejectInvalidCashCommands);
+            await Run("cash command dispatch outcome is never blindly retried", UnknownCashDispatchIsNotRetried);
+            await Run("cash command journal failure prevents device dispatch", JournalFailurePreventsDispatch);
+            await ProductCashTests.RunAsync();
+            return 0;
+        }
         await Run("valid vendor package configuration", ValidConfiguration);
         await Run("load bootstrap credentials from the Fresh v2 collection", LoadVendorBootstrapCredentials);
         await Run("refuse a target users file that differs from Fresh", RefuseModifiedUsersFile);
@@ -41,6 +64,7 @@ internal static class Program
         await Run("parse device model codes as numeric readbacks", ParseNumericDeviceReadback);
         await Run("distinguish missing and wrong-type readback fields", DistinguishDeviceReadbackErrors);
         Console.WriteLine("27 CashMachineController tests passed.");
+        await ProductCashTests.RunAsync();
         return 0;
     }
 
@@ -432,7 +456,7 @@ internal static class Program
     private static async Task CashCommandExecutionIsIdempotent()
     {
         var command = CreateCashCommand();
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        var root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests", ".fixtures", $"cash-journal-{Guid.NewGuid():N}"));
         try
         {
             var central = new FakeCashCommandCentral(command);
@@ -463,7 +487,7 @@ internal static class Program
     private static async Task RejectInvalidCashCommands()
     {
         var command = CreateCashCommand();
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        var root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests", ".fixtures", $"cash-journal-{Guid.NewGuid():N}"));
         try
         {
             var central = new FakeCashCommandCentral(command);
@@ -492,7 +516,7 @@ internal static class Program
     private static async Task UnknownCashDispatchIsNotRetried()
     {
         var command = CreateCashCommand();
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        var root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests", ".fixtures", $"cash-journal-{Guid.NewGuid():N}"));
         try
         {
             var central = new FakeCashCommandCentral(command);
@@ -527,7 +551,7 @@ internal static class Program
     private static async Task JournalFailurePreventsDispatch()
     {
         var command = CreateCashCommand();
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-journal-test-{Guid.NewGuid():N}");
+        var root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests", ".fixtures", $"cash-journal-{Guid.NewGuid():N}"));
         Directory.CreateDirectory(root);
         var file = Path.Combine(root, "not-a-directory");
         await File.WriteAllTextAsync(file, "occupied");
@@ -559,7 +583,7 @@ internal static class Program
 
     private static Task LoadCashControllerConfiguration()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-atm-config-test-{Guid.NewGuid():N}");
+        var root = Path.Combine(FixtureRoot, $"kalash-atm-config-test-{Guid.NewGuid():N}");
         var secrets = Path.Combine(root, "KALASH", "secrets");
         Directory.CreateDirectory(secrets);
         var credential = new string('a', 64);
@@ -601,7 +625,7 @@ internal static class Program
 
     private static Task RejectInvalidCashControllerConfiguration()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-atm-config-test-{Guid.NewGuid():N}");
+        var root = Path.Combine(FixtureRoot, $"kalash-atm-config-test-{Guid.NewGuid():N}");
         try
         {
             var rejectedMissing = false;
@@ -641,7 +665,7 @@ internal static class Program
 
     private static async Task CashDiagnosticReconcilesOneNote()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-diagnostic-test-{Guid.NewGuid():N}");
+        var root = Path.Combine(FixtureRoot, $"kalash-cash-diagnostic-test-{Guid.NewGuid():N}");
         try
         {
             var device = new FakeLocalCashDiagnosticDevice(
@@ -674,7 +698,7 @@ internal static class Program
 
     private static async Task CashDiagnosticRejectsOtherDenomination()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"kalash-cash-diagnostic-test-{Guid.NewGuid():N}");
+        var root = Path.Combine(FixtureRoot, $"kalash-cash-diagnostic-test-{Guid.NewGuid():N}");
         try
         {
             var device = new FakeLocalCashDiagnosticDevice(
@@ -967,7 +991,7 @@ internal static class Program
             string runtimeVersion = "8.0.0")
         {
             var parent = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
+                FixtureRoot,
                 $"kalash-controller-test-{Guid.NewGuid():N}");
             var directory = System.IO.Path.Combine(parent, "RESTAPIServer");
             Directory.CreateDirectory(directory);
@@ -1138,7 +1162,7 @@ internal static class Program
         public static TestFreshPackage Create(string targetRuntimeDirectory)
         {
             var root = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
+                FixtureRoot,
                 $"kalash-fresh-package-test-{Guid.NewGuid():N}");
             var runtime = System.IO.Path.Combine(
                 root,

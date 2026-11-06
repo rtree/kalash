@@ -44,7 +44,7 @@
 | M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。18件のController tests pass。 |
 | M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | done | Stage 1 verified。Stage 2 OpenConnection一回成功、6 route-result=true、status DISABLED。GET readback deviceModel/type/base=2/3/0、firmware/dataset一致、isOpen/isStarted=true、deviceError/dispenseState=0、noteInEscrow=false。6 INR levels/counters/currency取得。DisconnectDevice成功、connected list 0、所有REST child正常停止。現金操作なし |
 | M3-cash | M3 Stage B | Integrator：Central／ATM／Controller | M3-device | doing | INRオフチェーン、寺院3% USDC後払い、既存onsite kind1、₹400/session・demo ₹1,000/10枚。命令journal `ed6cfd0`、既存host/adapter `0cff0a8`、診断fail-closed `f9054dc`を保持し製品event/Doneを接続（M3-cash-local）。既承認test/demoのAPI read/write・配備権限あり。直近実配備`00019-jdc`/`666c516...`、live ATM API9/9・skip0、ATM cashEnabled=false。今回未確認：新event APIの配備/実DB、実ACCEPTING・STORED・全counter、署名済み一枚→Done→Stamp。診断の成功を製品E2Eに代用せず、人の立ち会い・事前在高・承認済み回収方法で製品経路を確認する |
-| M3-cash-local | M3 Stage B | Central担当／Controller担当／Integrator（上記所有範囲） | M3-cash | verified（局所実装、実機ではない） | 単一機器owner・永続判断/Outbox・Central順序/紙幣台帳・Done・原子的寄付/points/mint待ち・INR UIを接続。`pnpm run test:cash` 46/46・skip0、typecheck/build成功。C#担当の製品/命令23件成功報告、cross-language/full regression統合中。実DB・実機・mint receiptは別証拠が必要 |
+| M3-cash-local | M3 Stage B | Central担当／Controller担当／Integrator（上記所有範囲） | M3-cash | verified（局所実装、実機ではない） | 単一機器owner・永続判断/Outbox・Central順序/紙幣台帳・Done・原子的寄付/points/mint待ち・INR UIを接続。`pnpm run test:cash` 47/47・skip0（実C# HTTP serialization fixtureをTSで検証）、typecheck/build成功。未commit診断差分を除外したstaged snapshotでController build warning/error0、全46件（既存27＋製品19）成功。実DB・実機・mint receiptは別証拠が必要 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
@@ -110,6 +110,8 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 16:40以降／今回再開約40分、M3-cash-local。未commit診断回収を除いたstaged snapshotからController全46試験・warning/error0を独立確認。新規snapshotのassets未作成（NETSDK1004）は空のlocal feedでpackage-free restoreして復旧、外部依存取得なし。実C# HTTP serializationの4イベントをTS validator/ledgerへ通す回帰を追加し、Central/Web局所47/47・skip0、typecheck/build再合格。製品pathから診断回収への依存なし。
+- 次：製品Controller変更をcommit/pushし、既承認のtest/demo Centralへ同じcommitted sourceを配備してrevisionと実APIを確認する。現金フラグ・Controller製品gateは有効化しない。実紙幣・Wallet署名・Payoutは未実施、実機のreadback/event/counter/人の受取確認は未検証のまま。
 - UTC 2026-11-06 16:30／今回再開約29分、M3-cash-local。Central/Controllerを2担当で実装し、Integratorが型・UI・Doneと検証入口を接続。`pnpm run test:cash` 46/46・skip0、typecheck/build成功（16:26）。package script変更でpolicy fingerprintが変わり一度停止したため、既存release verifierで570件を再検証して復旧。依存追加・installなし。Dockerfileにも必須cash HTTP/store試験を追加。
 - UI実測は隔離localhostの明示fixtureのみ：100.00/400.00 INR、Done表示、受付中Close無効を画面で確認。Done一回でclosing／挿入停止表示となり、confirmed表示なし・Close無効を確認。実Cash/Central保存の証拠には数えない。SDD §2/§8.2を実装契約へ更新。`f7f2929`はorigin/main一致でpush確認済み。
 - 実稼働はread-only再確認で`00019-jdc`・traffic100%、health source `666c516...`のまま。次：cross-language契約と全Controller回帰を確認、製品変更だけをcommit/push。既存診断回収差分はステージせず保持。実紙幣・署名・Payoutは未実施。

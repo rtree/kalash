@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CASH_DENOMINATIONS, applyCashEvent, cashTotals, newCashLedger, reconcileCash,
   validateCashEvent, validateCashInventory, type CashEvent, type CashInventory,
@@ -19,6 +20,28 @@ const start = () => applyCashEvent(newCashLedger(), event('intake_started', { in
 const close = () => ({
   reason: 'done' as const, inventory: inventory(), creditedNotes: 0, creditedPaise: '0',
   uncreditedNotes: 0, disabled: true, escrowEmpty: true, reconciliationReasons: [],
+});
+
+test('actual C# synthetic HTTP serialization satisfies the Central event contract and close ledger', () => {
+  const fixture: { synthetic: boolean; commandReports: { state: string }[]; events: unknown[] } = JSON.parse(
+    readFileSync(new URL('../CashMachine/CashMachineController.Tests/fixtures/product-cash-wire.synthetic.json', import.meta.url), 'utf8'),
+  );
+  assert.equal(fixture.synthetic, true);
+  assert.deepEqual(fixture.commandReports.map((report) => report.state),
+    ['received', 'validated', 'dispatching', 'observed', 'reported']);
+  const events = fixture.events.map(validateCashEvent);
+  assert.deepEqual(events.map((entry) => entry.type), ['intake_started', 'note_escrow', 'note_stored', 'intake_closed']);
+  assert.deepEqual(events.map((entry) => entry.sequence), [1, 2, 3, 4]);
+  assert.equal(new Set(events.map((entry) => entry.streamId)).size, 1);
+  assert.equal(new Set(events.map((entry) => entry.cashSessionId)).size, 1);
+  let ledger = newCashLedger();
+  for (const entry of events) {
+    if (entry.type === 'intake_closed') assert.deepEqual(reconcileCash(ledger, entry.data), []);
+    ledger = applyCashEvent(ledger, entry);
+  }
+  assert.equal(ledger.closed, true);
+  assert.equal(cashTotals(ledger).creditedPaise, 10000n);
+  assert.equal(cashTotals(ledger).creditedNotes, 1);
 });
 
 test('cash inventory requires all six denominations and explicit finite counters', () => {

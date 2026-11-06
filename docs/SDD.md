@@ -398,6 +398,10 @@ escrow actions, uses the existing command journal to forbid physical replay,
 and replays only durable Outbox envelopes after restart. Unknown dispatch and
 the non-atomic raw-event consumption/persistence window fail closed for
 operator reconciliation rather than reconstructing notes from inventory.
+An exclusive, atomically replaced `state.json` contains note state, dispatch
+markers and the ordered Outbox; `raw.jsonl` and persisted poll-in-flight markers
+detect raw consume/commit gaps. An active restart locks reconciliation and never
+replays a physical operation. Only the exact acknowledged Outbox head retires.
 
 `GET /api/controller/:atmId/cash-session` returns the active bound session and
 durable close request. `POST /api/controller/:atmId/cash-events` accepts the

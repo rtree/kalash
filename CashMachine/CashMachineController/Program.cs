@@ -130,6 +130,10 @@ internal static class Program
             freshPackageDirectory);
         var itlCredentials = VendorBootstrapCredentials.Load(freshPackageDirectory);
         var centralConfiguration = CashControllerConfiguration.Load();
+        var productDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "KALASH", "cash-product", centralConfiguration.AtmId);
+        using var productJournal = centralConfiguration.ProductCashEnabled ? new ProductCashJournal(productDirectory) : null;
         using var central = new CentralCashCommandClient(
             centralConfiguration.CentralUri,
             centralConfiguration.AtmId,
@@ -148,6 +152,7 @@ internal static class Program
         using var itl = new ItlControllerClient(itlCredentials.Username, itlCredentials.Password);
         ItlDeviceStatusPoller? deviceStatusPoller = null;
         Task? deviceEventDrain = null;
+        ProductCashExecutionOwner? productOwner = null;
         var statusPollerDisposed = false;
 
         try
@@ -164,21 +169,47 @@ internal static class Program
                 throw new InvalidDataException("GetAllCashDevices did not return an array.");
             }
 
-            ICashStartDevice device;
-            if (connectedDevices.RootElement.GetArrayLength() == 1)
+            string? selectedDeviceId = connectedDevices.RootElement.GetArrayLength() == 1
+                ? GetConnectedDeviceId(connectedDevices.RootElement[0]) : null;
+            if (centralConfiguration.ProductCashEnabled && selectedDeviceId is not null
+                && (await productJournal!.LoadAsync(cancellation.Token)).DeviceId != selectedDeviceId)
+                throw new InvalidOperationException("The connected device is not bound to this durable product owner.");
+            if (centralConfiguration.ProductCashEnabled && connectedDevices.RootElement.GetArrayLength() == 0)
             {
-                var deviceId = GetConnectedDeviceId(connectedDevices.RootElement[0]);
+                using var usb = await itl.GetConnectedUsbDevicesAsync(cancellation.Token);
+                var ports = GetComPorts(usb.RootElement);
+                if (ports.Length != 1) throw new InvalidOperationException("Product cash requires exactly one USB device.");
+                selectedDeviceId = await ProductCashHost.OpenDisabledAsync(
+                    true, itl, productJournal!, ports[0], Path.Combine(productDirectory, "ssp-logs"), cancellation.Token);
+            }
+            if (centralConfiguration.ProductCashEnabled && selectedDeviceId is null)
+                throw new InvalidOperationException("Product cash requires one exclusively owned device.");
+            ICashStartDevice device;
+            if (selectedDeviceId is not null)
+            {
+                var deviceId = selectedDeviceId;
                 var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 var eventJournal = Path.Combine(
                     localData,
                     "KALASH",
                     "cash-device-events",
                     $"{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.jsonl");
-                deviceStatusPoller = new ItlDeviceStatusPoller(itl, deviceId, eventJournal);
-                deviceStatusPoller.Start();
-                await WaitForStatusSnapshotAsync(deviceStatusPoller, TimeSpan.FromSeconds(5), cancellation.Token);
-                device = new ItlCashStartDevice(itl, deviceStatusPoller, deviceId);
-                deviceEventDrain = DrainDeviceEventsAsync(deviceStatusPoller, cancellation.Token);
+                deviceStatusPoller = new ItlDeviceStatusPoller(itl, deviceId,
+                    centralConfiguration.ProductCashEnabled ? Path.Combine(productDirectory, "raw.jsonl") : eventJournal);
+                if (centralConfiguration.ProductCashEnabled)
+                {
+                    productOwner = new ProductCashExecutionOwner(centralConfiguration.AtmId, central, central,
+                        new ItlProductCashDevice(itl, deviceStatusPoller, deviceId), productJournal!,
+                        CashCommandJournal.FromLocalApplicationData(), physicalAcceptanceAuthorized: true);
+                    device = productOwner;
+                }
+                else
+                {
+                    deviceStatusPoller.Start();
+                    await WaitForStatusSnapshotAsync(deviceStatusPoller, TimeSpan.FromSeconds(5), cancellation.Token);
+                    device = new ItlCashStartDevice(itl, deviceStatusPoller, deviceId);
+                    deviceEventDrain = DrainDeviceEventsAsync(deviceStatusPoller, cancellation.Token);
+                }
                 Console.WriteLine($"ITL device {deviceId} attached with one durable status/event poller.");
             }
             else
@@ -200,10 +231,14 @@ internal static class Program
                 physicalAcceptanceAuthorized: false);
             var commandPoller = new CashCommandPoller(central, journal, processor);
             Console.WriteLine(
-                $"Controller ready for Central {centralConfiguration.CentralUri} / ATM {centralConfiguration.AtmId}. Credential loaded; physical acceptance remains disabled.");
+                $"Controller ready for Central {centralConfiguration.CentralUri} / ATM {centralConfiguration.AtmId}. " +
+                (centralConfiguration.ProductCashEnabled
+                    ? "Owner-attended product cash gate is enabled; signed Central permission and all device preconditions remain mandatory."
+                    : "Physical acceptance remains disabled."));
 
             var exitTask = child.WaitForExitAsync();
-            var commandTask = commandPoller.RunAsync(cancellation.Token);
+            var commandTask = ProductCashHost.RunSelectedAsync(centralConfiguration.ProductCashEnabled,
+                () => productOwner!.RunAsync(cancellation.Token), () => commandPoller.RunAsync(cancellation.Token));
             if (await Task.WhenAny(exitTask, stopRequested.Task, commandTask) == exitTask)
             {
                 var exitCode = await exitTask;
@@ -243,7 +278,8 @@ internal static class Program
             }
 
             var safeToStopChild = deviceStatusPoller is null;
-            if (deviceStatusPoller?.Latest is { } finalStatus
+            if ((productOwner is null || !productOwner.State.Locked && productOwner.State.Intake is not { Closed: false })
+                && deviceStatusPoller?.Latest is { } finalStatus
                 && string.Equals(finalStatus.DeviceState, "DISABLED", StringComparison.OrdinalIgnoreCase))
             {
                 using var connected = await itl.GetAllCashDevicesAsync(CancellationToken.None);

@@ -8,7 +8,7 @@ public sealed record ItlDeviceStatusSnapshot(
     IReadOnlyList<JsonElement> Events,
     long ObservedAt);
 
-public sealed class ItlDeviceStatusPoller : IAsyncDisposable
+public sealed partial class ItlDeviceStatusPoller : IAsyncDisposable
 {
     private readonly ItlControllerClient client;
     private readonly string deviceId;
@@ -44,7 +44,7 @@ public sealed class ItlDeviceStatusPoller : IAsyncDisposable
 
     public void Start()
     {
-        if (worker is not null) throw new InvalidOperationException("The ITL status poller is already running.");
+        if (worker is not null || ownedMode) throw new InvalidOperationException("The ITL status poller is already owned.");
         Directory.CreateDirectory(Path.GetDirectoryName(journalPath)!);
         worker = RunAsync(stop.Token);
     }

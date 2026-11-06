@@ -4,13 +4,23 @@ using System.Text.RegularExpressions;
 
 namespace Kalash.CashMachineController;
 
-public sealed class CashControllerConfiguration(Uri centralUri, string atmId, string credential)
+public sealed class CashControllerConfiguration(Uri centralUri, string atmId, string credential, bool productCashEnabled = false)
 {
     private const string DefaultAtmId = "atm-01";
     private const int MaximumConfigurationBytes = 16 * 1024;
     public Uri CentralUri { get; } = centralUri;
     public string AtmId { get; } = atmId;
     public string Credential { get; } = credential;
+    public bool ProductCashEnabled { get; } = productCashEnabled;
+    public const string ProductCashEnableVariable = "KALASH_PRODUCT_CASH_ENABLE";
+    public const string ProductCashEnableValue = "OWNER_ATTENDED_PRODUCT_CASH";
+
+    public static bool ParseProductCashGate(string? value) => value switch
+    {
+        null or "" or "false" => false,
+        ProductCashEnableValue => true,
+        _ => throw new ControllerConfigurationException("The product physical cash gate is invalid; acceptance remains disabled.")
+    };
 
     public override string ToString() =>
         $"CashControllerConfiguration {{ CentralUri = {CentralUri}, AtmId = {AtmId}, Credential = [redacted] }}";
@@ -88,7 +98,8 @@ public sealed class CashControllerConfiguration(Uri centralUri, string atmId, st
                 "The Central URL or ATM ID override is invalid.");
         }
 
-        return new CashControllerConfiguration(centralUri, atmId, registered.Token!);
+        settings.TryGetValue(ProductCashEnableVariable, out var gate);
+        return new CashControllerConfiguration(centralUri, atmId, registered.Token!, ParseProductCashGate(gate));
     }
 
     private static IReadOnlyDictionary<string, string?> ReadEnvironmentOverrides()
@@ -96,7 +107,8 @@ public sealed class CashControllerConfiguration(Uri centralUri, string atmId, st
         return new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["KALASH_CENTRAL_URL"] = Environment.GetEnvironmentVariable("KALASH_CENTRAL_URL"),
-            ["KALASH_ATM_ID"] = Environment.GetEnvironmentVariable("KALASH_ATM_ID")
+            ["KALASH_ATM_ID"] = Environment.GetEnvironmentVariable("KALASH_ATM_ID"),
+            [ProductCashEnableVariable] = Environment.GetEnvironmentVariable(ProductCashEnableVariable)
         };
     }
 
