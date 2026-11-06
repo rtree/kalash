@@ -17,8 +17,14 @@ public interface IProductCashDevice
     Task ReturnAsync(CancellationToken token);
 }
 
+public interface IProductInitializationDevice : IProductCashDevice
+{
+    Task DisconnectOnceAsync(CancellationToken token);
+    Task<bool> IsDisconnectedAsync(CancellationToken token);
+}
+
 public sealed class ItlProductCashDevice(
-    ItlControllerClient client, ItlDeviceStatusPoller poller, string deviceId) : IProductCashDevice
+    ItlControllerClient client, ItlDeviceStatusPoller poller, string deviceId) : IProductInitializationDevice
 {
     public Task<IReadOnlyList<CashRawSnapshot>> RecoverAsync(CancellationToken token) => poller.RecoverOwnedAsync(token);
     public Task<CashRawSnapshot> PollAsync(CancellationToken token) => poller.PollOwnedAsync(token);
@@ -26,6 +32,15 @@ public sealed class ItlProductCashDevice(
     public Task DisableAsync(CancellationToken token) => client.DisableAcceptorOnceAsync(deviceId, token);
     public Task AcceptAsync(CancellationToken token) => client.AcceptFromEscrowOnceAsync(deviceId, token);
     public Task ReturnAsync(CancellationToken token) => client.ReturnFromEscrowOnceAsync(deviceId, token);
+    public Task DisconnectOnceAsync(CancellationToken token) => client.DisconnectDeviceAsync(deviceId, token);
+
+    public async Task<bool> IsDisconnectedAsync(CancellationToken token)
+    {
+        using var connected = await client.GetAllCashDevicesAsync(token);
+        if (connected.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Disconnected verification requires an explicit connected-device list.");
+        return connected.RootElement.GetArrayLength() == 0;
+    }
 
     public async Task<ProductDeviceHealth> ReadHealthAsync(CancellationToken token)
     {

@@ -66,6 +66,10 @@ internal static class ProductCashTests
         await Run("one-100 profile inhibits other values and closes after one stored note", SingleHundredProfile);
         await Run("one-100 Run exits naturally only after exact close ACK and safe readback", NaturalSingleHundredShutdown);
         await Run("regular or unreconciled Run never claims bounded completion", ResidentOrUnknownShutdown);
+        await Run("observed DeviceStatusResponse initialization is accepted; unknown states are not", ObservedInitialization);
+        await Run("startup-only recovery archives proof and disconnects without cash commands", InitializationRecovery);
+        await Run("initialization recovery refuses cash history, other locks and altered raw evidence", RejectNonStartupRecovery);
+        await Run("initialization recovery fails closed on current readbacks and unknown disconnect", FailedInitializationRecovery);
         Console.WriteLine($"{passed} product cash tests passed (synthetic fixtures; no hardware evidence).");
     }
 
@@ -612,6 +616,105 @@ internal static class ProductCashTests
         };
     }
 
+    private static async Task ObservedInitialization()
+    {
+        await using var fixture = await OwnerFixture.Create(singleHundred: true);
+        Check(!fixture.Owner.State.Locked && fixture.Owner.State.SuccessfulRouteResults == 6
+            && !fixture.Owner.State.RouteVerificationRequired && fixture.Owner.State.RawSequence == 1,
+            "Observed five-state/six-route initialization was misclassified.");
+        using var raw = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.Files.File("raw.jsonl")));
+        var events = raw.RootElement.GetProperty("events");
+        Check(events.GetArrayLength() == 11 && events.EnumerateArray().Take(5)
+            .Select(item => item.GetProperty("stateAsString").GetString())
+            .SequenceEqual(["CONNECTING", "CONNECTED", "STARTING", "STARTED", "DISABLED"]), "Observed event ordering not exercised.");
+        fixture.Central.NoSession = true;
+        fixture.Itl.EnqueueState("UNKNOWN_STATE");
+        await fixture.Tick();
+        Check(fixture.Owner.State.Locked && fixture.Owner.State.LockReasons.Contains("unexpected_device_state_event")
+            && fixture.Itl.EnableCount == 0, "Unknown device status was allowed.");
+    }
+
+    private static async Task InitializationRecovery()
+    {
+        await using var fixture = await OwnerFixture.Create(singleHundred: true);
+        fixture.Owner.State.Reconcile("unknown_device_event", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+        var originalRaw = await File.ReadAllBytesAsync(fixture.Files.File("raw.jsonl"));
+        var receipt = await fixture.RecoverStartup();
+        var state = await fixture.Journal.LoadAsync(None);
+        Check(!state.Locked && state.LockReasons.Count == 0 && state.InitializationRecoveryPhase == "completed"
+            && state.InitializationRecovery is { Disconnected: true } && !state.ManualEscrowConfigured,
+            "Verified startup recovery did not persist its narrow outcome.");
+        Check(fixture.Itl.DisconnectCount == 1 && fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0
+            && fixture.Itl.ReturnCount == 0 && state.Intake is null && state.Outbox.Count == 0,
+            "Recovery issued or invented a cash operation.");
+        var afterRaw = await File.ReadAllBytesAsync(fixture.Files.File("raw.jsonl"));
+        Check(originalRaw.SequenceEqual(afterRaw), "Original raw evidence changed.");
+        using var archive = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.Files.File(Path.Combine("evidence", receipt.ArchiveFile))));
+        Check(archive.RootElement.GetProperty("originalState").GetProperty("locked").GetBoolean()
+            && Convert.FromBase64String(archive.RootElement.GetProperty("rawJournalBase64").GetString()!).SequenceEqual(originalRaw),
+            "Original locked state/raw bytes were not archived.");
+        await Reject<InvalidOperationException>(() => fixture.RecoverStartup());
+        Check(fixture.Itl.DisconnectCount == 1, "Successful recovery was replayed.");
+    }
+
+    private static async Task RejectNonStartupRecovery()
+    {
+        await using var fixture = await OwnerFixture.Create(singleHundred: true);
+        fixture.Owner.State.Reconcile("unknown_device_event", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.Files.File("raw.jsonl")));
+        var observed = new CashRawSnapshot(1, new ItlDeviceStatusSnapshot("DISABLED",
+            document.RootElement.GetProperty("events").EnumerateArray().Select(item => item.Clone()).ToArray(),
+            document.RootElement.GetProperty("observedAt").GetInt64()));
+        foreach (var mutation in new Action<ProductCashState>[]
+        {
+            state => state.Intake = Started().Intake,
+            state => state.Outbox.Add(Started().Outbox[0]),
+            state => state.CompletedSessions.Add(Guid.NewGuid().ToString()),
+            state => state.NextSequence = 2,
+            state => state.LockReasons.Add("raw_consume_commit_gap"),
+            state => state.PollInFlight = true,
+            state => state.ConnectionDispatchPending = true,
+            state => state.InitializationRecoveryPhase = "disconnecting",
+            state => state.SingleHundred = false
+        })
+        {
+            var state = JsonSerializer.Deserialize<ProductCashState>(
+                JsonSerializer.Serialize(fixture.Owner.State, ProductCashJson.Options), ProductCashJson.Options)!;
+            mutation(state);
+            await Reject<InvalidOperationException>(() => Task.Run(() =>
+                ProductInitializationRecovery.ValidateStartupOnly(state, [observed], 0)));
+        }
+        await Reject<InvalidOperationException>(() => Task.Run(() =>
+            ProductInitializationRecovery.ValidateStartupOnly(fixture.Owner.State, [observed], 1)));
+        var changed = observed.Status.Events.ToArray();
+        changed[0] = JsonSerializer.SerializeToElement(new { type = "CashEventResponse", eventTypeAsString = "STORED", value = 10000, countryCode = "INR" });
+        await Reject<InvalidDataException>(() => Task.Run(() => ProductInitializationRecovery.ValidateStartupOnly(
+            fixture.Owner.State, [observed with { Status = observed.Status with { Events = changed } }], 0)));
+    }
+
+    private static async Task FailedInitializationRecovery()
+    {
+        foreach (var failure in new[] { "counter", "cash", "escrow", "inhibit", "disconnect" })
+        {
+            await using var fixture = await OwnerFixture.Create(singleHundred: true);
+            fixture.Owner.State.Reconcile("unknown_device_event", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+            fixture.Itl.MissingCounter = failure == "counter";
+            fixture.Itl.ForceEscrow = failure == "escrow";
+            fixture.Itl.DisconnectFails = failure == "disconnect";
+            if (failure == "cash") fixture.Itl.Enqueue("STORED");
+            if (failure == "inhibit") fixture.Itl.EnabledValues.Add(20_000);
+            if (failure == "disconnect") await Reject<HttpRequestException>(() => fixture.RecoverStartup());
+            else await Reject<InvalidDataException>(() => fixture.RecoverStartup());
+            var state = await fixture.Journal.LoadAsync(None);
+            Check(state.Locked && state.InitializationRecovery is null
+                && state.LockReasons.Contains("initialization_reconciliation_incomplete"), "Unverified startup lock was cleared.");
+            await Reject<InvalidOperationException>(() => fixture.RecoverStartup());
+            Check(fixture.Itl.DisconnectCount == (failure == "disconnect" ? 1 : 0), "Unknown or unsafe disconnect was retried.");
+        }
+    }
+
     private sealed class FixtureDirectory : IDisposable
     {
         private readonly string root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests",
@@ -661,6 +764,15 @@ internal static class ProductCashTests
             Journal.Dispose();
             Journal = new(Files.File("product"));
             await MakeOwner();
+        }
+
+        public async Task<ProductInitializationRecoveryReceipt> RecoverStartup()
+        {
+            await poller.DisposeAsync();
+            poller = new(client, "synthetic-device", Files.File("raw.jsonl"));
+            return await new ProductInitializationRecovery(Journal, new(Files.File("commands")),
+                new ItlProductCashDevice(client, poller, "synthetic-device"), Files.File("raw.jsonl"),
+                Files.File("evidence")).ReconcileAndDisconnectAsync(None);
         }
 
         public async Task Start(bool expectClosed = false)
@@ -777,13 +889,14 @@ internal static class ProductCashTests
 
     private sealed class SyntheticItl : HttpMessageHandler
     {
-        public int EnableCount, AcceptCount, ReturnCount, DisableCount, Stored, MaximumConcurrentStatus, StatusCount;
-        public bool AcceptFails, IgnoreDisable, BadRoute, MissingCounter, UsbDisconnected, ForceEscrow;
+        public int EnableCount, AcceptCount, ReturnCount, DisableCount, Stored, MaximumConcurrentStatus, StatusCount, DisconnectCount;
+        public bool AcceptFails, IgnoreDisable, BadRoute, MissingCounter, UsbDisconnected, ForceEscrow, DisconnectFails;
         public HashSet<long> EnabledValues { get; } = CashInventory.Denominations.ToHashSet();
         public Func<Task>? BeforeAccept;
         private string state = "DISABLED";
         private bool escrow;
         private int statusRequests;
+        private bool disconnected;
         private readonly Queue<object> events = new();
 
         public void Enqueue(string name)
@@ -791,6 +904,8 @@ internal static class ProductCashTests
             events.Enqueue(new { type = "CashEventResponse", eventTypeAsString = name, value = 10_000, countryCode = "INR" });
             escrow = name == "ESCROW";
         }
+
+        public void EnqueueState(string name) => events.Enqueue(new { type = "DeviceStatusResponse", stateAsString = name });
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
@@ -800,7 +915,7 @@ internal static class ProductCashTests
             {
                 case "Authenticate": return Json(new { token = "synthetic-itl-token", expires_seconds = 3600 });
                 case "GetConnectedUSBDevices": return Json(UsbDisconnected ? Array.Empty<object>() : [new { Port = "COM4" }]);
-                case "GetAllCashDevices": return Json(new[] { "synthetic-device" });
+                case "GetAllCashDevices": return Json(disconnected ? Array.Empty<string>() : ["synthetic-device"]);
                 case "OpenConnection":
                     using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token)))
                     {
@@ -811,6 +926,8 @@ internal static class ProductCashTests
                             if (!row.GetProperty("Inhibit").GetBoolean())
                                 EnabledValues.Add(long.Parse(row.GetProperty("Denomination").GetString()!.Split(' ')[0]));
                     }
+                    foreach (var status in new[] { "CONNECTING", "CONNECTED", "STARTING", "STARTED", "DISABLED" })
+                        EnqueueState(status);
                     for (var index = 0; index < 6; index++)
                         events.Enqueue(new { type = "SetDenominationRouteFinishedEventResponse", result = true });
                     return Json(new { deviceID = "synthetic-device" });
@@ -845,6 +962,11 @@ internal static class ProductCashTests
                     if (AcceptFails) throw new HttpRequestException("synthetic unknown Accept result");
                     return Json(new { });
                 case "ReturnFromEscrow": ReturnCount++; return Json(new { });
+                case "DisconnectDevice":
+                    DisconnectCount++;
+                    if (DisconnectFails) throw new HttpRequestException("synthetic unknown disconnect");
+                    disconnected = true;
+                    return Json(new { });
                 default: throw new InvalidOperationException("Unexpected synthetic ITL operation.");
             }
         }

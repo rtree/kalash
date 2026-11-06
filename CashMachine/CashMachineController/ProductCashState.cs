@@ -54,6 +54,8 @@ public sealed class ProductCashState
     public string? DeviceId { get; set; }
     public bool RouteVerificationRequired { get; set; }
     public int SuccessfulRouteResults { get; set; }
+    public string? InitializationRecoveryPhase { get; set; }
+    public ProductInitializationRecoveryReceipt? InitializationRecovery { get; set; }
     public bool Locked { get; set; }
     public List<string> LockReasons { get; init; } = [];
     public List<string> CompletedSessions { get; init; } = [];

@@ -374,11 +374,14 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 }
                 return;
             }
-            if (type == "DeviceStateResponse")
+            if (type is "DeviceStateResponse" or "DeviceStatusResponse")
             {
                 var state = ProductCashReadback.Text(item, "stateAsString").ToUpperInvariant();
-                if (state is not ("CONNECTED" or "STARTING" or "STARTED" or "DISABLED" or "IDLE" or "ACCEPTING"))
+                if (state is not ("CONNECTING" or "CONNECTED" or "STARTING" or "STARTED" or "DISABLED" or "IDLE" or "ACCEPTING"))
                     State.Reconcile("unexpected_device_state_event", observedAt);
+                else if (State.Intake is { Closed: false, EnableDispatchStarted: true }
+                    && state is "CONNECTING" or "CONNECTED" or "STARTING" or "STARTED")
+                    State.Reconcile("device_reinitialized_during_intake", observedAt);
                 return;
             }
             if (type != "CashEventResponse") { State.Reconcile("unknown_device_event", observedAt); return; }

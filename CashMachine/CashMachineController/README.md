@@ -152,6 +152,45 @@ Remove-Item Env:\KALASH_PRODUCT_CASH_ENABLE -ErrorAction SilentlyContinue
 No Payout/Dispense command belongs in this procedure. The note remains in the
 machine for the separately authorized later fee/admin payout.
 
+### Startup-only parser reconciliation
+
+The observed SDK initialization response is `DeviceStatusResponse`, with ordered
+CONNECTING, CONNECTED, STARTING, STARTED, DISABLED states, then six successful
+route results. These known states are accepted; unknown states still fail closed.
+
+For the specific older `unknown_device_event` startup misclassification only,
+first stop the Controller owner without stopping its retained vendor child.
+The operator may then run this explicit helper against that same verified PID:
+
+```powershell
+.\CashMachine\CashMachineController\Reconcile-ProductInitialization-Local.ps1 -ServerPid <verified-existing-pid>
+```
+
+This does not launch a server or restart product mode. Controller mutex and
+journal ownership must be free. Eligibility requires the exact sole startup
+lock, one-₹100 profile, no intake, outbox, completed sessions or local command
+history, no interrupted poll/connection/recovery marker, and the retained one
+DISABLED raw snapshot containing exactly the five observed state transitions
+and six successful route results. It cannot clear a general cash lock.
+
+Before any consuming read, it archives the original locked state and exact raw
+journal bytes/hash under `initialization-recovery-evidence`. With one reader it
+requires current DISABLED/no new events before and after fresh identity,
+open/started/error/escrow, USB/binding, all six INR levels/routes/inhibits and all
+four counters. Only ₹100 may be uninhibited; empty escrow is mandatory.
+It persists a disconnect-dispatch marker, sends Disconnect once and verifies an
+empty connected-device list. Only then does it remove this one startup reason,
+retain the original reason/readbacks/archive reference in `state.json`, and
+mark the manual connection unavailable.
+
+After that successful verification the wrapper rechecks PID identity and port
+ownership, stops only that disconnected child, and keeps all evidence. Any
+unknown result retains the lock/phase and forbids blindly rerunning the helper.
+It never sends OpenConnection, EnableAcceptor, Accept, Return or Payout. The
+general `Complete-Initialization-Local.ps1` assumes a different inhibit profile
+and is not a substitute for this exact startup-only reconciliation.
+Another product launch requires fresh parent/operator approval.
+
 When explicitly enabled, `run` opens at most one device with automatic escrow
 acceptance and the acceptor disabled, or attaches only its journal-bound device.
 OpenConnection dispatch is durable and an unknown result is not retried.

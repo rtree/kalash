@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 
 namespace Kalash.CashMachineController;
 
-internal static class Program
+internal static partial class Program
 {
     private const string InstanceMutexName = @"Local\KALASH.CashMachineController";
 
@@ -17,7 +17,7 @@ internal static class Program
     {
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
-            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | diagnose-cash | run [--one-100]");
+            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | reconcile-product-initialization | diagnose-cash | run [--one-100]");
             Console.WriteLine(
                 $"Inspect uses the unchanged vendor default credentials from the local Fresh package at {VendorBootstrapCredentials.PackageDirectoryVariable}; no password changes or persistence are performed.");
             Console.WriteLine("validate never starts a child; inspect performs read-only checks and stops its child.");
@@ -31,7 +31,7 @@ internal static class Program
         }
 
         var singleHundred = args is ["run", "--one-100"];
-        if (!singleHundred && (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "diagnose-cash" or "run")))
+        if (!singleHundred && (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "reconcile-product-initialization" or "diagnose-cash" or "run")))
         {
             Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', 'reconcile', 'finish-initialization', 'diagnose-cash', or the explicit 'run' command.");
             return 2;
@@ -53,6 +53,7 @@ internal static class Program
                 "initialize" => await InitializeDeviceAsync(),
                 "reconcile" => await ReconcileExistingDeviceAsync(),
                 "finish-initialization" => await FinishInitializationAsync(),
+                "reconcile-product-initialization" => await ReconcileProductInitializationAsync(),
                 "diagnose-cash" => await DiagnoseCashAsync(),
                 _ => await RunServerAsync(singleHundred)
             };
