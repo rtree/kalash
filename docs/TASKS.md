@@ -92,3 +92,15 @@
 - 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
 - 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
 - 次の一手：M1 mobile donationは完了。M2写真共有・公開ボードへ戻り、既存の本人写真を維持しつつ、運営者withdraw権限の仕様と実装を進める。追加撮影・公開・削除は本人の明示承認前に行わない。
+
+## 寺院ATMへ取り込むUX（文書PR）
+
+- UTC 2026-11-06 07:27:46。対象：ユーザー定義のリモートCrypto／現地Crypto／現地現金UXをM2残項目とM3～M5へ引き継ぐ。参照main `8a7b887fbd5496d78f0b71abe95fb4a8ddb3e7f2`、稼働記録 `00016-w6k`／source `1790e57`。
+- 最新証拠：MetaMaskのBase Sepolia RPC変更後、モバイルapprove→donate→Central confirmed/minted→Collection再読込が成功。receipt・Vaultイベント・mint receipt照合記録あり。本人の写真共有・Devotee board表示と公開APIの記録も一致。M2は運営者withdraw・残るcamera/size/withdraw検証を引き継ぐ。古い「Approve未解決」を現在のブロッカーにしない。
+- 新方針：モバイルMetaMask内蔵＋PC、ATM QRはDApp deeplink。Reown全面撤去は不要。自動追加するBase Sepolia networkのrpcUrlsを `["https://sepolia.base.org"]` に固定し、public read設定とWallet保存済みRPCを区別する。
+- UX：リモートCryptoはスマホ完結。現地CryptoはATMで選択→QR、スマホの当該寺院ページで金額・署名、CentralのSIWE＋claim後にATM「寄付中」、寄付確定後に初期画面。任意写真はスマホ。現地現金は本人と受付を結び、NV200 Ready→有限受付→Done／期限→停止・照合→確定、スマホCollectionを強制遷移なしで更新、ATM任意写真→Finish／無操作で初期画面。
+- 成果：`docs/issue-penetrator/kalash-metamask-browser-journey.md` に三UX・画面状態・期限・現地性・写真権限・RPC・M3～M5への割り当てを統合。プレイブックをATM段階へ更新し、Approve調査にはRPC復旧済みの証拠を追記、旧分析を履歴化。今回の文書commitに含む。
+- SPEC §4.2/§4.3/§5/§8、SDD §2/§3/§6/§7と照合。変更指示は現地Cryptoの金額入力場所、Crypto写真の撮影場所、ATMとスマホの状態遷移、RPC固定。現金の署名拘束・Controller照合・寄付限定写真権限は既存契約を維持。本筋のSPEC／SDD／製品コードは今回変更していない。
+- 確認：最新コード・記録の読み取り、文書レビュー、Markdownと相互リンクの検査。実機操作・Wallet署名・送金・撮影・公開・配備・製品テストはなし。
+- 次の一手：本筋が導線文書§9の差分を現行SPEC／SDD／TASKSと既存M3～M5へ反映。文書ファイルを選択して取り込み、古い文書ブランチ全体やTASKSでmainを上書きしない。実機はPC QR→スマホ→固定Cloud Run revision、試験中は再配備しない。今回の文書作業に本人操作待ちはなし。
+- 統合準備：2026-11-06 07:36:04 UTC。ユーザー指示によりPR #1を作成。main `8a7b887` のTASKS本文と製品ツリーを保持し、文書3件と本チェックポイントだけを統合。製品コード・配備変更なし。
