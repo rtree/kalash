@@ -2,7 +2,9 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M2 写真共有・公開ボード。M1 mobile donationは本人操作のMetaMask approvalで成功・Central確認・実Stamp・Collection再読込まで完了。M2では公開写真の管理と運営者withdraw権限の残りを安全に進める。
+- 現在のゴール：M3 寺院ATM共通受付・現地現金寄付。2026-11-06の本人指示で写真取り下げの追加作業を後回しにし、決定済みの三経路UXをSPEC／SDDへ反映して着手。M1 mobile donation・写真撮影／掲載は成功済みのまま維持する。
+- 成功条件：認可ATMのdeeplink QR→MetaMask→寺院・ATM・用途を確認して本人claim→Controller Ready→実紙幣収納→Done／期限で停止・照合→参拝mint・任意ATM写真。機器未接続や模擬試験を実収納成功に数えない。
+- 今回の担当：Integrator一人が本体Central／Web／Controller／テストとSPEC／SDD／TASKS・Gitを担当。PoCファイルと他担当の変更には触れない。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
@@ -12,7 +14,7 @@
 - Cloud Run：revision `kalash-central-00016-w6k`、health ready・Base Sepolia・mint有効、source `1790e57`。History recovery、expired-signature guard、Provider approval trace、walletClient preflightを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：M1の本体approval prompt障害を診断する。ViemのRPC preparation errorによりMetaMask prompt前に停止した。ユーザー報告のBase Sepolia RPC hostは`rpc.walletconnect.org/v1`（full URL/query未確認）。MetaMask側の設定を本人が確認し、no-pending-requestを確認後にexpired intentを整理する。
+- 次の作業：RPC自動追加の固定とATMの認可・短命受付・deeplink QR・本人claimを実装／検証。ITL認証・機器Readyは別ゲートとして診断する。成功済みの寄付や本人写真を再送／再公開しない。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -31,8 +33,12 @@
 | M1-ui | M1 | Integrator/UI：Pilgrim UI・E2E | M1-api、M1-chain | 完了 | ユーザーがConnect、VerifyWallet、SpendingCap、送金、Central確定、Stamp/CollectionをPC MetaMaskで確認 |
 | M1-deploy | M1 | Integrator：Cloud Run | M1-api、M1-ui | 完了 | 実オリジン、runtime SA、Health、mint loop確認 |
 | M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCのMetaMaskに加え、Android MetaMask内蔵Browserでも0.01 USDC approval→Donate→Central確認→Stamp/Collection再読込を本人確認。receipt canonical、Vault `Donated` event、mint receiptを照合 |
-| M2 | M2 | Integrator：写真・ボード | M1-e2e | 進行中 | 本人の写真共有→Devotee board表示を実機で確認。運営者取り下げ権限・残りのcamera/size/withdraw検証は未完 |
-| M3 | M3 | Integrator：Windows Controller/ITL | M2 | 未着手 | QR紐付け、紙幣収納、受付終了・照合・Stamp |
+| M2 | M2 | Integrator：写真・ボード | M1-e2e | human-wait（後回し） | 写真共有→Devotee board表示は本人／API確認済み。2026-11-06本人指示で取り下げ追加作業は後続へ。既存本人withdrawは維持。残るcamera/size検証も未完として保持 |
+| M3-rpc | M3 | Integrator：runtime／Wallet切替・局所テスト | M1-e2e | doing | public read／SDK metadata／実際のadd-chain requestを公式RPCへ固定。既存Wallet設定との違いも表示 |
+| M3-reception | M3 | Integrator：Central／ATM・Pilgrim UI／APIテスト | M1-e2e | doing | 端末認可・一受付排他・deeplink QR・本人署名claim・期限／再読込／二重claim拒否。現金開始権限をQRに載せない |
+| M3-device | M3 | Integrator：Windows Controller/ITL | M3-reception | todo | 資格情報・単一ポーラー・接続／経路／在高を確認し、実Ready→有限受付→収納／終了照合を同じIDへ |
+| M3-finish | M3 | Integrator：Central／ATM写真／Collection | M3-device | todo | 照合済み実収納だけを確定・mint予約。寄付限定ATM写真・Finish／Skip／無操作cleanup・静かなCollection更新 |
+| M3 | M3 | Integrator：ATM／Windows Controller/ITL | M3-reception、M3-device、M3-finish | doing | QR紐付け、実紙幣収納、受付終了・台帳照合・Stamp・ATM写真。M2後回しを全体完了とは扱わない |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
 
@@ -41,7 +47,7 @@
 | 対象 | 確認済み事実 | 次の作業 | 人の操作・再開条件 |
 |---|---|---|---|
 | M2 写真 | `kalash-donation-photos` はasia-south1、Uniform access、Public access prevention有効、soft-delete 0。Cloud Run runtime SAだけがアプリ用ObjectAdmin | 現行写真API／公開ボードを維持 | 個人写真の追加公開には都度明示同意 |
-| M2 カメラ | 従来のAgent確認は起動／停止のみ。2026-11-06 05:23Zに本人が本体のカメラ起動→撮影→CommunityBoard掲載成功を報告（今回Agentは画像・DB・本体実行版を未照合） | 本体の本人実測として記録し、隔離PoCのcamera合格と混同しない | 追加撮影・公開は依頼しない。次はCloud Run PoCでpreviewのみ |
+| M2 カメラ | 本人が本体の撮影→掲載を確認。公開API1件・本人slot／publishedも照合済み（画像内容は取得せず） | 既存機能を維持してM3 ATM写真へ再利用 | 追加の本人写真撮影・公開・削除は依頼しない |
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
@@ -68,11 +74,11 @@
 - `/api/board/temple-01/photos`はHTTP200で写真1件を返す。これは本人の表示確認と一致。個人写真をテスト・削除・再アップロードせず、CSPも緩めない。
 - Android撮影：MetaMask内蔵BrowserでCamera permissionを本人が許可した後、Take photo/Close cameraが表示されることを確認。Streamを閉じ、撮影・uploadなし。
 
-## 現在のモバイル状態（安全な復旧が必要）
+## 現在のモバイル状態（寄付・掲載成功済み）
 
 - 端末はWindowsからADB 37.0.1で認識。Samsung SM_S942Z、Android 16、物理1080×2340。Chromeは`com.android.chrome`、MetaMaskは`io.metamask`。
 - MetaMask内蔵DApp BrowserでKALASHのHistory/Collection・写真操作を表示。通常Chrome＋WalletConnectのVerifyWalletは`personal_sign` unavailableで失敗したため、認証を迂回しない。
-- Historyへ表示される2件のrecent donationsはどちらもPC Chrome起点で、モバイル購入ではない。3件目の送金は行わない。
+- 以前の2件はPC Chrome起点。その後のAndroid寄付`0xebee32b2…`はconfirmed/minted照合済み。成功証明のための追加送金は不要。
 - SIWE verify HTTP200、Base Sepolia。旧intent `0x9c721a5a…2932e`と`0xdf3655da…`は期限切れ・approveのみ・txHash/donateAttemptなし。直近4件はcancelled、全署名期限経過。ユーザーはRPC設定変更後にapprovalを承認し、DonationVault receipt・`Donated` event・mint receiptはsuccessかつcanonical。Collection reloadでLotus Courtyardのstamp count 5表示。Central全件削除は未実施。
 - 失効済みapprove-only intent 3件は開始後600ブロック内にUSDC Approval/Vault Donatedがなく、Allowance 0。
 - 既存版は期限後だけの解決だった。`src/server/donations.ts`のローカル変更は、approve-only・owner・イベント不在・Allowance 0を再検証し、deadline前は`cancelled`、期限後は`expired`とする。期限前cancelは署名を無効化せず期限まで有効であることを表示。署名・送金・Firestore削除はしない。
@@ -89,9 +95,16 @@
 ## 引き継ぎ
 
 - 完了：M1全体、delegated receipt復旧、M2のprivate photo API/boardとカメラ実装、PC MetaMaskの実寄付、写真のpublic listing。
-- 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
+- 未完：後回しのTemple/operator withdrawalとM2残検証、M3～M5。モバイル寄付と写真公開を未完へ戻さない。
 - 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
-- 次の一手：M1 mobile donationは完了。M2写真共有・公開ボードへ戻り、既存の本人写真を維持しつつ、運営者withdraw権限の仕様と実装を進める。追加撮影・公開・削除は本人の明示承認前に行わない。
+- 次の一手：M3-rpc／M3-receptionの実装・自動検証→固定Cloud Run版のQR入口確認。ITL認証と実紙幣は安全な別ゲート。追加署名・撮影・公開・機器動作は必要な対象を明示して本人操作を依頼する。
+
+## 最新チェックポイント
+
+- UTC 2026-11-06 07:47以降／再開約4分。対象M3-rpc／M3-reception。base `98d5777`、worktree cleanから開始、稼働版は引き続き`00016-w6k`／source `1790e57`。
+- SPEC §3／4／9とSDD §7／8へ最終UXを反映。Crypto金額・写真はスマホ、Cash写真はATM。QRは短命参照、明示claim、Cashは受付拘束署名。QR120秒・Ready後受付120秒・写真無操作30秒を分離。写真取り下げは本人指示で後回し。
+- `node scripts/check-policy.mjs`合格、既存依存を再利用。.NET 10.0.403／Windows ARM64を確認。製品変更・機器操作・送金・追加配備はこの時点で未実施。設計更新は今回のcommit。
+- 次：現行認証・Firestore transaction・Web構成を再利用しATM受付を縦に実装。ITL認証前401の旧観測は実機失敗／未接続の断定に使わない。必要な人操作は認証・接続診断後に具体化。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 

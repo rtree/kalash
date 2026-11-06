@@ -16,6 +16,10 @@ HTTPS lab on the phone, never the development PC's localhost.
 M1 first vertical slice: `/temples/temple-01` -> 0.01 test USDC ->
 Central receipt verification -> real stamp -> Collection reload.
 This document defines intended contracts; TASKS records verification, not this file.
+The current implementation goal is M3, using the accepted
+[MetaMask/ATM journey](issue-penetrator/kalash-metamask-browser-journey.md).
+M1 and photo publication are retained. The user deferred withdrawal follow-up;
+it does not gate ATM work, and existing owner withdrawal stays available.
 
 | Responsibility | Host | Address / status |
 |---|---|---|
@@ -228,6 +232,8 @@ never include those fields. `photoSizeTier` uses integer point units and shared
 thresholds: 1–499, 500–1,999, 2,000–4,999 and 5,000+ points; zero is ineligible.
 An expiry queue and cleanup queue are processed by the existing Central process.
 The owner may withdraw; operator/temple withdrawal authorization remains to be added.
+Withdrawal follow-up is deferred, not removed from the final acceptance criteria.
+Remote and onsite crypto use phone photos; cash donations use ATM photos.
 
 API: `GET /api/photos/eligibility/:donationId`, `POST /api/photos`,
 `GET /api/photos/mine`, owner-only `POST /api/photos/:id/withdraw`,
@@ -254,7 +260,12 @@ test-process signing, not a production browser signer. Central event lookup by
 donationId is tested without a transaction hash. Exact points are recomputed
 from confirmed donations in API tests, not merely checked for a positive total.
 
-React/Wagmi/AppKit client supports external injected MetaMask and WalletConnect.
+React/Wagmi/AppKit client retains the successful MetaMask injected path on mobile
+and PC. External mobile browsers offer a canonical MetaMask DApp link; completion
+through mobile Chrome/WalletConnect and wholesale SDK removal are not gates.
+Public reads, network metadata and both sign-in/donation add-chain requests use
+`https://sepolia.base.org`, never an automatically substituted project RPC.
+Switching an already installed chain does not prove its saved RPC was updated.
 Registered injected connectors are not proof of an installed provider. The
 primary connect action checks getProvider before using one; ordinary mobile
 Chrome falls back to configured AppKit instead of failing Provider not found.
@@ -273,6 +284,58 @@ image serves all paths and loop. Runtime is one min/max instance, alwaysCPU.
 Before activating Cloud Run minter, local `MINT_ENABLED` is set false; lease still
 protects rollout overlaps. Canonical deployed HTTPS origin:
 `https://kalash-central-548318651344.asia-south1.run.app`.
+
+## 8. M3 ATM reception and cash boundary
+
+The shared reception is also the future M5 entry; M5 payment is not enabled just
+because a QR can be displayed. Only the registered `temple-01` ATM supports onsite
+reception. Other temples remain remote-only.
+
+Central owns `visitSessionId`, `atmId`, `templeId`, purpose (`cash`/`crypto`), expiry,
+state, verified owner and the eventual `cashSessionId`/`donationId`. A random public
+reference in the QR is for discovery, not a bearer grant. Viewing it never claims
+it. Claim is an explicit authenticated action, atomic and idempotent for the same
+owner; concurrent/foreign owners, wrong ATM/temple and expired references are
+rejected. Cash also requires a one-use wallet signature binding origin, chain,
+temple, ATM, visit/cash session, purpose, nonce and expiry. Normal login alone is
+not consent to a new cash reception.
+
+Controller authenticates to Central using an ATM-bound credential stored outside
+Git. A short-lived, single-use screen pairing code authorizes the Donate Screen;
+knowing `/atm/:atmId` is not authorization. Screen and Controller grants are
+separate. No wallet session, Firebase ID token, device credential or photo grant
+is placed in a deeplink. Sensitive responses are `no-store`.
+
+The QR encodes `https://link.metamask.io/dapp/<canonical-host>/temples/<templeId>?visit=<reference>`.
+Only the configured HTTPS origin, known temple route and exact visit parameter
+are accepted; preserve escaped path/query without encoding the whole target.
+The screen also displays temple, purpose, destination and remaining QR lifetime.
+The phone resolves the reference, presents the context, then connects/verifies
+and explicitly joins. ATM and phone poll authorized Central state every 2 seconds
+while active, refresh on visibility return, and stop on departure. No direct
+phone-to-ATM connection is needed.
+
+Initial independent time limits: unclaimed QR 120 seconds; cash acceptance 120
+seconds measured from actual Controller Ready; ATM photo inactivity 30 seconds.
+One unresolved reception per ATM is enforced transactionally. A QR timeout may
+close an unclaimed reception, but never cancels an in-flight cash/payment action.
+
+Cash: awaiting claim -> awaiting device -> accepting -> closing -> confirmed or
+reconciling. Done, receipt deadline and capacity stop new acceptance first.
+Only authenticated, ordered Controller STORED events, note keys, counters and
+denomination-level inventory reconciliation can confirm cash. Zero stored cash
+closes without donation/mint/photo. Unknown results keep the ATM locked.
+No browser action or development timer can synthesize Ready, stored cash or
+confirmation. ITL commands remain disabled until device authentication, exclusive
+poller ownership, routing/inventory and owner attendance have been established.
+Use SPEC section 8 for durable commands/events and no-blind-retry semantics.
+
+After cash confirmation, reserve onsite mint and permit only that donation's
+optional ATM photo. Finish/Skip/inactivity stops camera tracks, discards unposted
+preview, clears identity and revokes photo authority. Published photos remain.
+Successful mints refresh Collection silently; pending mints do not increase counts.
+M5 crypto will reuse this reception, use phone amount/signing/photos and release
+the ATM after Central confirms the donation, without waiting for mint/photos.
 
 The canonical regional URL is used for Firebase/Reown/metadata/API origin checks.
 Cloud Run's generated status.url alias is not a second application origin.

@@ -5,6 +5,10 @@ The approximately five-hour allocation is a target, not permission to claim
 unverified results. All ETH/USDC operations below use Base Sepolia (84532)
 test tokens only. Cash is real hardware and retains all safety requirements.
 The following input was preserved from the user attachment at project start.
+The UX sections below incorporate the user's 2026-11-06 decisions in
+[the MetaMask/ATM journey](issue-penetrator/kalash-metamask-browser-journey.md).
+Photo withdrawal follow-up is deferred by the user; it is not a gate for M3.
+Existing owner withdrawal remains available. Deferred work is tracked in TASKS.
 
 ```
 ### 最初の操作に適用する短いルールとチェック
@@ -137,7 +141,7 @@ KALASHは「寺院を巡り、楽しく寄付してスタンプを集める」�
 
 | 項目 | 固定する仕様 |
 |---|---|
-| Web／Wallet | React＋TypeScript、Reown AppKit/WalletConnect＋Wagmi/Viem。署名者は外部Wallet。製品Webは秘密鍵を持たない |
+| Web／Wallet | React＋TypeScript、既存Reown AppKit＋Wagmi/Viemを維持。モバイルMetaMask内蔵ブラウザ＋PC Chrome/MetaMask拡張を主経路とする。外部モバイルブラウザには「MetaMaskで開く」。WalletConnect完走・SDK全面撤去・アプリ内QRスキャナーはATM着手条件にしない。署名者は外部Wallet、製品Webは秘密鍵を持たない |
 | Central | Cloud Run一サービス・一イメージ・同一プロセスでWeb、API、短周期処理を実行。画面はパスで分離し同一オリジン |
 | バックエンド | Firebase Auth、Firestore、Secret Manager、非公開Cloud Storage。通常のDB更新はCentralだけ |
 | 稼働 | 最少1・最大1を基本、インスタンスベース課金で常時CPU。更新時の新旧重複はDB leaseと冪等性で防ぐ |
@@ -148,7 +152,7 @@ KALASHは「寺院を巡り、楽しく寄付してスタンプを集める」�
 | 金額計算 | `fee=floor(amount/10000)`、`net=amount-fee`。0.01 USDCは10,000単位、fee=1、net=9,999。表示は微小手数料を0に丸めない |
 | コントラクト | 寄付分配・現金手数料入金・譲渡不可ERC-1155スタンプの3責務をSolidityで実装。Vaultは同一取引で直接分配し資金を預からない |
 
-テストネットの接続設定：RPCの初期候補は`https://sepolia.base.org`、Explorerは`https://sepolia.basescan.org`。公共RPCは利用制限を考慮し、必要ならBase Sepolia対応の認証付きRPCを安全な設定から取得する。起動時に`eth_chainId`の応答が`0x14a34`（十進84532）、USDCアドレス・codeの存在・`decimals=6`を照合し、不一致なら送信を止める。Wallet・UI・API・署名対象・自動E2E・配備先を同じチェーンへ固定し、送金確認にBase SepoliaとテストUSDCであることを表示する。コントラクトはこのチェーンへ新規配備する。
+テストネットの接続設定：dAppのpublic readとWalletへ自動追加するBase Sepoliaの`rpcUrls`は`["https://sepolia.base.org"]`に固定し、SDKのnetwork metadataにも適用する。Explorerは`https://sepolia.basescan.org`。既存Wallet設定はchain切替だけで更新されたと扱わず、障害時は本人が設定を確認する。Central側で別RPCが必要なら安全な設定から取得する。起動時に`eth_chainId`の応答が`0x14a34`（十進84532）、USDCアドレス・codeの存在・`decimals=6`を照合し、不一致なら送信を止める。Wallet・UI・API・署名対象・自動E2E・配備先を同じチェーンへ固定し、送金確認にBase SepoliaとテストUSDCであることを表示する。コントラクトはこのチェーンへ新規配備する。
 
 Wallet・秘密・Firestoreのデータ領域・Storageのバケット・端末登録・コントラクト設定はテスト専用にし、他環境の寄付履歴・資金・受付へ接続しない。サービス構成は一サービスのまま維持する。実紙幣の試験では開始在高と所有者を確認し、立ち会い下で回収する。
 
@@ -268,10 +272,14 @@ enable-pre-post-scripts=false
 | 経路 | 利用者の操作と実処理 |
 |---|---|
 | リモート | 寺院探索／詳細→額・fee・受取額・chain・期限を確認→必要時にWallet認証→必要額approve→donate→Central検証→応援スタンプ、任意写真 |
-| 現地Crypto | Donate Screenで額→Central発行QR→スマホで寺院・端末・額を確認→Wallet承認→同じdonationIdの結果を両画面へ→参拝スタンプ、任意の端末写真 |
-| 現地紙幣 | Donate ScreenでCash→QR→本人が受付への紐付けに署名・同意→実機Ready→投入→収納額表示→Done→受付終了・在高照合→寄付確定→参拝スタンプ、任意の端末写真 |
+| 現地Crypto | ATMでCrypto選択→Centralの短命受付をMetaMask DApp deeplink QRで表示→スマホの当該寺院ページで本人確認＋明示claim→ATM「寄付中」→スマホで額・必要時approve・donate→Centralの成功receipt／イベント確認でATM初期画面→参拝スタンプ、任意のスマホ写真 |
+| 現地紙幣 | ATMでCash→受付のdeeplink QR→本人が寺院・ATM・cashSessionId・用途に拘束した署名と同意でclaim→実機Ready→有限時間の投入・実収納額表示→Done／期限／上限→受入停止・途中紙幣・在高照合→寄付確定・参拝mint予約→任意のATM写真→Finish／Skip／無操作期限で初期画面 |
 
 有効な認証は再利用するが、取引・新規受付への同意は省かない。「必ず署名一回」は要求しない。現地Cryptoは機器のReadyを前提にしない。本人の鍵・WalletセッションをATMへ渡さない。匿名現金は受け付けない。
+
+入口QRは`https://link.metamask.io/dapp/{正規KALASH host/path/query}`。URL全体を二重encodeしない。QRを開くだけではclaim・現金開始・支払い・写真公開を行わない。現地種別はCentralの受付拘束から決め、URLフラグを権限にしない。ATMとスマホは同じCentral受付を読み、直接通信しない。送信後の結果不明は同じIDを照合し、ATMのタイマーや画面再読込で金銭状態を初期化しない。
+
+QR期限・Readyからの現金受付期限・写真の無操作期限は別管理とし、初期値はSDDで定める。現金0円なら寄付・mint・写真権限を作らない。収納照合不能なら次の受付を止める。Cashの成功mintはCollection表示中なら静かに更新し、別画面を強制遷移させない。通知機能は今回の必須範囲外。
 
 スタンプは確認済み寄付1件につき1枚。メタデータは寺院・種別・日付だけとし、金額・写真・名前は載せない。寺院・日付・Walletの対応がチェーンで公開されることを寄付前に示す。
 
@@ -279,7 +287,7 @@ CollectionはRemote Support（応援）とOn-site Visits（参拝）を分離し
 
 ### 4.3 写真と公開ボード
 
-全寄付経路で「撮影／画像選択／スキップ」。辞退しても寄付・スタンプに影響しない。リモート撮影はスマホ、現地は端末。寄付確定後ならmint完了を待たず進む。
+全寄付経路で「撮影／画像選択／スキップ」。辞退しても寄付・スタンプに影響しない。リモートCrypto・現地Cryptoはスマホ（PC経路はPC）、現地現金はATMで撮影する。寄付確定後ならmint完了を待たず進む。ATM写真は確定donationId・本人・寺院・ATM・用途・期限に拘束した権限を使い、所有者はCentralが決める。Finish／Skip／無操作期限でカメラ・preview・本人表示・権限を破棄し、未公開写真を自動Uploadしない。
 
 撮影／選択→ローカルプレビュー→撮り直し／破棄／明示的掲載同意→アップロード→Board表示。同意は初期OFF。選択だけでは送信しない。保存は本人Wallet×寺院につき最新1枚とし、置換時は旧画像も削除。JPEG/PNG/WebP、サイズ上限と形式を表示し、サーバーで実デコード・寸法・容量を検証して再エンコード、位置情報等を除去する。
 
@@ -474,7 +482,7 @@ OpenConnectionはStartDeviceを内包する。追加でStartDeviceを呼ばな�
 |---|---|
 | Pilgrim：探索 | 上にKALASHロゴ、検索欄、Map／List切替。Mapは角丸の大きな地図と同サイズの寺院ピン、選択寺院カード。Listは左に角丸サムネイル、右に寺院名・所在地・現地対応の有無を並べる。距離は取得できる場合だけ表示。下部ナビはHome／Collection／Scan QR／History |
 | Pilgrim：寺院詳細 | 上部約1/3を寺院写真、戻るボタン、太字の寺院名と所在地。説明・写真・アクセスを短い区分で示す。下部にDonateを固定し、本文や同意文を覆わない。現地対応は実データから表示 |
-| Pilgrim／ATM：Crypto金額 | 0.01／0.1／0.5／1 USDCの選択肢と任意入力、既定0.01。クリーム色の要約カードに寄付額・INR換算・手数料・寺院受取額・Base Sepoliaを表示。上限1 USDCを明示。スマホは接続・送信へ、ATMはShow QRへ進む。Wallet承認画面は実Walletに任せる |
+| Pilgrim：Crypto金額 | 0.01／0.1／0.5／1 USDCの選択肢と任意入力、既定0.01。クリーム色の要約カードに寄付額・INR換算・手数料・寺院受取額・Base Sepoliaを表示。上限1 USDCを明示。現地も金額はスマホで入力し、ATMには金額入力を置かない。Wallet承認画面は実Walletに任せる |
 | Pilgrim：QR・紐付け | アプリ内スキャンは暗いカメラ領域に四隅のガイド、下に寺院・端末・期限と確認ボタン。QRのURLをWalletブラウザ等で開いた場合も同じ内容確認へ。紐付け後は緑のチェックと端末側の次の操作を示す。紐付け成功と寄付成功を区別 |
 | Pilgrim／ATM：処理・結果 | 中央に状態アイコン、短い見出し、実状態の進行項目、本人向け取引情報。送金・Central検証・寄付確定・mintを区別し、確定後はNext: Photoまたはスキップへ。mint完了後だけ金の縁の寺院スタンプと獲得表示を出す。保留中は再確認導線と理由を示す |
 | Pilgrim：Collection | Stamps／Photosの切替。Stamps内にRemote Support／On-site Visitsの二つの帳。各帳は2列の丸い寺院スタンプ＋金の縁、下に寺院名とCollected N times。未獲得は薄い灰色の枠、現地未対応・発行待ちは別表示。Photosには掲載先・状態・本人のポイント・取り下げ操作 |
