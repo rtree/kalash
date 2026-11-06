@@ -455,20 +455,25 @@ from an open port.
 `ItlReadOnlyClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
 tokens in memory, refreshes the token before expiry, and serializes each request.
 It exposes authentication and non-consuming USB/device/inventory GETs only.
-There is deliberately no `GetDeviceStatus`, `OpenConnection`, route, acceptor,
-or payout method until the staged checks and explicit device-operation scope
-allow them.
+It has no credential-update, `GetDeviceStatus`, `OpenConnection`, route,
+acceptor, or payout method. It does not consume events or change credentials.
 HTTP errors expose status codes, not response bodies; there are no blind retries.
 
-The Stage 1 `inspect` command verifies listener addresses are loopback-only,
-checks that the allowed Host receives an authentication challenge and an
-unlisted Host is rejected, authenticates with protected local credentials, then
-reads `GetConnectedUSBDevices` and `GetAllCashDevices` and stops its child.
-It does not call `GetDeviceStatus`. Stage 2 `OpenConnection` is a separate
-hardware initialization, not read-only: use `EnableAcceptor=false`,
-`EnableAutoAcceptEscrow=false`, and the verified Spectral Payout route. Do not
-insert or dispense notes in this stage; owner approval is required before
-performing it.
+The Stage 1 `inspect` command loads the default v2 Authenticate sample from the
+local Fresh SDK Postman collection in memory. Before starting, it compares the
+dedicated server's `users.json`, server DLL, runtime configuration, server
+configuration, and appsettings to the Fresh package. Any mismatch fails closed;
+it never initializes or rewrites users. It then verifies loopback-only listener
+addresses and Host filtering, authenticates, reads `GetConnectedUSBDevices` and
+`GetAllCashDevices`, and stops only its own child. Passwords and tokens are
+never printed or persisted. The local one-command entry point is
+`CashMachine/CashMachineController/Inspect-Local.ps1`.
+
+The vendor child receives `AllowedHosts=localhost;127.0.0.1;[::1]`, a per-run
+ephemeral JWT key, and warning-level application/Serilog filters. Its output is
+drained but not recorded. This limits application logging but is not a claim that
+the vendor creates no file logs. Service/autostart and persistent JWT credential
+decisions are deferred until this one-shot Stage 1 operation is verified.
 
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
 an explicit QR-unavailable reason instead of manufacturing a mobile link.

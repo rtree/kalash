@@ -75,6 +75,7 @@ public sealed class RestApiServerConfiguration
         RequireFile(fullServerDirectory, "CashDevice-RestAPI.runtimeconfig.json");
         RequireFile(fullServerDirectory, "serverconfig.json");
         RequireFile(fullServerDirectory, "appsettings.json");
+        RequireFile(fullServerDirectory, "users.json");
         ValidateServerConfiguration(Path.Combine(fullServerDirectory, "serverconfig.json"));
         ValidateRuntimeConfiguration(Path.Combine(fullServerDirectory, "CashDevice-RestAPI.runtimeconfig.json"));
 
@@ -123,6 +124,8 @@ public sealed class RestApiServerConfiguration
 
         startInfo.Environment["AllowedHosts"] = AllowedHosts;
         startInfo.Environment["Jwt__Key"] = signingKey;
+        startInfo.Environment["Logging__LogLevel__Default"] = "Warning";
+        startInfo.Environment["Serilog__MinimumLevel__Default"] = "Warning";
         return startInfo;
     }
 

@@ -14,6 +14,8 @@ internal static class Program
     private static async Task<int> Main()
     {
         await Run("valid vendor package configuration", ValidConfiguration);
+        await Run("load bootstrap credentials from the Fresh v2 collection", LoadVendorBootstrapCredentials);
+        await Run("refuse a target users file that differs from Fresh", RefuseModifiedUsersFile);
         await Run("reject non-loopback server configuration", RejectNonLoopbackConfiguration);
         await Run("reject incompatible runtime configuration", RejectIncompatibleRuntime);
         await Run("reject ambient .NET host lookup", RejectAmbientDotnet);
@@ -26,7 +28,8 @@ internal static class Program
         await Run("reject an unfiltered Host header", RejectUnfilteredHost);
         await Run("accept loopback listeners and reject wildcard binding", VerifyLoopbackBinding);
         await Run("fail when no local listener appears", RejectMissingLoopbackBinding);
-        Console.WriteLine("13 CashMachineController tests passed.");
+        await Run("initialize only with acceptor and auto-escrow disabled", OpenConnectionIsDisabled);
+        Console.WriteLine("16 CashMachineController tests passed.");
         return 0;
     }
 
@@ -36,6 +39,38 @@ internal static class Program
         var configuration = serverDirectory.CreateConfiguration();
         Check(configuration.Port == 5000, "Configured server port was not 5000.");
         Check(configuration.ServerDirectory == serverDirectory.Path, "Unexpected server directory.");
+        return Task.CompletedTask;
+    }
+
+    private static Task LoadVendorBootstrapCredentials()
+    {
+        using var serverDirectory = TestServerDirectory.Create();
+        using var freshPackage = TestFreshPackage.Create(serverDirectory.Path);
+        var credentials = VendorBootstrapCredentials.Load(freshPackage.Path);
+        VendorBootstrapCredentials.VerifyTargetMatchesFreshPackage(serverDirectory.Path, freshPackage.Path);
+        Check(credentials.Username == "sample-vendor-user", "Unexpected synthetic bootstrap username.");
+        Check(credentials.Password == "sample-vendor-password", "Unexpected synthetic bootstrap password.");
+        return Task.CompletedTask;
+    }
+
+    private static Task RefuseModifiedUsersFile()
+    {
+        using var serverDirectory = TestServerDirectory.Create();
+        using var freshPackage = TestFreshPackage.Create(serverDirectory.Path);
+        File.WriteAllText(
+            System.IO.Path.Combine(serverDirectory.Path, "users.json"),
+            """[{"Username":"different-user","PasswordHash":"different-hash","PasswordSalt":"different-salt"}]""");
+        var rejected = false;
+        try
+        {
+            VendorBootstrapCredentials.VerifyTargetMatchesFreshPackage(serverDirectory.Path, freshPackage.Path);
+        }
+        catch (ControllerConfigurationException)
+        {
+            rejected = true;
+        }
+
+        Check(rejected, "The Fresh credentials were accepted for a modified target users.json.");
         return Task.CompletedTask;
     }
 
@@ -97,6 +132,10 @@ internal static class Program
         Check(
             startInfo.Environment["DOTNET_ROOT"] == System.IO.Path.GetDirectoryName(serverDirectory.DotnetPath),
             "The child runtime root did not come from the explicit .NET host.");
+        Check(
+            startInfo.Environment["Logging__LogLevel__Default"] == "Warning"
+                && startInfo.Environment["Serilog__MinimumLevel__Default"] == "Warning",
+            "The vendor server's default log verbosity was not reduced.");
         Check(startInfo.RedirectStandardOutput && startInfo.RedirectStandardError, "Vendor output was not drained.");
         return Task.CompletedTask;
     }
@@ -181,7 +220,7 @@ internal static class Program
     private static async Task ReadOnlyItlRequests()
     {
         var handler = new CapturingHttpHandler();
-        using var client = new ItlReadOnlyClient("test-user", "test-password", handler);
+        using var client = new ItlControllerClient("test-user", "test-password", handler);
         using var usbDevices = await client.GetConnectedUsbDevicesAsync();
         using var cashDevices = await client.GetAllCashDevicesAsync();
         using var completeDevice = await client.GetCompleteCashDeviceAsync("id/with space");
@@ -220,7 +259,7 @@ internal static class Program
         var handler = new CapturingHttpHandler(
             authenticationStatus: HttpStatusCode.Unauthorized,
             authenticationResponseBody: "synthetic-secret-response-body");
-        using var client = new ItlReadOnlyClient("test-user", "test-password", handler);
+        using var client = new ItlControllerClient("test-user", "test-password", handler);
         ItlApiException? observed = null;
         try
         {
@@ -243,7 +282,7 @@ internal static class Program
     private static async Task VerifyHostFiltering()
     {
         var handler = new CapturingHttpHandler();
-        using var client = new ItlReadOnlyClient("test-user", "test-password", handler);
+        using var client = new ItlControllerClient("test-user", "test-password", handler);
         await client.VerifyHostFilteringAsync();
 
         Check(handler.Requests.Count == 2, "Host filtering did not use both probe requests.");
@@ -259,7 +298,7 @@ internal static class Program
     private static async Task RejectUnfilteredHost()
     {
         var handler = new CapturingHttpHandler(rejectUnlistedHost: false);
-        using var client = new ItlReadOnlyClient("test-user", "test-password", handler);
+        using var client = new ItlControllerClient("test-user", "test-password", handler);
         var rejected = false;
         try
         {
@@ -319,6 +358,38 @@ internal static class Program
         }
 
         Check(timedOut, "The verifier accepted a server that did not bind a listener.");
+    }
+
+    private static async Task OpenConnectionIsDisabled()
+    {
+        var handler = new CapturingHttpHandler();
+        using var client = new ItlControllerClient("test-user", "test-password", handler);
+        using var response = await client.OpenConnectionAsync("COM4", @"C:\Temp\KALASH\ssp-logs");
+
+        Check(handler.Requests.Count == 2, "OpenConnection did not authenticate and issue exactly one request.");
+        var request = handler.Requests[^1];
+        Check(request.Method == HttpMethod.Post, "OpenConnection was not a POST.");
+        Check(
+            request.Path == "/api/v2/CashDevice/OpenConnection",
+            "OpenConnection used an unexpected endpoint.");
+        Check(request.Authorization == "Bearer synthetic-test-token", "OpenConnection omitted the bearer token.");
+        using var payload = JsonDocument.Parse(request.Body);
+        var root = payload.RootElement;
+        Check(root.GetProperty("ComPort").GetString() == "COM4", "Unexpected COM port.");
+        Check(root.GetProperty("SspAddress").GetInt32() == 0, "Unexpected SSP address.");
+        Check(!root.GetProperty("EnableAcceptor").GetBoolean(), "Acceptor must remain disabled.");
+        Check(
+            !root.GetProperty("EnableAutoAcceptEscrow").GetBoolean(),
+            "Automatic escrow acceptance must remain disabled.");
+        Check(root.GetProperty("EnablePayout").GetBoolean(), "Expected the Payout module to be enabled.");
+        Check(root.GetProperty("SetInhibits").GetArrayLength() == 6, "Expected six configured denominations.");
+        Check(
+            root.GetProperty("SetRoutes").EnumerateArray().All(
+                route => route.GetProperty("Route").GetInt32() == 1),
+            "Spectral Payout route requests must use route 1.");
+        Check(
+            response.RootElement.GetProperty("deviceID").GetString() == "synthetic-device-id",
+            "The returned device ID was not preserved.");
     }
 
     private static async Task Run(string name, Func<Task> test)
@@ -389,6 +460,9 @@ internal static class Program
             File.WriteAllText(
                 System.IO.Path.Combine(directory, "appsettings.json"),
                 """{"AllowedHosts":"*"}""");
+            File.WriteAllText(
+                System.IO.Path.Combine(directory, "users.json"),
+                """[{"Username":"sample-vendor-user","PasswordHash":"sample-hash","PasswordSalt":"sample-salt"}]""");
             return new TestServerDirectory(directory);
         }
 
@@ -488,6 +562,17 @@ internal static class Program
                 };
             }
 
+            if (request.RequestUri?.AbsolutePath == "/api/v2/CashDevice/OpenConnection")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"deviceID":"synthetic-device-id"}""",
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            }
+
             if (request.Method == HttpMethod.Get
                 && request.RequestUri?.AbsolutePath == "/api/v2/CashDevice/GetConnectedUSBDevices"
                 && request.Headers.Authorization is null)
@@ -511,4 +596,77 @@ internal static class Program
         string? Host,
         string? Authorization,
         string Body);
+
+    private sealed class TestFreshPackage(string path) : IDisposable
+    {
+        public string Path { get; } = path;
+
+        public static TestFreshPackage Create(string targetRuntimeDirectory)
+        {
+            var root = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"kalash-fresh-package-test-{Guid.NewGuid():N}");
+            var runtime = System.IO.Path.Combine(
+                root,
+                "CashDevice-REST-API-Version-2.0.0",
+                "dotNET_8.0");
+            var postman = System.IO.Path.Combine(root, "Postman");
+            Directory.CreateDirectory(runtime);
+            Directory.CreateDirectory(postman);
+
+            foreach (var fileName in new[]
+            {
+                "CashDevice-RestAPI.dll",
+                "CashDevice-RestAPI.runtimeconfig.json",
+                "serverconfig.json",
+                "appsettings.json",
+                "users.json"
+            })
+            {
+                File.Copy(
+                    System.IO.Path.Combine(targetRuntimeDirectory, fileName),
+                    System.IO.Path.Combine(runtime, fileName));
+            }
+
+            var authenticateBody = JsonSerializer.Serialize(new
+            {
+                Username = "sample-vendor-user",
+                Password = "sample-vendor-password"
+            });
+            var collection = new
+            {
+                item = new[]
+                {
+                    new
+                    {
+                        name = "v2",
+                        item = new[]
+                        {
+                            new
+                            {
+                                name = "Authenticate",
+                                request = new
+                                {
+                                    body = new { raw = authenticateBody },
+                                    url = new { raw = "http://localhost:5000/api/v2/Users/Authenticate" }
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            File.WriteAllText(
+                System.IO.Path.Combine(postman, "Cash-Device-REST-API.postman_collection.json"),
+                JsonSerializer.Serialize(collection));
+            return new TestFreshPackage(root);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
+    }
 }

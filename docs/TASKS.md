@@ -2,8 +2,8 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M3 CashMachineController／ITL連携。M5a onsite Cryptoはverified。M3は専用Controllerホストとread-only機器状態から進め、実機経路の矛盾・USB未接続・資格情報未設定の間は現金命令を有効にしない。写真取り下げは後回し。
-- 成功条件：対象NV200の版・dataset・routeを確定し、Controllerが認証・単一poller・実Ready／在高を確認。以降の現金受付は別の立会いゲートで実紙幣・イベント・台帳を照合する。模擬状態やUI表示を実Ready／収納成功の証拠にしない。
+- 現在のゴール：M3 CashMachineController／ITL連携。M5a onsite Cryptoはverified。まず一時起動のStage 1で実REST APIの起動・Host/loopback・認証・USB列挙・終了を確認する。現金命令、OpenConnection、常駐化はまだ行わない。
+- 成功条件：M3 Stage 1で実REST API起動・Host/loopback・認証・USB列挙・所有child終了を確認する。パスワード変更・保護保存は行わない。後続の機器初期化／現金受付は別ゲート。模擬状態やUI表示を実Ready／収納成功の証拠にしない。
 - 今回の担当：Integrator一人が本体Central／Web／Controller／テストとSPEC／SDD／TASKS・Gitを担当。PoCファイルと他担当の変更には触れない。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
@@ -15,7 +15,7 @@
 - Central ATM `atm-01` を本番Firestoreへ登録。Cash acceptanceはfalse。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：RESTAPIServer用の保護設定と、route conflictのManual v14／対象firmware・dataset照合。USB接続後にread-only認証・在高確認を行う。route conflict解消・人の許可まではOpenConnection／acceptor／payoutを呼ばない。成功済みの寄付や本人写真を再送／再公開しない。
+- 次の作業：専用PowerShell entry pointからStage 1を一度実行し、実サーバ起動・Host/loopback・認証・USB列挙・所有child終了を確認する。資格情報はlocal users.jsonのusername＋echo-free password promptで渡し、保存しない。サービス／自動起動方式は稼働確認後に検討する。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -39,9 +39,9 @@
 | M5a-crypto | M5a | Integrator：Central／ATM・Pilgrim／Chain API | M5a-device-state | verified | visit claim・kind=1 intent、実receipt／Vaultイベント、mint／Stamp、points、ATM idleまで同じdonationIdで照合 |
 | M5a-e2e | M5a | Integrator＋本人 | M5a-crypto | verified | 本人がATM screen pairing、MetaMask mobileの0.01 USDC送金、Collection再読込後のOn-site Stamp表示を確認 |
 | M5a | M5a | Integrator：onsite crypto | M5a-device-state、M5a-crypto、M5a-e2e | verified | 現地Crypto end-to-endを確認。Cashは無効のまま。次のM3現地現金は別ゴール |
-| M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | ユーザー提供メモ・v2 Postman例・package metadataで.NET 8.0、認証、localhost:5000、Host設定を照合。Payout Route=1とPostman例Route=3の不一致はM3-deviceの操作禁止条件として記録 |
-| M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。build成功、7 fake-child/config tests pass。実サーバ／実機／現金命令／サービス登録なし |
-| M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | doing | 第1段階：実サーバ起動・API認証・USB一覧／接続一覧・正常終了。次に受付閉・自動ESCROW無効のOpenConnectionで初期化し、機種・dataset・route・在高・counterを確認。Route=1はSpectral Payoutのみ。GetDeviceStatusは単独pollerと記録を準備後。紙幣投入・払い出しは別ゲート |
+| M3-itl-contract | M3準備 | Integrator：メーカーREST API契約照合 | なし | done | Manual v14 p.182のSpectral Payout Route=1、NV4000用Postman例Route=3、acceptRoute=7の読戻しを区別。別firmware/datasetへ一般化しない |
+| M3-controller-host | M3準備 | Integrator：CashMachineController／子プロセス管理 | M3-itl-contract | done | 専用.NET 10ホスト。専用dir/runtime/loopback検証、明示dotnet.exe、Host/JWT環境上書き、既存port拒否、自分が起動した子だけ停止。14件のController tests pass。メーカーサーバーは未起動 |
+| M3-device | M3 | Integrator：CashMachineController/ITL | M5a、M3-itl-contract、M3-controller-host | doing | Stage 1はFresh v2 Postman Authenticate sampleをメモリで使用。runtime/users.json等がFresh版と一致することを先に確認し、認証・USB一覧／接続一覧・Host/loopback・正常終了を検証する。password変更・永続化なし。Stage 2 OpenConnectionは別ゲート。紙幣投入・払い出しなし |
 | M3-cash | M3（次） | Integrator：Central／ATM／Controller | M3-device | todo | 明示cash consent→有限受入→Done／照合→現金寄付・参拝Stamp・ATM写真。結果不明は停止 |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
@@ -55,8 +55,8 @@
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
-| M3/NV200接続 | 現金受付の準備状態は未確認 | M5aではCashをfail-closedで無効にし、現地Cryptoを先に完成。現金受入・Controller実機連携は後続M3 | M5aでは機器操作不要。Cash実装時に準備状況を再確認 |
-| M3/ITL REST API | 非再配布.NET 8.0パッケージ44ファイルを専用ignored folderへコピーしSHA-256照合。`REST API Logs`は除外。`validate`は一時的なテスト鍵で成功、vendor server未起動。Manual v14ではSpectral Payout Route=1、NV4000例Route=3、acceptRoute=7は読戻し値 | 子プロセス環境のHost allowlist/JWT上書きを実サーバーで確認。Stage 1の認証・USB列挙後、OpenConnectionは受付無効・自動ESCROW無効で別確認。物理紙幣・払い出しは別途立会い | バイナリ・設定・資格情報はGitへ入れない。実機・メーカーサーバーは未起動 |
+| M3/NV200接続 | WindowsはCOM4にUSB serial deviceを列挙。ただし対象ITL機器かは未確認。現金受付は未実施 | Stage 1ではUSB一覧だけ取得。Stage 2の初期化は認証・列挙確認後に別途行う | COM列挙をNV200接続証拠と混同しない。紙幣投入・払い出しなし |
+| M3/ITL REST API | Fresh SDKと専用ignored runtime 44ファイル完全一致。Fresh users.jsonとPostman v2 sampleを使用。認証情報の変更・保存なし。Stage 1 runnerをread-onlyに制限 | 実サーバー起動・認証・Host/loopback・USB一覧・正常終了を実行し、結果を記録する | Service/autostartはStage 1の稼働確認後に検討。現金機器操作なし |
 
 ## M1の検証証跡
 
@@ -114,7 +114,7 @@
 - M5a live donation `0xd25b42f9…dd2dfb`（visit `178d6d49…fbbc0`）：kind=1、10,000 USDC base units、Firestore confirmed/minted。Donation tx `0x24708f73…aaba69` successful/canonical、exact Vault `Donated` and USDC fee/net transfers matched. Mint tx `0x658b3e88…9584b` successful/canonical、matching `StampMinted` event。Firestore visit `confirmed`、ATM `activeVisitId` cleared、points include 10× onsite multiplier。本人はCollection reload後のOn-site Lotus Courtyard Stamp表示も確認。
 - M5a配備 revision `00018-dgg`／image `central:dbb7efa`。Cloud Build `146fafbd-127e-47ff-ac98-b17d2b7e4815` successful. Live API `pnpm run test:atm` 8/8 pass, no skips. Source `dbb7efa47df17107a6843f46961c5d55881712f9`。
 - 次：M5a完了。M3現金は別ゴールとして準備し、Cash command／実機service登録は実装・権限の確認後に別途行う。Cash試験は人の立ち会いを待つ。
-- M3準備：専用.NET 10 Controller hostとBearer付きread-only ITL clientを実装。9件のfake process/config/API tests pass。非再配布REST API runtime44ファイルのSHA-256一致・一時テスト鍵での`validate`を確認。REST API logsは除外、server childは未起動。Manual v14のRoute=1／NV4000のRoute=3適用差を記録。次は有効なローカルREST資格情報を用意し、Stage 1を実行する。
+- M3準備：専用.NET 10 ControllerにFresh v2 Postmanの初期Authenticate sampleをメモリで使うStage 1 runnerを実装。パスワード変更・DPAPI保存なし。Fresh runtime 44ファイルと専用ignored runtimeは一致。14件のfake process/config/API/loopback/Host tests pass。次は一時実サーバーで認証・Host/loopback・USB一覧・正常終了を確認する。
 
 ## 寺院ATMへ取り込むUX（文書PR）
 

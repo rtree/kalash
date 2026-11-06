@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Kalash.CashMachineController;
 
@@ -10,12 +11,9 @@ public sealed class ItlApiException(HttpStatusCode statusCode)
     public HttpStatusCode StatusCode { get; } = statusCode;
 }
 
-public sealed class ItlReadOnlyClient : IDisposable
+public sealed class ItlControllerClient : IDisposable
 {
     private static readonly Uri BaseAddress = new("http://127.0.0.1:5000/");
-
-    public const string UsernameEnvironmentVariable = "KALASH_ITL_USERNAME";
-    public const string PasswordEnvironmentVariable = "KALASH_ITL_PASSWORD";
 
     private readonly HttpClient httpClient;
     private readonly string username;
@@ -26,7 +24,7 @@ public sealed class ItlReadOnlyClient : IDisposable
     private DateTimeOffset refreshAt;
     private bool disposed;
 
-    public ItlReadOnlyClient(
+    public ItlControllerClient(
         string username,
         string password,
         HttpMessageHandler? handler = null,
@@ -50,7 +48,7 @@ public sealed class ItlReadOnlyClient : IDisposable
         httpClient = new HttpClient(ownedHandler, disposeHandler: true)
         {
             BaseAddress = BaseAddress,
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = Timeout.InfiniteTimeSpan
         };
     }
 
@@ -136,6 +134,87 @@ public sealed class ItlReadOnlyClient : IDisposable
         return GetDeviceAsync("GetCurrencyAssignment", deviceId, cancellationToken);
     }
 
+    public async Task<JsonDocument> OpenConnectionAsync(
+        string comPort,
+        string logFilePath,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Regex.IsMatch(comPort, "^COM[0-9]+$", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
+        {
+            throw new ArgumentException("A detected Windows COM port is required.", nameof(comPort));
+        }
+
+        if (string.IsNullOrWhiteSpace(logFilePath) || !Path.IsPathFullyQualified(logFilePath))
+        {
+            throw new ArgumentException("A dedicated absolute SSP log path is required.", nameof(logFilePath));
+        }
+
+        var denominations = new[] { 1000, 2000, 5000, 10000, 20000, 50000 };
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new OpenConnectionRequest(
+            comPort,
+            0,
+            logFilePath,
+            denominations.Select(value => new DenominationInhibit($"{value} INR", false)).ToArray(),
+            denominations.Select(value => new DenominationRoute($"{value} INR", 1)).ToArray(),
+            false,
+            false,
+            true));
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v2/CashDevice/OpenConnection")
+        {
+            Content = content
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetBearerTokenAsync(cancellationToken));
+        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(90));
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            timeout.Token);
+        EnsureSuccess(response);
+        return await ParseResponseAsync(response, timeout.Token);
+    }
+
+    public Task<JsonDocument> GetDeviceStatusAsync(
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        return GetDeviceAsync("GetDeviceStatus", deviceId, cancellationToken, TimeSpan.FromSeconds(2));
+    }
+
+    public async Task DisconnectDeviceAsync(
+        string deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            throw new ArgumentException("ITL deviceID is required.", nameof(deviceId));
+        }
+
+        ThrowIfDisposed();
+        await requestGate.WaitAsync(cancellationToken);
+        try
+        {
+            var encodedDeviceId = Uri.EscapeDataString(deviceId);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"api/v2/CashDevice/DisconnectDevice?deviceID={encodedDeviceId}");
+            request.Headers.Authorization = new AuthenticationHeaderValue(
+                "Bearer",
+                await GetBearerTokenAsync(cancellationToken));
+            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+            EnsureSuccess(response);
+        }
+        finally
+        {
+            requestGate.Release();
+        }
+    }
+
     public void Dispose()
     {
         if (disposed)
@@ -152,7 +231,8 @@ public sealed class ItlReadOnlyClient : IDisposable
     private async Task<JsonDocument> GetDeviceAsync(
         string operation,
         string deviceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         if (string.IsNullOrWhiteSpace(deviceId))
         {
@@ -162,30 +242,41 @@ public sealed class ItlReadOnlyClient : IDisposable
         var encodedDeviceId = Uri.EscapeDataString(deviceId);
         return await GetAsync(
             $"api/v2/CashDevice/{operation}?deviceID={encodedDeviceId}",
-            cancellationToken);
+            cancellationToken,
+            timeout);
     }
 
-    private async Task<JsonDocument> GetAsync(string path, CancellationToken cancellationToken)
+    private async Task<JsonDocument> GetAsync(
+        string path,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         ThrowIfDisposed();
         await requestGate.WaitAsync(cancellationToken);
         try
         {
-            await EnsureTokenAsync(cancellationToken);
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetBearerTokenAsync(cancellationToken));
+            using var requestTimeout = CreateTimeout(cancellationToken, timeout ?? TimeSpan.FromSeconds(5));
 
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
+                requestTimeout.Token);
             EnsureSuccess(response);
-            return await ParseResponseAsync(response, cancellationToken);
+            return await ParseResponseAsync(response, requestTimeout.Token);
         }
         finally
         {
             requestGate.Release();
         }
+    }
+
+    private async Task<string> GetBearerTokenAsync(CancellationToken cancellationToken)
+    {
+        await EnsureTokenAsync(cancellationToken);
+        return bearerToken
+            ?? throw new InvalidDataException("ITL authentication did not produce a bearer token.");
     }
 
     private async Task EnsureTokenAsync(CancellationToken cancellationToken)
@@ -204,10 +295,11 @@ public sealed class ItlReadOnlyClient : IDisposable
             HttpMethod.Get,
             "api/v2/CashDevice/GetConnectedUSBDevices");
         request.Headers.Host = hostHeader;
+        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
         using var response = await httpClient.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+            timeout.Token);
         return response.StatusCode;
     }
 
@@ -216,13 +308,18 @@ public sealed class ItlReadOnlyClient : IDisposable
         var payload = JsonSerializer.SerializeToUtf8Bytes(new AuthenticateRequest(username, password));
         using var content = new ByteArrayContent(payload);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-        using var response = await httpClient.PostAsync(
-            "api/v2/Users/Authenticate",
-            content,
-            cancellationToken);
+        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v2/Users/Authenticate")
+        {
+            Content = content
+        };
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            timeout.Token);
         EnsureSuccess(response);
 
-        using var document = await ParseResponseAsync(response, cancellationToken);
+        using var document = await ParseResponseAsync(response, timeout.Token);
         var root = document.RootElement;
         if (!root.TryGetProperty("token", out var tokenElement)
             || tokenElement.ValueKind != JsonValueKind.String
@@ -238,6 +335,15 @@ public sealed class ItlReadOnlyClient : IDisposable
         var expiry = TimeSpan.FromSeconds(expiresSeconds);
         var refreshBuffer = TimeSpan.FromSeconds(Math.Min(30, expiresSeconds / 2.0));
         refreshAt = timeProvider.GetUtcNow() + expiry - refreshBuffer;
+    }
+
+    private static CancellationTokenSource CreateTimeout(
+        CancellationToken cancellationToken,
+        TimeSpan timeout)
+    {
+        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        source.CancelAfter(timeout);
+        return source;
     }
 
     private static async Task<JsonDocument> ParseResponseAsync(
@@ -269,4 +375,15 @@ public sealed class ItlReadOnlyClient : IDisposable
     }
 
     private sealed record AuthenticateRequest(string Username, string Password);
+    private sealed record OpenConnectionRequest(
+        string ComPort,
+        int SspAddress,
+        string LogFilePath,
+        DenominationInhibit[] SetInhibits,
+        DenominationRoute[] SetRoutes,
+        bool EnableAcceptor,
+        bool EnableAutoAcceptEscrow,
+        bool EnablePayout);
+    private sealed record DenominationInhibit(string Denomination, bool Inhibit);
+    private sealed record DenominationRoute(string Denomination, int Route);
 }

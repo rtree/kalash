@@ -17,20 +17,26 @@ node scripts\check-policy.mjs
 dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineController.Tests.csproj
 ```
 
-The `validate` command checks the local package and child environment overrides
-without launching the server. The `inspect` command is the Stage 1 check: it
-requires protected `KALASH_ITL_USERNAME` and `KALASH_ITL_PASSWORD`, starts its
-own server child, verifies loopback binding and Host filtering, authenticates,
-reads only USB/device lists, then stops the child. It never opens a device,
-polls events, or issues a cash command. The long-running `run` command requires
-a local `RESTAPIServer` directory and an absolute `KALASH_ITL_DOTNET` path; it
-reports process liveness only.
+For the first real, non-destructive Stage 1 check, run
+`.\CashMachine\CashMachineController\Inspect-Local.ps1`. It reads the vendor's
+v2 Authenticate sample from the local Fresh package in memory and first checks
+that the dedicated server binary/configuration and `users.json` match that
+package. It does not alter or persist credentials. Stage 1 starts only its own
+REST API child, verifies loopback/Host filtering and authentication, reads USB
+and connected-device lists, and then stops that child. It does not open the
+validator or consume events.
+
+The `validate` command checks local package configuration without launching the
+server. `inspect` verifies loopback binding and Host filtering, authenticates
+with the unchanged vendor default account, reads only USB and connected-device
+lists, then stops its child. The client exposes no credential-update, device
+connection, event-poll, acceptor, or payout API. The long-running `run` command
+only reports process liveness.
 
 If `KALASH_ITL_JWT_KEY` is absent, the controller creates a fresh ephemeral
 signing key in memory for the server child; it is not persisted. The test runner
 does not start the manufacturer server. No cash-device commands are implemented.
-The Stage 2 `OpenConnection` initialization is a separate, explicit gate;
-Windows service registration is also separate and not part of this scaffold.
+No Windows service/autostart setup is included.
 
 Keep credentials and machine-specific paths outside Git. Never log credentials
 or copy manufacturer binaries, manuals, or configuration into this project.
