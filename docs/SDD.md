@@ -10,6 +10,8 @@ signing, transactions, uploads, or mint loop. It tests a PC-generated MetaMask
 DApp link, injected EIP-1193/EIP-6963 discovery, and explicit camera preview.
 The production Reown integration and deployment remain unchanged. Real QR-reader
 handoff and mobile camera permission/results require owner-run device tests.
+Subsequent mobile checks use a QR shown on the PC to enter the deployed Cloud Run
+HTTPS lab on the phone, never the development PC's localhost.
 
 M1 first vertical slice: `/temples/temple-01` -> 0.01 test USDC ->
 Central receipt verification -> real stamp -> Collection reload.

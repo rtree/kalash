@@ -4,6 +4,7 @@
 
 - UX-mobile限定PoC（本人依頼、独立HTTPSサイトを選択）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／カメラpreviewを検証する。実機テストは本人。資料・実装は`docs/lab/uxmobile/`へ集約。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
+- PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
 - PoC checkpoint（2026-11-06 05:22Z）：source `4a1801a44ad3`、Cloud Build `4713ba82-6b9d-4dd5-ad8a-a0ed73889b5b`成功、独立revision `kalash-uxmobile-00001-csq`へ配備。URL https://kalash-uxmobile-548318651344.asia-south1.run.app/ 。実HTTPSでQR・正しい宛先・外部resource 0・PC 1280幅／mobile 288幅表示を確認。37 tests pass、skipなし。`/healthz`だけアプリ外のHTML404となったため`/lab-health.json`へ修正、HTTP 6件を再検証済み。次は修正版配備とhealth実応答確認、本人の実機試験待ち。SDD隔離方針と一致、本体変更を取り込まない。
 - ゴール：M1 モバイル寄付。MetaMask内蔵Browserのapprove-only停滞を安全に解決し、新しい0.01 test USDC寄付→Central確認→Stamp→Collection再読込を本人のWallet承認で通す。その後M2写真共有へ戻る。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
@@ -19,7 +20,7 @@
 | ID | ゴール | 担当・範囲 | 依存 | 状態 | 完了条件・証跡 |
 |---|---|---|---|---|---|
 | UX-mobile-research | 限定PoC | 調査：上記research/manual-testのみ | なし | verified | 指定commitの2資料・公式仕様を照合。link.metamask.ioを採用、一般QRリーダー保証不可。本人用試験表あり |
-| UX-mobile-probe | 限定PoC | 実装：上記5ファイルのみ | なし | verified（実装のみ） | Reownなし、明示接続2method限定、QRリンク、camera preview/停止・遅延対策。実MetaMask・実カメラはhuman-wait |
+| UX-mobile-probe | 限定PoC | 実装：上記5ファイルのみ | なし | verified（実装・PC接続） | Reownなし、明示接続2method限定。本人のPC添付画面でMetaMask/EIP-6963・1 account・84532確認。PoCモバイル接続／cameraはhuman-wait |
 | UX-mobile-integrate | 限定PoC | 統合：配信／配備／検証・共有文書・Git | UX-mobile-research、UX-mobile-probe | doing | 独立HTTPSでQRをPC表示、本人のスマホ確認をhuman-waitとして引継ぎ |
 | M1-entry | M1 | Integrator：AGENTS、仕様、依存ポリシー | なし | 完了 | 初期入力・preflight・公開手順を保存。初期lock検証539件、監査0件 |
 | M1-hosts | M1 | Integrator：ホスト・権限診断 | なし | 完了 | Windows開発、Cloud Build Linux、GCP/Auth/ADBの実態を記録 |
@@ -39,7 +40,7 @@
 | 対象 | 確認済み事実 | 次の作業 | 人の操作・再開条件 |
 |---|---|---|---|
 | M2 写真 | `kalash-donation-photos` はasia-south1、Uniform access、Public access prevention有効、soft-delete 0。Cloud Run runtime SAだけがアプリ用ObjectAdmin | 現行写真API／公開ボードを維持 | 個人写真の追加公開には都度明示同意 |
-| M2 カメラ | Android MetaMask内蔵Browserで`getUserMedia`が起動し、撮影・閉じる操作を表示。撮影・アップロードはせずStreamを停止 | 再度撮影する場合は所有者が操作・確認 | 許可プロンプトは本人操作。許可だけでは撮影・公開しない |
+| M2 カメラ | 従来のAgent確認は起動／停止のみ。2026-11-06 05:23Zに本人が本体のカメラ起動→撮影→CommunityBoard掲載成功を報告（今回Agentは画像・DB・本体実行版を未照合） | 本体の本人実測として記録し、隔離PoCのcamera合格と混同しない | 追加撮影・公開は依頼しない。次はCloud Run PoCでpreviewのみ |
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
 | M1/Mobile Approval | 4件のapproval-only intentsはすべて`cancelled`、期限経過、txHash/donateAttemptなし、Approval/Donated=0、Allowance=0。ユーザーの直近Donateは期限内署名guardでProvider前に409。 | revision `00016-w6k` / source `1790e57`配備済み。approval attempt登録前にwalletClientをrefetchし、readyでなければCentral operationを作らない。API 7件成功・skipなし | Historyで残る旧expired intentを本人確認後にresolve。次のDonateはProvider/MetaMask promptを一度だけ確認し、出なければ停止 |

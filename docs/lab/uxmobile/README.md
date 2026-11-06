@@ -11,6 +11,17 @@ PCで[独立PoC](https://kalash-uxmobile-548318651344.asia-south1.run.app/)を�
 配備版・確認結果は[共有TASKS](../../TASKS.md)を参照。
 カメラ許可と実機テストは本人が行う。
 
+## 次はこれだけ
+
+以降のモバイル試験は **PCでCloud RunのPoCを開いてQR表示 → スマホのQRリーダー
+→ Cloud Runの試験ページをMetaMask内蔵Browserで開く** に統一する。
+スマホから開発PCのlocalhostへアクセスする試験は行わない。
+
+QRの行き先は既定の「この独立PoC」のままでよい。スマホで正しいページに着いたら、
+「スマホのMetaMask内蔵Browser」を選んで接続を1回、その後カメラ開始→preview→停止。
+結果は「開いた／接続できた／映像が見えた」の3点だけでよい。
+以下の詳細手順・ケース分けは追加の切り分けが必要な場合に使う。
+
 ## テストの順序
 
 1. 独立HTTPSサイトをPCで開き、寺院端末相当のQRを表示する。
@@ -31,7 +42,7 @@ PCで[独立PoC](https://kalash-uxmobile-548318651344.asia-south1.run.app/)を�
 
 詳細は[調査](research.md)と[本人向け試験表](manual-test.md)。
 
-## ローカル起動
+## ローカル起動（開発者のPC内確認のみ）
 
 リポジトリルートで、固定Node 26.13.0 / pnpm 10.34.9を使用する。
 依存追加・install・ダウンロードは不要。既存の検証済みlockから
