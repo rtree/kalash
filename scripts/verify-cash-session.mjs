@@ -12,6 +12,7 @@ import {
   newCashLedger, validateCashEvent, validateCashReadinessEvidence,
 } from '../src/cash.ts';
 import { CHAIN_ID, donationPointUnits, stampAbi } from '../src/shared.ts';
+import { ClockSkewMs } from '../src/timing.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const hash = /^0x[0-9a-f]{64}$/i;
@@ -89,15 +90,17 @@ export function verifyCashEvidence(evidence) {
       const readiness = validateCashReadinessEvidence(command.readinessEvidence);
       readinessVerified = readiness.commandId === command.commandId && readiness.cashSessionId === session.cashSessionId
         && readiness.deviceId === atm.controllerHealth?.deviceId && readiness.idleObservedAt === command.observedAt
-        && readiness.disabledObservedAt >= command.createdAt - 5_000 && readiness.enableDispatchedAt < command.expiresAt;
+        && readiness.disabledObservedAt >= command.createdAt - ClockSkewMs && readiness.enableDispatchedAt < command.expiresAt;
     }
     check('observed_start_command', command?.commandId === `cash-start-${session.cashSessionId}`
       && command.type === 'start_cash' && command.atmId === atm.id && command.visitId === visit.id
       && command.cashSessionId === session.cashSessionId && command.templeId === visit.templeId
       && ['observed', 'reported'].includes(command.state) && readinessVerified
       && Number.isSafeInteger(command.observedAt) && command.observedAt > 0);
-    check('finite_ready_deadline', Number.isSafeInteger(visit.acceptingAt) && visit.acceptingAt > 0
-      && visit.cashDeadline === visit.acceptingAt + CASH_ACCEPTANCE_MS
+    const acceptanceMs = visit.cashAcceptanceMs === undefined ? 120_000 : visit.cashAcceptanceMs;
+    check('finite_ready_deadline', [120_000, CASH_ACCEPTANCE_MS].includes(acceptanceMs)
+      && Number.isSafeInteger(visit.acceptingAt) && visit.acceptingAt > 0
+      && visit.cashDeadline === visit.acceptingAt + acceptanceMs
       && visit.acceptingAt <= command?.observedAt);
     if (evidence.truncated) return summary('unknown', checks, { ...fields, reason: 'bounded_query_limit' });
     const events = (evidence.events ?? []).map((row) => ({ ...row, event: validateCashEvent(row.event) }))

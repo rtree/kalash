@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { ATM_ID, VISIT_REFERENCE } from '../src/atm.ts';
 import { validateCashEvent, validateCashInventory } from '../src/cash.ts';
 import { cashDonationId, cashEvidenceHash } from './verify-cash-session.mjs';
+import { ClockSkewMs, HumanWindowMs } from '../src/timing.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha256 = /^[0-9a-f]{64}$/i;
@@ -57,7 +58,7 @@ function validateProofShape(proof, now, fresh = true) {
     && proof.deviceState === 'DISABLED' && proof.escrowEmpty === true && proof.operatorConfirmedNoNotes === true,
   'EXPLICIT_DISABLED_EMPTY_ZERO_PROOF_REQUIRED');
   requireProof(Number.isSafeInteger(proof.observedAt) && proof.observedAt > 0
-    && (!fresh || (proof.observedAt <= now + 5000 && proof.observedAt >= now - 120000)), 'FRESH_READBACK_REQUIRED');
+    && (!fresh || (proof.observedAt <= now + ClockSkewMs && proof.observedAt >= now - HumanWindowMs)), 'FRESH_READBACK_REQUIRED');
   requireProof(['controllerStateSha256', 'rawJournalSha256', 'commandJournalSha256'].every((key) => sha256.test(proof[key])),
     'ARCHIVE_HASHES_REQUIRED');
   requireProof(sameInventory(proof.baseline, proof.finalInventory) && sameInventory(proof.baseline, proof.currentInventory),

@@ -174,7 +174,7 @@ internal static partial class Program
             await new LoopbackListenerVerifier().WaitForLoopbackOnlyAsync(
                 child,
                 configuration.Port,
-                TimeSpan.FromSeconds(15));
+                TimeSpan.FromMilliseconds(ProductTiming.InitializationMs));
             await itl.VerifyHostFilteringAsync(cancellation.Token);
             await itl.AuthenticateAsync(cancellation.Token);
             using var connectedDevices = await itl.GetAllCashDevicesAsync(cancellation.Token);
@@ -373,7 +373,7 @@ internal static partial class Program
             await new LoopbackListenerVerifier().WaitForLoopbackOnlyAsync(
                 child,
                 configuration.Port,
-                TimeSpan.FromSeconds(15));
+                TimeSpan.FromMilliseconds(ProductTiming.InitializationMs));
             await api.VerifyHostFilteringAsync();
             await api.AuthenticateAsync();
 
@@ -577,7 +577,7 @@ internal static partial class Program
             var listeners = await new LoopbackListenerVerifier().WaitForLoopbackOnlyAsync(
                 child,
                 configuration.Port,
-                TimeSpan.FromSeconds(15));
+                TimeSpan.FromMilliseconds(ProductTiming.InitializationMs));
             Console.WriteLine($"REST API Server is bound to {listeners.Count} loopback listener(s) only.");
 
             await api.VerifyHostFilteringAsync();
@@ -644,7 +644,7 @@ internal static partial class Program
             var listeners = await new LoopbackListenerVerifier().WaitForLoopbackOnlyAsync(
                 child,
                 configuration.Port,
-                TimeSpan.FromSeconds(15));
+                TimeSpan.FromMilliseconds(ProductTiming.InitializationMs));
             Console.WriteLine($"REST API Server is bound to {listeners.Count} loopback listener(s) only.");
             await api.VerifyHostFilteringAsync();
             Console.WriteLine("Allowed loopback Host challenge and unlisted Host rejection verified.");
@@ -984,7 +984,7 @@ internal static partial class Program
         var successfulRoutes = 0;
         var finalDeviceState = string.Empty;
 
-        while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15))
+        while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromMilliseconds(ProductTiming.InitializationMs))
         {
             using var status = await api.GetDeviceStatusAsync(deviceId);
             var root = status.RootElement;

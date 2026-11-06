@@ -185,16 +185,17 @@ public sealed class ItlCashStartDevice(
     ItlDeviceStatusPoller statusPoller,
     string deviceId) : ICashStartDevice, ILocalCashDiagnosticDevice
 {
-    private static readonly TimeSpan StatusFreshness = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StatusFreshness = TimeSpan.FromMilliseconds(ProductTiming.StatusFreshnessMs);
 
     public async Task<CashDevicePreflight> CheckPreconditionsAsync(
         CashStartCommand command,
         CancellationToken cancellationToken)
     {
         var status = statusPoller.Latest;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (status is null
-            || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - status.ObservedAt
-                > StatusFreshness.TotalMilliseconds)
+            || now - status.ObservedAt > StatusFreshness.TotalMilliseconds
+            || status.ObservedAt - now > ProductTiming.ClockSkewMs)
         {
             return new CashDevicePreflight(false, "unknown", "device_status_not_fresh");
         }
@@ -314,7 +315,7 @@ public sealed class ItlCashStartDevice(
         string cashSessionId,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(ProductTiming.DeviceTransitionMs);
         while (DateTimeOffset.UtcNow < deadline)
         {
             var status = await statusPoller.ReadNextAsync(deadline - DateTimeOffset.UtcNow, cancellationToken);

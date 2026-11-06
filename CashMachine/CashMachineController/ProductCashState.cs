@@ -31,7 +31,10 @@ public sealed class ProductCashIntake
     public ProductCashReadinessEvidence? ReadinessEvidence { get; set; }
     public bool Started { get; set; }
     public long? Deadline { get; set; }
+    public long? ReadyAt { get; set; }
+    public long? ReadinessToFirstAcceptingMs { get; set; }
     public string? CloseReason { get; set; }
+    public string? CloseDetail { get; set; }
     public long? ClosingAt { get; set; }
     public bool DisableDispatchStarted { get; set; }
     public bool DisabledObserved { get; set; }
@@ -86,16 +89,24 @@ public sealed class ProductCashState
         var intake = RequiredIntake();
         if (intake.Started || intake.Closed) return;
         intake.Started = true;
-        intake.Deadline = checked(now + 120_000);
+        intake.ReadyAt = now;
+        intake.Deadline = checked(now + ProductTiming.HumanWindowMs);
         Emit("intake_started", new { inventory = intake.Baseline }, now);
     }
 
-    public void Close(string reason, long now)
+    public void Close(string reason, long now, string? detail = null)
     {
         var intake = RequiredIntake();
-        if (intake.CloseReason is not null) return;
-        intake.CloseReason = reason;
-        intake.ClosingAt = now;
+        var wireReason = reason is "deadline" or "done" or "capacity" or "fault" or "offline" ? reason : "fault";
+        var wireDetail = string.IsNullOrWhiteSpace(detail) ? reason : detail;
+        if (intake.CloseReason is not null && ClosePriority(intake.CloseReason) >= ClosePriority(wireReason))
+        {
+            intake.CloseDetail ??= wireDetail;
+            return;
+        }
+        intake.CloseReason = wireReason;
+        intake.CloseDetail = wireDetail;
+        intake.ClosingAt ??= now;
     }
 
     public void Reconcile(string reason, long now)
@@ -103,7 +114,7 @@ public sealed class ProductCashState
         Locked = true;
         if (!LockReasons.Contains(reason)) LockReasons.Add(reason);
         if (Intake is not { } intake) return;
-        Close("fault", now);
+        Close("fault", now, reason);
         if (intake.Reasons.Contains(reason)) return;
         intake.Reasons.Add(reason);
         Emit("needs_reconciliation", new { reason }, now);
@@ -140,8 +151,24 @@ public sealed class ProductCashState
         };
         intake.Notes.Add(note);
         Emit("note_escrow", new { noteKey = note.Key, valuePaise = Value(value), currency, decision = note.Decision }, now);
-        if (!accept) Close(!online ? "offline" : intake.Deadline <= now ? "deadline" : "capacity", now);
+        if (!accept)
+        {
+            var reason = intake.Deadline <= now ? "deadline" : !online ? "offline" : "capacity";
+            Close(reason, now, reason == "deadline" ? "permission_expired_or_deadline" : "note_not_accepted");
+        }
         return note;
+    }
+
+    public void ObserveAccepting(long now)
+    {
+        var intake = RequiredIntake();
+        if (!intake.Started || intake.ReadinessToFirstAcceptingMs is not null) return;
+        if (intake.ReadyAt is not { } readyAt || now < readyAt)
+        {
+            Reconcile("accepting_before_readiness", now);
+            return;
+        }
+        intake.ReadinessToFirstAcceptingMs = now - readyAt;
     }
 
     public void Resolve(string name, long value, string currency, bool payout, long now)
@@ -224,6 +251,16 @@ public sealed class ProductCashState
 
     private ProductCashIntake RequiredIntake() => Intake ?? throw new InvalidOperationException("No product cash intake is bound.");
     private static string Value(long value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static int ClosePriority(string reason) => reason switch
+    {
+        "deadline" => 5,
+        "done" => 4,
+        "capacity" => 3,
+        "fault" => 2,
+        "offline" => 1,
+        _ => 0
+    };
 }
 
 public sealed class ProductCashJournal : IDisposable

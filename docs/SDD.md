@@ -373,8 +373,26 @@ and explicitly joins. ATM and phone poll authorized Central state every 2 second
 while active, refresh on visibility return, and stop on departure. No direct
 phone-to-ATM connection is needed.
 
-Initial independent time limits: unclaimed QR 120 seconds; cash acceptance 120
+Independent time limits: unclaimed QR 240 seconds; cash acceptance 240
 seconds measured from actual Controller Ready; ATM photo inactivity 30 seconds.
+TypeScript timing constants and C# ProductTiming share names and values.
+Status freshness and cross-host clock tolerance are 30 seconds, not a substitute
+for the owned poll immediately before any money-moving command. Device transition
+waits are 20 seconds and payout completion is 180 seconds independent of the
+240-second authorization-to-start deadline. Existing historical 120-second
+receipts retain their original duration; new visits persist cashAcceptanceMs.
+Both cash screens warn against insertion during the final 20 seconds.
+The serialized owner refreshes accepting permission after the observed-start
+ACK, then caches only valid bound permission for up to 30 seconds across
+transient transport failures. Actual faults/invalid observations still lock.
+CloseReason uses deadline > done > capacity > fault > offline priority; local
+CloseDetail identifies the failing surface and never enters the cash event DTO.
+ACCEPTING/ESCROW or a pending physical note delays Disable up to 20 seconds.
+Deadline-after-ESCROW returns rather than accepts; already accepted late STORED
+still goes through exact storage/counter reconciliation. A reason upgrade does
+not restart the close timeout. Clean shutdown requires acknowledged outbox,
+actual DISABLED/empty escrow and unchanged final levels/counters before
+Disconnect; pre-disconnect 503 logs an operation and timestamp, not fake noise.
 One unresolved reception per ATM is enforced transactionally. A QR timeout may
 close an unclaimed reception, but never cancels an in-flight cash/payment action.
 
@@ -518,7 +536,7 @@ do not accept Cash visits. The phone creates a donation only after an authentica
 explicit claim. No cash command, simulated device readiness or synthetic donation
 confirmation may be created.
 
-- `POST /api/controller/:atmId/pairing`: ATM-bound Controller bearer -> 120-second,
+- `POST /api/controller/:atmId/pairing`: ATM-bound Controller bearer -> 240-second,
   single-use pairing code. Only a SHA-256 digest is stored.
 - `POST /api/atm/:atmId/pair`: exchange code for an 8-hour `HttpOnly; SameSite=Strict`
   cookie, scoped to this ATM API path; `Secure` on HTTPS. Replacement invalidates

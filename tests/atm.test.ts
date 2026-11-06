@@ -45,10 +45,12 @@ test('QR expiry never closes a linked reception or implies cash success', () => 
     deviceStarted: false, routesVerified: false, pollerOwned: true,
   };
   assert.equal(cashMachineStatus(unplugged, 105000), 'disconnected');
-  assert.equal(cashMachineStatus(unplugged, 116000), 'offline');
+  assert.equal(cashMachineStatus(unplugged, 130001), 'offline');
   assert.equal(cashMachineStatus({ ...unplugged, usbConnected: true, connectionOpen: true, deviceStarted: true, routesVerified: true }, 105000), 'ready');
-  assert.equal(VISIT_TTL_MS, 120000);
-  assert.equal(CASH_ACCEPTANCE_MS, 120000);
+  assert.equal(VISIT_TTL_MS, 240000);
+  assert.equal(CASH_ACCEPTANCE_MS, 240000);
+  assert.equal(cashMachineStatus({ ...unplugged, receivedAt: 160000 }, 130000), 'disconnected');
+  assert.equal(cashMachineStatus({ ...unplugged, receivedAt: 160001 }, 130000), 'offline');
   assert.equal(ATM_PHOTO_IDLE_MS, 30000);
   assert.equal(CASH_LIMIT_PAISE, '40000');
 });

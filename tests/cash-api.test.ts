@@ -512,7 +512,7 @@ test('bare IDLE, missing readback fields and wrong command/device/time never est
     (proof: any) => { proof.escrowEmpty = false; },
     (proof: any) => { proof.deviceId = 'different-device'; },
     (proof: any) => { proof.idleObservedAt++; },
-    (proof: any) => { proof.disabledObservedAt = store.read(`controllerCommands/cash-start-${cashSessionId}`).createdAt - 5001; },
+    (proof: any) => { proof.disabledObservedAt = store.read(`controllerCommands/cash-start-${cashSessionId}`).createdAt - 30001; },
     (proof: any) => { proof.inventory.counters.stored = 1; },
     (proof: any) => { proof.rawSequence = proof.disabledRawSequence; },
   ]) {
@@ -524,13 +524,13 @@ test('bare IDLE, missing readback fields and wrong command/device/time never est
     assert.equal(store.read(visitPath).cashDeadline, null);
   }
 });
-test('IDLE proof permits the existing five-second Controller clock tolerance, not stale or reordered evidence', async () => {
+test('IDLE proof permits thirty-second Controller clock tolerance, not stale or reordered evidence', async () => {
   const report = idleReadinessReport();
   awaitingObservedStart(report);
   const path = `controllerCommands/cash-start-${cashSessionId}`;
-  store.records.set(path, { ...store.read(path), createdAt: report.readinessEvidence.disabledObservedAt + 5001 });
+  store.records.set(path, { ...store.read(path), createdAt: report.readinessEvidence.disabledObservedAt + 30001 });
   await assert.rejects(atm.reportControllerCashCommand(atmId, auth, report), { code: 'INVALID_CASH_READINESS_EVIDENCE' });
-  store.records.set(path, { ...store.read(path), createdAt: report.readinessEvidence.disabledObservedAt + 5000 });
+  store.records.set(path, { ...store.read(path), createdAt: report.readinessEvidence.disabledObservedAt + 30000 });
   await atm.reportControllerCashCommand(atmId, auth, report);
   assert.equal(store.read(visitPath).state, 'accepting');
 });
@@ -545,7 +545,8 @@ test('complete immutable IDLE wire report -> Ready -> note -> Done -> reconciled
   const response = await request(`/api/controller/${atmId}/commands/${report.commandId}`, report, { Authorization: auth });
   assert.equal(response.status, 200);
   assert.equal(store.read(visitPath).state, 'accepting');
-  assert.equal(store.read(visitPath).cashDeadline, report.observedAt + 120000);
+  assert.equal(store.read(visitPath).cashDeadline, report.observedAt + 240000);
+  assert.equal(store.read(visitPath).cashAcceptanceMs, 240000);
   assert.equal(store.read(`controllerCommands/${report.commandId}`).deviceState, 'IDLE');
   assert.deepEqual(store.read(`controllerCommands/${report.commandId}`).readinessEvidence, report.readinessEvidence);
   assert.deepEqual(await atm.reportControllerCashCommand(atmId, auth, report), { accepted: true, state: 'observed' });

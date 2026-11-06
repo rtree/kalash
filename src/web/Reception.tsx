@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { cashAccepting, metaMaskLink, templeTarget, VISIT_REFERENCE, type AtmDto, type VisitDto } from '../atm.ts';
+import { CASH_ACCEPTANCE_MS, cashAccepting, metaMaskLink, templeTarget, VISIT_REFERENCE, type AtmDto, type VisitDto } from '../atm.ts';
+import { DeviceTransitionMs } from '../timing.ts';
 import { formatPaise, formatUsdc } from '../shared.ts';
 
 type Api = <T>(path: string, init?: RequestInit, privateRequest?: boolean) => Promise<T>;
@@ -121,7 +122,9 @@ export function AtmPage({ atmId }: { atmId: string }) {
       <p className="eyebrow">{atm?.name ?? atmId}</p>
       <h1>{atm?.templeName ?? 'Connect this temple screen'}</h1>
       <div className={`notice ${accepting ? 'notice-success' : 'notice-info'}`} role="status">
-        {accepting ? 'Cash acceptance is active. Insert only one INR note at a time.' : 'Cash is not accepting. Do not insert banknotes.'}
+        {accepting && cashSeconds <= DeviceTransitionMs / 1000
+          ? 'Cash reception ends soon. Do not insert another banknote.'
+          : accepting ? 'Cash acceptance is active. Insert only one INR note at a time.' : 'Cash is not accepting. Do not insert banknotes.'}
       </div>
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
@@ -177,10 +180,12 @@ export function AtmPage({ atmId }: { atmId: string }) {
             <p>The cash-session consent is linked to one wallet. Keep the acceptor disabled until the Controller reports actual Ready.</p>
             <p>Do not insert banknotes.</p>
           </> : atm.visit.state === 'accepting' ? <>
-            <h2>{accepting ? 'Cash acceptance active' : 'Waiting for cash stop confirmation'}</h2>
+            <h2>{accepting && cashSeconds > DeviceTransitionMs / 1000 ? 'Cash acceptance active' : 'Do not insert banknotes'}</h2>
             <p>Storage recorded: {atm.visit.cashAcceptedPaise === undefined ? 'Awaiting Central' : `${formatPaise(atm.visit.cashAcceptedPaise)} INR`} · limit {formatPaise(atm.visit.cashLimitPaise)} INR.</p>
             <p role="timer">{cashSeconds} seconds remaining. Storage is not a confirmed donation until closing reconciliation.</p>
-            <p>Insert only one supported INR note at a time. Stop when the timer expires or the screen says closing.</p>
+            <p>{accepting && cashSeconds > DeviceTransitionMs / 1000
+              ? 'Insert only one supported INR note at a time. Stop when the timer expires or the screen says closing.'
+              : 'Do not insert another banknote. Any note already being processed will be reconciled.'}</p>
             <button className="button button-primary button-wide" disabled={busy} onClick={() => void act(async () => {
               setStopVisit(atm.visit!.id);
               setAtm(await screenApi<AtmDto>(`${base}/visits/${atm.visit!.id}/done`, {}));
@@ -335,11 +340,13 @@ export function ReceptionPanel({
           </>}
       </> : visit.state === 'awaiting_device' ? <>
         <h2>Waiting for the cash machine</h2>
-        <p>Your wallet is linked to this cash session. Wait until the ATM confirms Ready and explicitly starts the 120-second acceptance window. Do not insert notes yet.</p>
+        <p>Your wallet is linked to this cash session. Wait until the ATM confirms Ready and explicitly starts the {CASH_ACCEPTANCE_MS / 1000}-second acceptance window. Do not insert notes yet.</p>
       </> : visit.state === 'accepting' && visit.mode === 'cash' ? <>
-        <h2>{!error && !joining && stopVisit !== reference && cashAccepting(visit, now) ? 'Cash acceptance active' : 'Do not insert banknotes'}</h2>
+        <h2>{!error && !joining && stopVisit !== reference && cashAccepting(visit, now)
+          && (visit.cashDeadline ?? 0) - now > DeviceTransitionMs ? 'Cash acceptance active' : 'Do not insert banknotes'}</h2>
         <p>Storage recorded: {visit.cashAcceptedPaise === undefined ? 'Awaiting Central' : `${formatPaise(visit.cashAcceptedPaise)} INR`} · limit {formatPaise(visit.cashLimitPaise)} INR.</p>
         <p role="timer">{Math.max(0, Math.ceil(((visit.cashDeadline ?? 0) - now) / 1000))} seconds remaining. Only insert a note while the ATM explicitly shows acceptance active. Press Done at the ATM to stop and reconcile.</p>
+        {(visit.cashDeadline ?? 0) - now <= DeviceTransitionMs && <p role="alert">Cash reception ends soon. Do not insert another banknote.</p>}
         {visit.linkedToYou && <button className="button button-primary button-wide" disabled={busy || joining} onClick={() => void done()}>Done · Stop and reconcile</button>}
       </> : visit.state === 'closing' || visit.state === 'reconciling' || visit.state === 'needs_reconciliation' ? <>
         <h2>Reconciling cash reception</h2>

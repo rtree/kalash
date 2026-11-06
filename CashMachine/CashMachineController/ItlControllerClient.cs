@@ -5,10 +5,12 @@ using System.Text.RegularExpressions;
 
 namespace Kalash.CashMachineController;
 
-public sealed class ItlApiException(HttpStatusCode statusCode)
+public sealed class ItlApiException(HttpStatusCode statusCode, string? operation = null)
     : Exception($"ITL REST API returned HTTP {(int)statusCode}.")
 {
     public HttpStatusCode StatusCode { get; } = statusCode;
+    public string? Operation { get; } = operation is not null && Regex.IsMatch(operation, "^[A-Za-z]{1,64}$")
+        ? operation : null;
 }
 
 public sealed class ItlControllerClient : IDisposable
@@ -43,7 +45,7 @@ public sealed class ItlControllerClient : IDisposable
         {
             UseProxy = false,
             AllowAutoRedirect = false,
-            ConnectTimeout = TimeSpan.FromSeconds(5)
+            ConnectTimeout = TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs)
         };
         httpClient = new HttpClient(ownedHandler, disposeHandler: true)
         {
@@ -182,7 +184,8 @@ public sealed class ItlControllerClient : IDisposable
         string deviceId,
         CancellationToken cancellationToken = default)
     {
-        return GetDeviceAsync("GetDeviceStatus", deviceId, cancellationToken, TimeSpan.FromSeconds(2));
+        return GetDeviceAsync("GetDeviceStatus", deviceId, cancellationToken,
+            TimeSpan.FromMilliseconds(ProductTiming.PollHttpTimeoutMs));
     }
 
     public Task EnableAcceptorOnceAsync(string deviceId, CancellationToken cancellationToken = default)
@@ -225,7 +228,7 @@ public sealed class ItlControllerClient : IDisposable
             request.Headers.Authorization = new AuthenticationHeaderValue(
                 "Bearer",
                 await GetBearerTokenAsync(cancellationToken));
-            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs));
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -280,13 +283,14 @@ public sealed class ItlControllerClient : IDisposable
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await GetBearerTokenAsync(cancellationToken));
-            using var requestTimeout = CreateTimeout(cancellationToken, timeout ?? TimeSpan.FromSeconds(5));
+            using var requestTimeout = CreateTimeout(cancellationToken,
+                timeout ?? TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs));
 
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
                 requestTimeout.Token);
-            EnsureSuccess(response);
+            EnsureSuccess(response, path.Split('?')[0].Split('/')[^1]);
             return await ParseResponseAsync(response, requestTimeout.Token);
         }
         finally
@@ -316,7 +320,7 @@ public sealed class ItlControllerClient : IDisposable
             request.Headers.Authorization = new AuthenticationHeaderValue(
                 "Bearer",
                 await GetBearerTokenAsync(cancellationToken));
-            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+            using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs));
             using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -352,7 +356,7 @@ public sealed class ItlControllerClient : IDisposable
             HttpMethod.Get,
             "api/v2/CashDevice/GetConnectedUSBDevices");
         request.Headers.Host = hostHeader;
-        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs));
         using var response = await httpClient.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
@@ -365,7 +369,7 @@ public sealed class ItlControllerClient : IDisposable
         var payload = JsonSerializer.SerializeToUtf8Bytes(new AuthenticateRequest(username, password));
         using var content = new ByteArrayContent(payload);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromSeconds(5));
+        using var timeout = CreateTimeout(cancellationToken, TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs));
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/v2/Users/Authenticate")
         {
             Content = content
@@ -418,11 +422,11 @@ public sealed class ItlControllerClient : IDisposable
         }
     }
 
-    private static void EnsureSuccess(HttpResponseMessage response)
+    private static void EnsureSuccess(HttpResponseMessage response, string? operation = null)
     {
         if (!response.IsSuccessStatusCode)
         {
-            throw new ItlApiException(response.StatusCode);
+            throw new ItlApiException(response.StatusCode, operation);
         }
     }
 

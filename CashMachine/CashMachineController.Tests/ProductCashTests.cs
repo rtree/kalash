@@ -54,7 +54,7 @@ internal static class ProductCashTests
         Console.WriteLine("PASS synthetic C# wire export: five ordered command reports, cash-session responses, four cash events.");
     }
 
-    public static async Task RunAsync()
+    public static async Task RunAsync(bool includePayout = true)
     {
         passed = 0;
         await Run("same denomination has distinct note keys and session cap", SameDenomination);
@@ -104,6 +104,10 @@ internal static class ProductCashTests
         await Run("heartbeat accepts real-order IDLE to ESCROW and STORED transitions", ActiveNoteDuringHeartbeat);
         await Run("active heartbeat uses fresh named status without guessing numeric mappings", UnmappedActiveReadback);
         await Run("actual health loss closes intake with explicit sanitized components", ActualHealthLoss);
+        await Run("transient health report outage waits for freshness timeout", TransientHealthReportFailure);
+        await Run("transient permission GET retains only a fresh cached authorization", TransientPermissionFailure);
+        await Run("deadline waits for accepting and in-flight notes to resolve", DeadlineResolution);
+        await CashTimingTests.RunAsync();
         Console.WriteLine($"{passed} product cash tests passed (synthetic fixtures; no hardware evidence).");
     }
 
@@ -131,7 +135,7 @@ internal static class ProductCashTests
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var session = Guid.NewGuid().ToString("D");
         return new($"cash-start-{session}", "start_cash", "pending", "atm-test",
-            new string('b', 64), "temple-01", session, now + 120_000, now);
+            new string('b', 64), "temple-01", session, now + ProductTiming.HumanWindowMs, now);
     }
 
     private static CashInventory Inventory(int hundreds = 0) =>
@@ -258,7 +262,7 @@ internal static class ProductCashTests
     private static Task ReadinessClock()
     {
         var command = Command();
-        var disabled = command.CreatedAt - 5_000;
+        var disabled = command.CreatedAt - ProductTiming.ClockSkewMs;
         var now = command.CreatedAt + 10;
         var evidence = new ProductCashReadinessEvidence("itl-idle-after-enable-v1",
             command.CommandId, command.CashSessionId, "device", disabled, 1,
@@ -267,7 +271,7 @@ internal static class ProductCashTests
         var rejected = false;
         try { (evidence with { DisabledObservedAt = disabled - 1 }).Validate(command, "device", now); }
         catch (InvalidDataException) { rejected = true; }
-        Check(rejected, "Readiness outside the existing five-second command clock tolerance must be rejected.");
+        Check(rejected, "Readiness outside the configured clock-skew tolerance must be rejected.");
         return Task.CompletedTask;
     }
 
@@ -380,9 +384,12 @@ internal static class ProductCashTests
     private static async Task EndToEndDoneRace()
     {
         await using var fixture = await OwnerFixture.Create();
+        var pollsBeforeEscrowDispatch = fixture.Itl.StatusCount;
         await fixture.Start();
         fixture.Itl.BeforeAccept = async () =>
         {
+            Check(fixture.Itl.StatusCount > pollsBeforeEscrowDispatch,
+                "Accept did not have a same-owner status poll immediately before dispatch.");
             var durable = await fixture.Journal.LoadAsync(None);
             Check(durable.Intake!.Pending is { DispatchStarted: true, Decision: "accept" }, "Accept occurred before durable dispatch.");
             Check(durable.Outbox.Any(item => item.Type == "note_escrow"), "Escrow not durably queued.");
@@ -393,6 +400,7 @@ internal static class ProductCashTests
         fixture.Central.Done = true;
         fixture.Itl.Stored = 1;
         fixture.Itl.Enqueue("STORED");
+        await fixture.Tick();
         await fixture.Tick();
         Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked, "Done/STORED race failed.");
         Check(fixture.Itl.DisableCount == 1 && fixture.Itl.MaximumConcurrentStatus == 1, "Duplicate execution owner.");
@@ -457,6 +465,7 @@ internal static class ProductCashTests
         Check(fixture.Itl.AcceptCount == 0 && fixture.Itl.ReturnCount == 1, "Done accepted a new note.");
         fixture.Itl.Enqueue("RETURNED");
         await fixture.Tick();
+        await fixture.Tick();
         Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked, "Returned note did not close cleanly.");
     }
 
@@ -487,7 +496,7 @@ internal static class ProductCashTests
         fixture.Itl.IgnoreDisable = true;
         fixture.Central.Done = true;
         await fixture.Tick();
-        fixture.Owner.State.Intake!.ClosingAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 11_000;
+        fixture.Owner.State.Intake!.ClosingAt = fixture.ClockNow - ProductTiming.DeviceTransitionMs - 1;
         await fixture.Tick();
         Check(fixture.Owner.State.Locked && !fixture.Owner.State.Intake.Closed
             && !fixture.Central.Types.Contains("intake_closed"), "Timeout fabricated disabled close.");
@@ -844,8 +853,7 @@ internal static class ProductCashTests
         }
         finally { Console.SetError(original); }
         var output = captured.ToString();
-        Check(output.Contains("health_readback_or_report_failed; HTTP 403", StringComparison.Ordinal)
-            && output.Contains("unavailable_health_report_failed; HTTP 403", StringComparison.Ordinal),
+        Check(output.Contains("health_readback_or_report_failed; HTTP 403", StringComparison.Ordinal),
             "HTTP status was collapsed into a generic health failure.");
         Check(!output.Contains(SyntheticCentral.SensitiveErrorBody, StringComparison.Ordinal)
             && !output.Contains(new string('a', 64), StringComparison.Ordinal)
@@ -855,8 +863,11 @@ internal static class ProductCashTests
     private static async Task IdleReadiness()
     {
         await using var fixture = await OwnerFixture.Create();
+        var preflightPollCount = fixture.Itl.StatusCount;
         fixture.Itl.BeforeEnable = async () =>
         {
+            Check(fixture.Itl.StatusCount == preflightPollCount + 6,
+                "Enable lacked exactly one final same-owner poll after its four preflight polls.");
             var state = await fixture.Journal.LoadAsync(None);
             Check(state.Intake is { EnableDispatchStarted: true, EnableDispatchedAt: not null,
                 DisabledObservedAt: not null, DisabledRawSequence: not null, Started: false, EnableAcknowledgedAt: null },
@@ -868,7 +879,7 @@ internal static class ProductCashTests
         var intake = fixture.Owner.State.Intake!;
         var evidence = intake.ReadinessEvidence!;
         evidence.Validate(intake.Command, fixture.Itl.DeviceId, evidence.IdleObservedAt);
-        Check(intake.Deadline == evidence.IdleObservedAt + 120_000 && fixture.Itl.AcceptCount == 0,
+        Check(intake.Deadline == evidence.IdleObservedAt + ProductTiming.HumanWindowMs && fixture.Itl.AcceptCount == 0,
             "IDLE deadline was invented or a note was accepted before ESCROW.");
         var journal = await new CashCommandJournal(fixture.Files.File("commands")).ReadAsync(intake.Command.CommandId, None);
         Check(journal?.Observation is { DeviceState: "IDLE", ReadinessEvidence: not null },
@@ -1264,8 +1275,17 @@ internal static class ProductCashTests
             using var log = new StringWriter();
             try { Console.SetError(log); await fixture.Tick(); }
             finally { Console.SetError(previous); }
-            Check(fixture.Owner.State.Intake!.CloseReason == "offline" && fixture.Itl.DisableCount == 1
-                && fixture.Itl.AcceptCount == 0, "Genuine health loss no longer stopped acceptance.");
+            if (failure == "central")
+            {
+                Check(fixture.Owner.State.Intake!.CloseReason is null && fixture.Itl.DisableCount == 0
+                    && fixture.Itl.AcceptCount == 0,
+                    "A single transient health report failure closed the active intake.");
+            }
+            else
+            {
+                Check(fixture.Owner.State.Intake!.CloseReason == "fault" && fixture.Itl.DisableCount == 1
+                    && fixture.Itl.AcceptCount == 0, "Explicit hardware health loss did not stop with fault.");
+            }
             var output = log.ToString();
             if (failure == "usb")
                 Check(output.Contains("health_not_ready", StringComparison.Ordinal)
@@ -1285,6 +1305,105 @@ internal static class ProductCashTests
             Check(!output.Contains(SyntheticCentral.SensitiveErrorBody, StringComparison.Ordinal)
                 && !output.Contains(new string('a', 64), StringComparison.Ordinal),
                 "Health diagnostics exposed sensitive transport content.");
+        }
+    }
+
+    private static async Task TransientHealthReportFailure()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        await fixture.Start();
+        fixture.AdvanceHealthInterval();
+        fixture.Central.HealthFailureStatus = HttpStatusCode.ServiceUnavailable;
+        await fixture.Tick();
+        Check(fixture.Owner.State.Intake is { CloseReason: null, Closed: false }
+            && fixture.Itl.DisableCount == 0,
+            "A transient report failure stopped acceptance before the freshness window elapsed.");
+
+        fixture.Central.HealthFailureStatus = null;
+        fixture.AdvanceHealthInterval();
+        await fixture.Tick();
+        Check(fixture.Owner.State.Intake is { CloseReason: null, Closed: false }
+            && fixture.Owner.State.Outbox.Count == 0,
+            "A later successful report did not recover current health.");
+
+        fixture.Central.HealthFailureStatus = HttpStatusCode.ServiceUnavailable;
+        fixture.AdvanceBy(ProductTiming.StatusFreshnessMs + 1);
+        await fixture.Tick();
+        Check(fixture.Owner.State.Intake!.CloseReason == "offline" && fixture.Itl.DisableCount == 1,
+            $"Health report outage did not close after the 30,001 ms freshness boundary: close={fixture.Owner.State.Intake.CloseReason}, "
+            + $"disable={fixture.Itl.DisableCount}, locked={fixture.Owner.State.Locked}.");
+    }
+
+    private static async Task TransientPermissionFailure()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        await fixture.Start();
+        fixture.Central.CashSessionFailureStatus = HttpStatusCode.ServiceUnavailable;
+        fixture.Itl.Enqueue("ESCROW");
+        await fixture.Tick();
+        Check(fixture.Owner.State.Intake is { CloseReason: null, Closed: false }
+            && fixture.Itl.AcceptCount == 1 && fixture.Itl.DisableCount == 0,
+            "A transient permission GET failure closed a session with a current cached authorization.");
+
+        fixture.Central.CashSessionFailureStatus = null;
+        fixture.Central.Done = true;
+        fixture.Itl.Stored = 1;
+        fixture.Itl.Enqueue("STORED");
+        await fixture.Tick();
+        await fixture.Tick();
+        Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked,
+            "Permission refresh recovery did not reconcile the same pending note.");
+
+        await using var stale = await OwnerFixture.Create();
+        await stale.Start();
+        stale.Central.CashSessionFailureStatus = HttpStatusCode.ServiceUnavailable;
+        stale.AdvanceBy(ProductTiming.StatusFreshnessMs + 1);
+        await stale.Tick();
+        Check(stale.Owner.State.Intake!.CloseReason == "offline" && stale.Itl.AcceptCount == 0
+            && stale.Itl.DisableCount == 1,
+            "Expired cached permission remained usable after 30,001 ms.");
+    }
+
+    private static async Task DeadlineResolution()
+    {
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            await fixture.Start();
+            fixture.Itl.State = "ACCEPTING";
+            fixture.Itl.Enqueue("ESCROW");
+            fixture.AdvanceBy(ProductTiming.HumanWindowMs + 1);
+            await fixture.Tick();
+            Check(fixture.Owner.State.Intake!.CloseReason == "deadline" && fixture.Itl.ReturnCount == 1
+                && fixture.Itl.AcceptCount == 0 && fixture.Itl.DisableCount == 0,
+                "Post-deadline ESCROW was not returned exactly once before disabling.");
+
+            fixture.Itl.State = "IDLE";
+            fixture.Itl.Enqueue("RETURNED");
+            await fixture.Tick();
+            await fixture.Tick();
+            Check(fixture.Itl.ReturnCount == 1 && fixture.Itl.DisableCount == 1
+                && fixture.Owner.State.Intake is { Closed: true },
+                "Acceptor did not wait for the actual RETURNED outcome before close.");
+        }
+
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            await fixture.Start();
+            fixture.Itl.Enqueue("ESCROW");
+            await fixture.Tick();
+            Check(fixture.Itl.AcceptCount == 1 && fixture.Owner.State.Intake!.Pending is not null,
+                "Pre-deadline accept was not durably dispatched.");
+            fixture.AdvanceBy(ProductTiming.HumanWindowMs + 1);
+            await fixture.Tick();
+            Check(fixture.Owner.State.Intake!.CloseReason == "deadline" && fixture.Itl.DisableCount == 0,
+                "Deadline disabled the device before a dispatched note resolved.");
+            fixture.Itl.Stored = 1;
+            fixture.Itl.Enqueue("STORED");
+            await fixture.Tick();
+            await fixture.Tick();
+            Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked
+                && fixture.Owner.State.Intake.Notes.Single().Credited && fixture.Itl.AcceptCount == 1,
+                "Late STORED for a previously authorized accept was not credited exactly once.");
         }
     }
 
@@ -1360,6 +1479,7 @@ internal static class ProductCashTests
             var state = Owner.State;
             state.Begin(command, Inventory(), [10_000L]);
             state.Intake!.EnableDispatchStarted = true;
+            state.Intake.EnableDispatchedAt = command.CreatedAt + 1;
             await client.EnableAcceptorOnceAsync(Itl.DeviceId, None);
             state.RawSequence = (await poller.PollOwnedAsync(None)).Sequence;
             state.Reconcile("ready_not_observed", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
@@ -1429,6 +1549,7 @@ internal static class ProductCashTests
         public const string SensitiveErrorBody = "synthetic-sensitive-response-body-not-for-logs";
         public string ExpectedOrigin = "https://central.example";
         public HttpStatusCode? HealthFailureStatus;
+        public HttpStatusCode? CashSessionFailureStatus;
         public bool Done, Offline, BadAck, LoseReceiptOnce, WrongBinding, NoSession, RejectHealth, BadCloseAck;
         public Action? AcceptingSessionRead, ClosePosted;
         public Action<string>? ResponseLatency;
@@ -1472,11 +1593,15 @@ internal static class ProductCashTests
             if (path == "/api/controller/atm-test/cash-session")
             {
                 Check(request.Method == HttpMethod.Get, "Cash-session method differs.");
+                if (CashSessionFailureStatus is { } failure)
+                    return new HttpResponseMessage(failure) { Content = new StringContent(SensitiveErrorBody) };
                 if (NoSession) return Json(new CentralCashSessionResponse(null));
                 if (observed && !Done) AcceptingSessionRead?.Invoke();
                 var body = JsonSerializer.SerializeToElement(new CentralCashSessionResponse(new(command.VisitId, WrongBinding ? Guid.NewGuid().ToString() : command.CashSessionId,
                     Done ? "closing" : observed ? "accepting" : "awaiting_device",
-                    observed ? command.CreatedAt + 120_000 : null, Done, Done ? "done" : null)), ProductCashJson.Options);
+                    observed ? CommandReportBodies.Single(report => report.GetProperty("state").GetString() == "observed")
+                        .GetProperty("observedAt").GetInt64() + ProductTiming.HumanWindowMs : null,
+                    Done, Done ? "done" : null)), ProductCashJson.Options);
                 Fields(body, ["session"]);
                 Fields(body.GetProperty("session"), ["visitId", "cashSessionId", "state", "deadline", "closeRequested", "closeReason"]);
                 CashSessionBodies.Add(body);

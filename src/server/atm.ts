@@ -5,10 +5,11 @@ import { CHAIN_ID } from '../shared.ts';
 import { CASH_DEMO_LIMIT_PAISE, CASH_DEMO_NOTE_LIMIT, validateCashReadinessEvidence, type CashCloseReason, type CashReadinessEvidence } from '../cash.ts';
 import { db, origin } from './config.ts';
 import { temples } from './catalog.ts';
+import { ClockSkewMs, HumanWindowMs } from '../timing.ts';
 import { HttpError, requireValue } from './errors.ts';
 
 const SCREEN_TTL_MS = 8 * 60 * 60 * 1000;
-const PAIR_TTL_MS = 120_000;
+const PAIR_TTL_MS = HumanWindowMs;
 export const SCREEN_COOKIE = 'kalash_atm';
 export const credentialHash = (value: string) => createHash('sha256').update(value).digest('hex');
 function canonicalObservation(value: unknown): string {
@@ -41,6 +42,7 @@ export interface VisitRecord {
   cashSessionId: string | null;
   cashAcceptedPaise?: string;
   cashDeadline?: number | null;
+  cashAcceptanceMs?: number;
   ownerWallet?: Address;
   donationId?: string;
   linkedAt?: number;
@@ -303,7 +305,7 @@ export async function reportControllerCashCommand(
           && readinessEvidence.cashSessionId === visit.cashSessionId
           && readinessEvidence.deviceId === atm.controllerHealth?.deviceId
           && readinessEvidence.idleObservedAt === body.observedAt
-          && readinessEvidence.disabledObservedAt >= command.createdAt - 5_000
+          && readinessEvidence.disabledObservedAt >= command.createdAt - ClockSkewMs
           && readinessEvidence.enableDispatchedAt < command.expiresAt,
         400, 'INVALID_CASH_READINESS_EVIDENCE', 'IDLE must be proven after the bound command enable, not inferred from HTTP success.');
       } else {
@@ -311,9 +313,9 @@ export async function reportControllerCashCommand(
           400, 'INVALID_CASH_COMMAND_REPORT', 'An actual ACCEPTING observation or complete IDLE-after-enable evidence is required.');
       }
       const acceptingAt = Math.min(body.observedAt, Date.now());
-      const deadline = acceptingAt + 120_000;
+      const deadline = acceptingAt + HumanWindowMs;
       tx.update(visitRef, {
-        state: 'accepting', cashDeadline: deadline, acceptingAt,
+        state: 'accepting', cashDeadline: deadline, acceptingAt, cashAcceptanceMs: HumanWindowMs,
         controllerDeviceState: body.deviceState,
       });
     } else if (next === 'unknown') {
@@ -588,7 +590,7 @@ export async function createCashConsentChallenge(id: string, owner: Address, tem
 
   const nonce = randomBytes(24).toString('hex');
   const issuedAt = new Date();
-  const expiresAt = Math.min(visit.expiresAt, issuedAt.getTime() + 120_000);
+  const expiresAt = Math.min(visit.expiresAt, issuedAt.getTime() + HumanWindowMs);
   const expiresAtIso = new Date(expiresAt).toISOString();
   const site = new URL(origin);
   const templeName = temples.find((item) => item.id === visit.templeId)!.name;
@@ -701,7 +703,7 @@ export async function claimCashVisit(
       visitId: id,
       templeId: visit.templeId,
       cashSessionId: visit.cashSessionId,
-      expiresAt: Math.min(visit.expiresAt, Date.now() + 120_000),
+      expiresAt: Math.min(visit.expiresAt, Date.now() + HumanWindowMs),
       createdAt: Date.now(),
     } satisfies ControllerCommand);
   });

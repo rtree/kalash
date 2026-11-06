@@ -41,13 +41,15 @@ public sealed class ProductFailedStartRecovery(
             || state.AcknowledgedSequence < 3 || state.NextSequence != state.AcknowledgedSequence + 1
             || state.FailedStartRecoveryPhase is not null || state.FailedStartRecovery is not null
             || intake is not { Started: false, Closed: true, DisabledObserved: true, EnableDispatchStarted: true,
-                DisableDispatchStarted: true, Deadline: null, CloseReason: "fault", FinalInventory: not null }
+                EnableDispatchedAt: not null, DisableDispatchStarted: true, Deadline: null, CloseReason: "fault", FinalInventory: not null }
             || intake.Notes.Count != 0 || intake.NoteSequence != 0 || !SameReasons(intake.Reasons)
             || intake.ReadinessEvidence is not null || !intake.SingleHundred
             || !intake.EnabledValues.SequenceEqual([10_000L])
             || !state.CompletedSessions.Contains(cashSessionId)
             || intake.Command.AtmId != atmId || intake.Command.CashSessionId != cashSessionId
             || intake.Command.CommandId != $"cash-start-{cashSessionId}" || intake.Command.Type != "start_cash"
+            || intake.Command.ExpiresAt <= intake.Command.CreatedAt
+            || intake.Command.ExpiresAt - intake.Command.CreatedAt > ProductTiming.HumanWindowMs
             || entry.Command.ContentHash() != intake.Command.ContentHash() || entry.ContentHash != entry.Command.ContentHash()
             || entry.State != "unknown" || entry.Reason != "acceptance_state_not_observed"
             || entry.PendingReportState is not null || entry.Observation is not null
@@ -59,6 +61,7 @@ public sealed class ProductFailedStartRecovery(
             || raw[^1].Status.DeviceState != "DISABLED")
             throw new InvalidDataException("Failed-start raw evidence is missing, interrupted or non-contiguous.");
         long previous = 0;
+        var enableDispatchedAt = intake.EnableDispatchedAt!.Value;
         var idle = false;
         var disabled = false;
         foreach (var item in raw)
@@ -67,7 +70,7 @@ public sealed class ProductFailedStartRecovery(
             if (status.ObservedAt <= 0 || status.ObservedAt < previous)
                 throw new InvalidDataException("Failed-start raw observation times are inconsistent.");
             previous = status.ObservedAt;
-            if (status.ObservedAt < intake.Command.CreatedAt && status.DeviceState == "DISABLED" && !idle)
+            if (status.ObservedAt <= enableDispatchedAt && status.DeviceState == "DISABLED" && !idle)
             {
                 if (status.Events.Count == 0) continue;
                 string[] initialization = ["CONNECTING", "CONNECTED", "STARTING", "STARTED", "DISABLED"];
@@ -85,8 +88,9 @@ public sealed class ProductFailedStartRecovery(
                 || ProductCashReadback.Text(status.Events[0], "type") != "DeviceStatusResponse"
                 || ProductCashReadback.Text(status.Events[0], "stateAsString") != status.DeviceState)
                 throw new InvalidDataException("Retained failed-start evidence contains cash, unknown or ambiguous events.");
-            if (!idle && status.DeviceState == "IDLE" && status.ObservedAt >= intake.Command.CreatedAt
-                && status.ObservedAt < intake.Command.ExpiresAt)
+            if (!idle && status.DeviceState == "IDLE"
+                && status.ObservedAt >= intake.Command.CreatedAt - ProductTiming.ClockSkewMs
+                && status.ObservedAt - intake.Command.ExpiresAt <= ProductTiming.ClockSkewMs)
                 idle = true;
             else if (idle && !disabled && status.DeviceState == "DISABLED")
                 disabled = true;

@@ -41,6 +41,11 @@ internal static class Program
             await ProductCashTests.RunAsync();
             return 0;
         }
+        if (args is ["--cash-only"])
+        {
+            await ProductCashTests.RunAsync(includePayout: false);
+            return 0;
+        }
         await Run("valid vendor package configuration", ValidConfiguration);
         await Run("load bootstrap credentials from the Fresh v2 collection", LoadVendorBootstrapCredentials);
         await Run("refuse a target users file that differs from Fresh", RefuseModifiedUsersFile);

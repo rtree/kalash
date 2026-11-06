@@ -12,9 +12,10 @@ public sealed record ProductCashReadinessEvidence(
         if (Version != "itl-idle-after-enable-v1" || CommandId != command.CommandId
             || CashSessionId != command.CashSessionId || DeviceId != deviceId
             || DisabledObservedAt <= 0 || DisabledObservedAt > EnableDispatchedAt
-            || DisabledObservedAt < command.CreatedAt - 5_000 || EnableDispatchedAt >= command.ExpiresAt
+            || DisabledObservedAt < command.CreatedAt - ProductTiming.ClockSkewMs || EnableDispatchedAt >= command.ExpiresAt
             || EnableDispatchedAt > EnableAcknowledgedAt || EnableAcknowledgedAt > IdleObservedAt
-            || EnableDispatchedAt >= IdleObservedAt || IdleObservedAt > now || now - IdleObservedAt > 2_000
+            || EnableDispatchedAt >= IdleObservedAt || IdleObservedAt > now + ProductTiming.ClockSkewMs
+            || now - IdleObservedAt > ProductTiming.StatusFreshnessMs
             || DisabledRawSequence < 0 || RawSequence <= DisabledRawSequence
             || DeviceStateCode != 5 || !ManualEscrow || !RoutesVerified || !EscrowEmpty || !DeviceHealthy
             || !SameInventory(Baseline, Inventory))

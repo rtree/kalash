@@ -1,0 +1,9 @@
+export const StatusFreshnessMs = 30_000;
+export const ClockSkewMs = 30_000;
+export const HumanWindowMs = 240_000;
+export const DeviceTransitionMs = 20_000;
+export const InitializationMs = 30_000;
+export const HttpTimeoutMs = 10_000;
+export const PollHttpTimeoutMs = 4_000;
+export const EscrowDecisionMs = 2_000;
+export const PayoutCompletionMs = 180_000;

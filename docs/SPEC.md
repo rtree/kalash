@@ -10,6 +10,25 @@ The UX sections below incorporate the user's 2026-11-06 decisions in
 Photo withdrawal follow-up is deferred by the user; it is not a gate for M3.
 Existing owner withdrawal remains available. Deferred work is tracked in TASKS.
 
+2026-11-07 owner update: keep Cash configuration ON with a resident Controller,
+while retaining signed consent, fresh hardware readiness, finite sessions,
+limits and reconciliation locks. Payout remains exclusive with reception.
+For the test/demo, temple-01's explicitly assigned wallet administrator and fee
+payer is `0x7B79c37Bb80cc76Fe6b758c7140228FEcc7e2A2e`; donation recipients and
+existing history do not change. Implement M4 next; actual fee payment and
+physical dispensing require separate amount-specific confirmation.
+The owner subsequently removed software/operator bezel-empty confirmation
+from the payout UX for this attended hackathon/demo. Do not fabricate an empty
+bezel reading. Actual held-note events, device faults, transaction completion,
+inventory/counter reconciliation and no-blind-retry behavior remain in effect.
+Instruction 7 timing recommendations are being applied: human QR/consent/cash
+windows 240 seconds, observation freshness and cross-host skew 30 seconds,
+device enable/close waits 20 seconds, initialization 30 seconds, ITL status
+HTTP 4 seconds and other HTTP 10 seconds, payout completion 180 seconds.
+Owned event polling stays at 200ms and ESCROW decisions remain within 2 seconds.
+Deadline stops new notes while in-flight notes are resolved; local closeDetail
+distinguishes causes without adding Central wire reasons.
+
 ```
 ### 最初の操作に適用する短いルールとチェック
 
@@ -300,7 +319,7 @@ CollectionはRemote Support（応援）とOn-site Visits（参拝）を分離し
 
 ### 4.4 精算と全量払い出し
 
-Temple Appで所属管理者が在高・未精算額を確認→寺院Walletから0.01%相当のUSDCを手数料コントラクトへ入金→Centralが寺院・invoice・送信者・額・chain・FeePaid・成功receiptを検証する。現金総額を送金しない。精算済みなら重ねて支払わない。
+Temple Appで所属管理者が在高・未精算額を確認→指定fee支払いWalletから現金の3%相当のUSDCを手数料コントラクトへ入金（INR100/USDC、paise×3 USDC最小単位）→Centralが寺院・invoice・送信者・額・chain・FeePaid・成功receiptを検証する。現金総額を送金しない。精算済みなら重ねて支払わない。
 
 端末のTemple Admin画面からPay Out→管理者用QRを本人のスマホで読み内容を確認・承認→Centralが全量精算・在高・受付停止・所属を再確認→一つのpayoutId／commandIdで全量払い出し。管理画面への切替だけでは権限を得ない。寄付者画面にはPay Outを出さず、寄付・撮影・払い出し中の不適切な切替を防ぐ。
 
@@ -435,7 +454,7 @@ ComPortをUSB検出値へ、LogFilePathを作成済みの書込可能な専用�
 
 Route:1はPayout、0は収納庫。読出acceptRouteは1/7/PAYOUT/RECYCLER等があるため、要求値と同じ数字だと仮定しない。Inhibit:falseは受付許可。EncKeyはこの構成で未指定。独自鍵はメーカー手順と安全な端末設定で扱う。
 
-OpenConnectionはStartDeviceを内包する。追加でStartDeviceを呼ばない。単一ポーラーでCONNECTED→STARTING→STARTED→DISABLEDと、設定金種数のSetDenominationRouteFinishedEventResponseのresult=trueを確認する。ルート完了は最大15秒待ち、GetAllLevelsの金種・ルート・禁止状態も照合。不足・falseなら受付しない。
+OpenConnectionはStartDeviceを内包する。追加でStartDeviceを呼ばない。単一ポーラーでCONNECTED→STARTING→STARTED→DISABLEDと、設定金種数のSetDenominationRouteFinishedEventResponseのresult=trueを確認する。ルート完了は最大30秒待ち、GetAllLevelsの金種・ルート・禁止状態も照合。不足・falseなら受付しない。
 
 100 INR収納の最小応答例：
 
@@ -452,11 +471,11 @@ OpenConnectionはStartDeviceを内包する。追加でStartDeviceを呼ばな�
 3. 製品はCentralの有効な受付・Wallet紐付け後にEnableAcceptorし、機器Ready後に投入を案内。診断の一枚操作は人の立ち会いで行う。
 4. ESCROWの紙幣キーを永続化し、条件を満たせばAcceptFromEscrowを一回、満たさなければReturnFromEscrow。EnableAcceptorだけでは手動escrowの収納は完了しない。
 5. STOREDを保存・報告。ESCROWやHTTP200で加算しない。STACKEDや帰属不明は受付停止・要照合。
-6. DoneでDisableAcceptorし、最大10秒を基本に途中紙幣を確認する。収納／返却が不明なら要照合。GetAllLevels・GetCountersで金種別Payout増分とstored増分、収納庫の不明増分なしを照合して閉じる。
+6. Done／期限では新しい受付を止める。ACCEPTING／未決ESCROW／収納返却待ちの間は最大20秒、STORED／RETURNEDを先に処理してからDisableAcceptorする。期限後ESCROWは返却し、期限前にAcceptした遅延STOREDは計上する。解決不明なら要照合。GetAllLevels・GetCountersで金種別Payout増分とstored増分、収納庫の不明増分なしを照合して閉じる。
 
 **払い出し**
 
-1. Centralの精算・管理者承認・許可後、DisableAcceptor。未処理の紙幣・ベゼル・動作がないことを単一ポーラーで確認。DISABLEDだけではベゼル空を意味しない。
+1. Centralの精算・管理者承認・許可後、DisableAcceptor。単一ポーラーで停止・空ESCROW・在高・未解決命令なしを確認。2026-11-07の所有者決定によりベゼル空の自動判定／人の確認は開始条件にしない。DISABLEDをベゼル空の証明と偽らず、実際のベゼル保持イベントは取り出し待ちとして監視する。
 2. GetAllLevels・GetCountersで最新状態を保存し、Payoutの`value × storedInPayout`を合算。空なら送らず、収納庫を含めない。承認された在高と一致しなければ止める。
 3. payoutId/commandId・額・機器・事前在高・dispensed counterをディスクへ保存し、DispenseValueを一回送信する。100 INR一枚だけなら`{"Value":10000,"CountryCode":"INR"}`。混合500 INRならValue=50000。固定額を送らない。
 4. 約200msでイベント監視。NOTE_HELD_IN_BEZEL／NOTE_IN_BEZEL_HOLDは人の取り出し待ち。DISPENSINGやベゼルイベントの回数を枚数にしない。

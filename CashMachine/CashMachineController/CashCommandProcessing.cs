@@ -37,9 +37,9 @@ public sealed record CashStartCommand(
             || !System.Text.RegularExpressions.Regex.IsMatch(TempleId, "^temple-[0-9]{2}$")
             || !System.Text.RegularExpressions.Regex.IsMatch(VisitId, "^[a-f0-9]{64}$")
             || !Guid.TryParseExact(CashSessionId, "D", out _)
-            || ExpiresAt <= now || ExpiresAt > CreatedAt + 120_000
             || CreatedAt <= 0 || ExpiresAt <= CreatedAt
-            || CreatedAt > now + 5_000)
+            || CreatedAt > now + ProductTiming.ClockSkewMs
+            || ExpiresAt <= now || ExpiresAt - CreatedAt > ProductTiming.HumanWindowMs)
         {
             throw new InvalidDataException("Central returned a malformed, expired, or unauthorized cash command.");
         }
@@ -115,9 +115,9 @@ public sealed partial class CentralCashCommandClient : ICashCommandCentral, ICas
         var handler = transport ?? new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
-            ConnectTimeout = TimeSpan.FromSeconds(5)
+            ConnectTimeout = TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs)
         };
-        client = new HttpClient(handler) { BaseAddress = centralUri, Timeout = TimeSpan.FromSeconds(5) };
+        client = new HttpClient(handler) { BaseAddress = centralUri, Timeout = TimeSpan.FromMilliseconds(ProductTiming.HttpTimeoutMs) };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         client.DefaultRequestHeaders.Add("Origin", centralUri.GetLeftPart(UriPartial.Authority));
@@ -514,7 +514,7 @@ public sealed class CashCommandPoller(
                 }
 
                 retryDelay = TimeSpan.FromSeconds(1);
-                await Task.Delay(TimeSpan.FromSeconds(2), clock, cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(ProductTiming.EscrowDecisionMs), clock, cancellationToken);
             }
             catch (HttpRequestException)
             {

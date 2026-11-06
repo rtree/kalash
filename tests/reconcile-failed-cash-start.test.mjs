@@ -172,7 +172,8 @@ test('started, missing physical empty, in-flight poll, stale readback, notes and
     (p) => { p.started = true; }, (p) => { p.disabledObserved = false; }, (p) => { p.escrowEmpty = false; },
     (p) => { p.deviceState = 'IDLE'; }, (p) => { p.pollInFlight = true; }, (p) => { p.noteCount = 1; },
     (p) => { p.outboxCount = 1; }, (p) => { p.operatorConfirmedNoNotes = false; },
-    (p) => { p.observedAt = now - 120001; }, (p) => { p.currentInventory.counters.stored++; },
+    (p) => { p.observedAt = now - 240001; }, (p) => { p.observedAt = now + 30001; },
+    (p) => { p.currentInventory.counters.stored++; },
     (p) => { p.currentInventory.levels[3].payout++; }, (p) => { delete p.baseline.counters.stored; },
   ]) {
     const f = fixture();

@@ -2,10 +2,13 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M3-cash onsite cash reception。M5a onsite CryptoとM3-device disabled initializationはverified。先輩決定（2026-11-06）：現金はオフチェーンINR台帳、3% USDC feeは寺院が後払い、Stampは既存onsite kind=1。Stage Bの同意・有限受付・イベント照合・Stamp・ATM写真を実装し、自動試験後にだけ現金UIを有効化する。
+- 2026-11-06 22:10Z 再確認：Controller変更担当の背景agentはcancelledで結果引継ぎなし。ProductTiming/CashTimingTestsと受付状態遷移の作業差分は残存、最終C#試験成功は未確認。Integratorが残存差分から直接再開する。実Firestore read-only確認はCash ON、health age約2秒、active reception/payoutなし、reconciliationなし、pending0、stored10000paise。常駐Cash自体は停止していない。新コードは未配備。
+- 2026-11-06 22:20Z 直接引継ぎ検証：start observed/report ACK後のaccepting許可再取得を修正、実Ready起点のdeadlineにfixtureを合わせ、回復試験で明示Doneを追加。Cashだけのexact staged snapshotはC#受付50試験・時間境界6試験・命令4試験pass、TS73/73・skip0、typecheck/build成功。統合版はこれにPayout21試験pass、C#実serializer→TS inventory/completion/partial validator一致、Cash/API一式成功。全てsyntheticで実紙幣操作なし。実機常駐版はまだ旧8355、Cash ONを保持。次は分離commit/push→idleでCentral/Controller新版配備→実零枚240秒確認、Stage C実fee/Payoutは金額別確認後。
+
+- 現在のゴール：M4 fee settlement / full payoutとgated resident Cash。M3の実₹100一枚・閉鎖・寄付・Stamp、M5a onsite Crypto、M3-device initializationはverified。2026-11-07所有者指示：Cash設定は常時ON、Controller常駐、ただし署名・Ready・期限・上限・異常照合は維持。temple-01管理者認証/fee支払いは`0x7B79c37Bb80cc76Fe6b758c7140228FEcc7e2A2e`、寄付受取先・既存履歴は変更しない。
 - 成功条件：Controller/ITLの機器識別、route、在高/counter、disabled/empty escrowを実応答で確認。現金受付はCentral consent・有限時間・単一poller・STOREDと在高照合を人の立会い下で別途検証する。今回の初期化を現金収納成功と扱わない。
 - 今回の担当：Integratorが統合・既存Cryptoとの型境界・Web・共有SDD/TASKS・Git、Central担当が`src/cash.ts`・`src/server/atm.ts`・現金store/routesとその試験、Controller担当が製品受付ループ・永続状態/Outbox・ホスト接続とC#試験を担当。PoCと診断回収の既存差分は保持する。実環境の操作担当はIntegratorのみ。
-- 現在の状態：Owner-attendedの一枚試験を完了。実₹100一枚をaccepted/creditedし、在高照合・閉鎖・donation・Base Sepolia Stamp receiptまで全verifier check成功。ATM画面Finish後、cashEnabled=false、active受付なし、照合lockなし、demo pending=0。紙幣は許可どおり機内保管、fee未送金・Payoutなし。Controllerは安全な自然終了（close、exact Outbox ACK、DISABLED/empty確認、REST停止）したが、終了時に`health_readback_or_report_failed; ITL HTTP 503`をfail-closed報告。再起動せず、次はこの終了時health警告のread-only原因調査。
+- 現在の状態：Owner-attendedの一枚試験で実₹100一枚accepted/credited、在高照合・閉鎖・donation・Base Sepolia Stamp全verifier成功。その終了時はOFF/activeなし/lockなし/pending0、自然終了直前health 503を記録。以後所有者の常時ON指示に従い、検証済み`8355f1b` regular runを常駐起動しCash ONへ戻した。新240秒/30秒とM4は未配備。紙幣は機内保管、fee未送金・実Payoutなし。503の過去endpointは未確定、新版は要求operation名を記録し、照合済み寄付に影響させない。
 - 今回の実機許可（2026-11-06 18:26Z以降）：本人が立ち会い、Controller起動・atm-01/temple-01の署名済み₹100一枚受付・Done・Base Sepolia Stamp発行を明示許可。本人が署名し、実Ready案内まで投入しない。収納札は機内保管し、後日の正規fee/admin Payoutまで回収しない。追加札・fee送金・Payoutは今回許可に含めない。実機操作はIntegratorのみ。Controller担当は起動/heartbeat接続、Central担当はread-only実DB/receipt証拠確認を準備。ADB端末なし（18:26Z）、phone操作は本人の実QR導線を維持。
 - 操作画面は本人の別PCのペアリング済みATM。期限切れ時の再コードはこのPCのlocal dialogで表示しチャットへ残さない。実機開始readbackはPayout0、Cashbox₹10×2/₹20×2/₹200×1＝₹260・5枚、stored54/stacked2/dispensed53/transferred1（既存在高、今回入金ではない）。
 - 解消済み：初期化イベントparser、Controller Origin、IDLE/ACCEPTINGの段階誤認、既存状態JSON互換、cross-host時刻差。失敗session `2a364965-289e-4bff-abdf-e7af7cab0c3e`は実零枚証拠で明示終了しunknown命令・raw・stream/seqを保存。最新session `fe42ebe0-50f8-42dc-9688-e71b4c6992bd`は正常な零枚close、実read-only verifier全該当check=true/closed_zero_no_donation。旧命令は再送しない。
@@ -16,10 +19,11 @@
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - Central URL：https://kalash-central-548318651344.asia-south1.run.app（owner-confirmed test/demo service）
 - Cloud Run：revision `kalash-central-00022-jvh`、image `central:d52820090f915302c60196ea99189b4ad3915df3`。Cloud Build `6acd9856-ff4c-4cc6-8d5a-2262df9158eb` SUCCESS。Health ready・source完全一致・traffic100%。新IDLE証拠契約の実API局所1/1・skip0。imageとSOURCE_COMMIT以外のservice設定を維持。
-- Central ATM `atm-01` は登録済み。API test後のFirestore確認でenabled=true、cashEnabled=false、active receptionなし。ペアリングコードは操作開始時に発行する。
+- Central ATM `atm-01` は登録済み。常駐化時Firestore実確認でenabled=true、cashEnabled=true、active reception/active payout/reconciliationなし、pending0。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：製品受付は全証跡確認済み。Controller終了時`health_readback_or_report_failed`（ITL HTTP 503）の発生時刻・既存ログ/状態をread-onlyで調査し、原因が解消するまで実機再起動・Cash再受付はしない。今回の紙幣回収、fee送金、Payoutはしない。CashFeeVault・3% USDC後払い・payoutはStage C。
+- 次の作業：240秒/30秒・deadline中紙幣処理・health継続をM4とは別commitで検証保存し、受付idleの状態でCentral→Controllerの順に配備する。旧8355常駐版と新240秒命令を混在させない。零枚240秒の実待機は未確認。CashFeeVault配備/実fee 0.03 USDC/実Payout₹100は未実施、送金と紙幣払い出しは本人の金額別確認後に一回だけ進める。
+- M4今回の実装：Centralのfee invoice/receipt/coverage、管理者認証、管理者QR/署名、exclusive payout command、部分払い出し照合を自動試験で接続。実fee送金・実払い出しは金額別承認前なので未実施。CashはONに反映し製品`8355f1b`のregular runを常駐起動、distinct health 2周期実Ready・active/reconciliation/pendingなし確認。新コードと240秒変更は未配備、稼働版は旧120秒。ベゼル目視/申告/署名/空待ち追加ゲートは所有者決定で不要、内部ESCROW/実error/実イベント/前後照合は別に維持。指示書7の240秒・鮮度/時刻差30秒・正しいclose理由・途中紙幣を待つ変更を実装中。Cash timingとM4は別commitに保存する。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当

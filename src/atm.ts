@@ -1,5 +1,6 @@
-export const VISIT_TTL_MS = 120_000;
-export const CASH_ACCEPTANCE_MS = 120_000;
+import { ClockSkewMs, HumanWindowMs, StatusFreshnessMs } from './timing.ts';
+export const VISIT_TTL_MS = HumanWindowMs;
+export const CASH_ACCEPTANCE_MS = HumanWindowMs;
 export const CASH_LIMIT_PAISE = '40000';
 export const ATM_PHOTO_IDLE_MS = 30_000;
 export const VISIT_REFERENCE = /^[a-f0-9]{64}$/;
@@ -52,6 +53,7 @@ export interface AtmDto {
   cashAcceptanceEnabled: boolean;
   cashReceptionAvailable: boolean;
   cryptoDonationEnabled: boolean;
+  payout?: { payoutId: string; state: string; amountPaise: string } | null;
 }
 export function visitState(state: VisitState, expiresAt: number, now: number): VisitState {
   return state === 'awaiting_wallet' && expiresAt <= now ? 'expired' : state;
@@ -72,7 +74,7 @@ export function cashMachineStatus(health: {
 } | null, now: number): CashMachineStatus {
   if (!health || !Number.isSafeInteger(health.sequence) || health.sequence < 1
     || !Number.isFinite(health.receivedAt)
-    || now - health.receivedAt > 15_000 || health.receivedAt > now + 5_000) {
+    || now - health.receivedAt > StatusFreshnessMs || health.receivedAt > now + ClockSkewMs) {
     return 'offline';
   }
   if (!health.usbConnected || !health.connectionOpen || !health.deviceStarted
