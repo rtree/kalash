@@ -2,7 +2,7 @@ import { getAuth, type Auth } from 'firebase/auth';
 import { initializeApp } from 'firebase/app';
 import { createAppKit } from '@reown/appkit';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { baseSepolia } from 'viem/chains';
+import { BASE_SEPOLIA_RPC, customRpcUrls, kalashChain } from './walletNetwork.ts';
 import { createConfig, http, injected, type Config } from 'wagmi';
 import type { PublicConfig, Temple } from '../shared.ts';
 import { installWalletLifecycleTrace, recordWalletTrace, sanitizeConnector, startWalletAttempt } from './walletTrace.ts';
@@ -28,7 +28,7 @@ export async function createRuntime(): Promise<Runtime> {
     getJson<PublicConfig>('/api/config'),
     getJson<{ temples: Temple[] }>('/api/temples'),
   ]);
-  if (config.chainId !== baseSepolia.id) {
+  if (config.chainId !== kalashChain.id) {
     throw new Error('KALASH is configured for Base Sepolia only. Please try again later.');
   }
   if (!config.firebase?.apiKey || !config.firebase.authDomain || !config.firebase.projectId || !config.firebase.appId) {
@@ -37,7 +37,7 @@ export async function createRuntime(): Promise<Runtime> {
 
   const auth = getAuth(initializeApp(config.firebase));
   const transports = {
-    [baseSepolia.id]: http('https://sepolia.base.org', { timeout: 10000, retryCount: 0 }),
+    [kalashChain.id]: http(BASE_SEPOLIA_RPC, { timeout: 10000, retryCount: 0 }),
   };
   installWalletLifecycleTrace();
   let wagmiConfig: Config;
@@ -47,13 +47,15 @@ export async function createRuntime(): Promise<Runtime> {
   if (config.reownProjectId) {
     const adapter = new WagmiAdapter({
       projectId: config.reownProjectId,
-      networks: [baseSepolia],
+      networks: [kalashChain],
+      customRpcUrls,
       ssr: false,
       transports,
     });
     appKit = createAppKit({
       adapters: [adapter],
-      networks: [baseSepolia],
+      networks: [kalashChain],
+      customRpcUrls,
       projectId: config.reownProjectId,
       enableCoinbase: false,
       enableBaseAccount: false,
@@ -147,7 +149,7 @@ export async function createRuntime(): Promise<Runtime> {
     };
   } else {
     wagmiConfig = createConfig({
-      chains: [baseSepolia],
+      chains: [kalashChain],
       connectors: [injected({ shimDisconnect: true })],
       transports,
     });

@@ -14,6 +14,7 @@ import {
 } from '../shared.ts';
 import type { Runtime } from './runtime.ts';
 import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
+import { switchToKalashChain } from './walletNetwork.ts';
 
 const erc20Abi = parseAbi([
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -480,7 +481,7 @@ export function App({ runtime }: { runtime: Runtime }) {
     if (!address || !isConnected) throw new Error('Connect a wallet before continuing.');
     setConnectingAuth(true);
     try {
-      if (chainId !== CHAIN_ID) await switchChainAsync({ chainId: CHAIN_ID });
+      if (chainId !== CHAIN_ID) await switchChainAsync(switchToKalashChain);
       const signingClient = walletClient ?? (await refreshWalletClient()).data;
       if (!signingClient) {
         throw new Error('MetaMask is connected, but its signing session is not ready. Reconnect the wallet and try again.');
@@ -523,7 +524,7 @@ export function App({ runtime }: { runtime: Runtime }) {
 
   const ensureNetwork = async () => {
     if (!address) throw new Error('Connect your wallet first.');
-    if (chainId !== CHAIN_ID) await switchChainAsync({ chainId: CHAIN_ID });
+    if (chainId !== CHAIN_ID) await switchChainAsync(switchToKalashChain);
   };
 
   const createOperation = async (target: Donation, operation: 'approve' | 'donate') => {
