@@ -2,7 +2,7 @@
 
 ## 現在のゴール
 
-- 現在のゴール：M1 モバイル寄付のapprove prompt障害を切り分ける。MetaMask内蔵BrowserでConnect→SIWE→一度だけ0.01 test USDC approval→Donate→Central確認→Stampを本人確認で通す。通常approvalはbrowser ProviderからMetaMaskへ依頼し、Central Abandonは取消専用。
+- 現在のゴール：M2 写真共有・公開ボード。M1 mobile donationは本人操作のMetaMask approvalで成功・Central確認・実Stamp・Collection再読込まで完了。M2では公開写真の管理と運営者withdraw権限の残りを安全に進める。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
@@ -12,7 +12,7 @@
 - Cloud Run：revision `kalash-central-00016-w6k`、health ready・Base Sepolia・mint有効、source `1790e57`。History recovery、expired-signature guard、Provider approval trace、walletClient preflightを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：M1の本体approval prompt障害を診断する。provider error `Custom eth_getBlockByNumber: Unauthorized` によりMetaMask prompt前に停止した。MetaMaskのBase Sepolia RPC hostnameを確認し、expired approval-only intentをHistoryで安全整理してから一度だけ再試験する。UX-mobile PoCは別チームの別タスク。
+- 次の作業：M1の本体approval prompt障害を診断する。ViemのRPC preparation errorによりMetaMask prompt前に停止した。ユーザー報告のBase Sepolia RPC hostは`rpc.walletconnect.org/v1`（full URL/query未確認）。MetaMask側の設定を本人が確認し、no-pending-requestを確認後にexpired intentを整理する。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -30,7 +30,7 @@
 | M1-api | M1 | Integrator：Central/Auth/Firestore | M1-entry | 完了 | 認可、単位、receipt、冪等確定、mintを実Auth/DB/Chainで検証 |
 | M1-ui | M1 | Integrator/UI：Pilgrim UI・E2E | M1-api、M1-chain | 完了 | ユーザーがConnect、VerifyWallet、SpendingCap、送金、Central確定、Stamp/CollectionをPC MetaMaskで確認 |
 | M1-deploy | M1 | Integrator：Cloud Run | M1-api、M1-ui | 完了 | 実オリジン、runtime SA、Health、mint loop確認 |
-| M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCで2件目も確認済み。先行DelegationManager経路はreceipt証拠を照合し1回だけreconcile |
+| M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCのMetaMaskに加え、Android MetaMask内蔵Browserでも0.01 USDC approval→Donate→Central確認→Stamp/Collection再読込を本人確認。receipt canonical、Vault `Donated` event、mint receiptを照合 |
 | M2 | M2 | Integrator：写真・ボード | M1-e2e | 進行中 | 写真の同意・公開・置換・取り下げ・サイズ、実機カメラ確認。運営者取り下げ権限は未実装 |
 | M3 | M3 | Integrator：Windows Controller/ITL | M2 | 未着手 | QR紐付け、紙幣収納、受付終了・照合・Stamp |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
@@ -44,7 +44,7 @@
 | M2 カメラ | 従来のAgent確認は起動／停止のみ。2026-11-06 05:23Zに本人が本体のカメラ起動→撮影→CommunityBoard掲載成功を報告（今回Agentは画像・DB・本体実行版を未照合） | 本体の本人実測として記録し、隔離PoCのcamera合格と混同しない | 追加撮影・公開は依頼しない。次はCloud Run PoCでpreviewのみ |
 | M1 mobile Chrome | Chrome＋MetaMask/WCで接続・アドレス表示後、VerifyWalletが`personal_sign`非対応で失敗（viem 2.57.13）。認証署名・送金は行わず | MetaMask内蔵Browserを優先。認証の迂回や別署名方式への自動fallbackは禁止 | 新しい署名プロンプトは本人が確認 |
 | M1 MetaMask SIWE | 本人がwarningを解除してSIWEを承認。Base Sepoliaの正規origin、login-only message、Cloud Run auth verify HTTP200、KALASHにWallet verified表示。寄付・token transferは行われていない | 完了。次のウォレット署名／送金は別の本人確認 | 認証成功を寄付同意とみなさない |
-| M1/Mobile Approval | 最新approve intentは`0xdf3655da…`、status=`intent`、approveのみ、deadline切れ、txHash/donateAttemptなし。Viem 2.57.13が`Custom eth_getBlockByNumber: Unauthorized`で拒否し、MetaMask promptは出なかった。Public `https://sepolia.base.org`のchain/block readはHTTP200。 | revision `00016-w6k` / source `1790e57`配備済み。walletClient preflightは成功しており、失敗箇所はwallet `custom` RPC準備。MetaMask Base Sepolia RPC hostnameを確認する | wallet requestが開いていないことを本人確認。RPC hostを確定後、旧expired intentsをHistoryでresolveし、Donateを一度だけ再試験。RPC URLのAPI keyは共有しない |
+| M1/Mobile Approval | ユーザーがMetaMask Base Sepolia RPCを変更後、0.01 USDC approval→donation成功。Firestore最新記録`0xebee32b2…`はconfirmed/minted、amount=10000, fee=1, net=9999。Receipt success・canonical、matching Vault `Donated` event、mint receipt success・canonical | M1 mobile donation完了。Central recordsは全消去せず保全 | 以後の送金は別依頼・本人確認 |
 | M3/M4 ITL | 保護APIは認証前HTTP401（認証失敗とは未確定） | 後続ゴールで安全な資格情報を用意して認証 | 紙幣・払い出しは人の立ち会いが必要 |
 
 ## M1の検証証跡
@@ -73,10 +73,10 @@
 - 端末はWindowsからADB 37.0.1で認識。Samsung SM_S942Z、Android 16、物理1080×2340。Chromeは`com.android.chrome`、MetaMaskは`io.metamask`。
 - MetaMask内蔵DApp BrowserでKALASHのHistory/Collection・写真操作を表示。通常Chrome＋WalletConnectのVerifyWalletは`personal_sign` unavailableで失敗したため、認証を迂回しない。
 - Historyへ表示される2件のrecent donationsはどちらもPC Chrome起点で、モバイル購入ではない。3件目の送金は行わない。
-- SIWE verify HTTP200、Base Sepolia。旧intent `0x9c721a5a…2932e`と最新`0xdf3655da…`は期限切れ・approveのみ・txHash/donateAttemptなし。直近4件はcancelled、全署名期限経過。ユーザーの新しいDonateではViem error `Custom eth_getBlockByNumber: Unauthorized` が出てMetaMask approval prompt前に停止。公開RPC `https://sepolia.base.org`では`eth_chainId`と`eth_getBlockByNumber`がHTTP200。
+- SIWE verify HTTP200、Base Sepolia。旧intent `0x9c721a5a…2932e`と`0xdf3655da…`は期限切れ・approveのみ・txHash/donateAttemptなし。直近4件はcancelled、全署名期限経過。ユーザーはRPC設定変更後にapprovalを承認し、DonationVault receipt・`Donated` event・mint receiptはsuccessかつcanonical。Collection reloadでLotus Courtyardのstamp count 5表示。Central全件削除は未実施。
 - 失効済みapprove-only intent 3件は開始後600ブロック内にUSDC Approval/Vault Donatedがなく、Allowance 0。
 - 既存版は期限後だけの解決だった。`src/server/donations.ts`のローカル変更は、approve-only・owner・イベント不在・Allowance 0を再検証し、deadline前は`cancelled`、期限後は`expired`とする。期限前cancelは署名を無効化せず期限まで有効であることを表示。署名・送金・Firestore削除はしない。
-- 型チェック/build・局所9件成功。Cloud Build `02dddf7d-b07e-4953-b089-af0585d2bf77`成功。Cloud Run `00016-w6k`、health ready・source `1790e57`。Live Central API 7件成功・skipなし。Viem official docsで`writeContract → sendTransaction → prepareTransactionRequest`がfee/gas準備に`getBlock`/`eth_getBlockByNumber`を使うことを確認。wallet RPC URLの由来は未確認。
+- 型チェック/build・局所9件成功。Cloud Build `02dddf7d-b07e-4953-b089-af0585d2bf77`成功。Cloud Run `00016-w6k`、health ready・source `1790e57`。Live Central API 7件成功・skipなし。Viem official docsで`writeContract → sendTransaction → prepareTransactionRequest`がfee/gas準備に`getBlock`/`eth_getBlockByNumber`を使うと確認。RPC変更後はapprove→donate→Central→mint→Collection reloadまで実機成功。
 - 予期しないMetaMaskページが開いた場合は操作・入力しない。所有者が正規KALASH画面へ戻したことを確認する。Wallet unlock、生体認証、カメラ権限、Spend/Donate署名は本人が行う。
 
 ## 過去のM1調査（要約）
@@ -91,4 +91,4 @@
 - 完了：M1全体、delegated receipt復旧、M2のprivate photo API/boardとカメラ実装、PC MetaMaskの実寄付、写真のpublic listing。
 - 未完：Approval-only stale stateのguarded解決、モバイルでの新規寄付成功確認、Camera preview実画面、Temple/operator withdrawal、M3～M5。
 - 人の操作：Allowカメラを押下済み。以降の撮影・同意・ウォレット署名・支払いは都度本人が確認する。
-- 次の一手：MetaMask Base Sepolia networkのRPC hostだけ（URL全体やAPI keyは不可）を確認し、未処理wallet requestがないことを確認する。RPC host確定後にexpired approval-only intentをHistoryでresolveする。その後Donateを一度だけ開始し、MetaMaskのapprovalが出るか確認。再度UnauthorizedならAbandon/再送せず停止。
+- 次の一手：M1 mobile donationは完了。M2写真共有・公開ボードへ戻り、既存の本人写真を維持しつつ、運営者withdraw権限の仕様と実装を進める。追加撮影・公開・削除は本人の明示承認前に行わない。
