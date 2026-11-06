@@ -89,7 +89,7 @@ export function verifyCashEvidence(evidence) {
       const readiness = validateCashReadinessEvidence(command.readinessEvidence);
       readinessVerified = readiness.commandId === command.commandId && readiness.cashSessionId === session.cashSessionId
         && readiness.deviceId === atm.controllerHealth?.deviceId && readiness.idleObservedAt === command.observedAt
-        && readiness.disabledObservedAt >= command.createdAt && readiness.enableDispatchedAt < command.expiresAt;
+        && readiness.disabledObservedAt >= command.createdAt - 5_000 && readiness.enableDispatchedAt < command.expiresAt;
     }
     check('observed_start_command', command?.commandId === `cash-start-${session.cashSessionId}`
       && command.type === 'start_cash' && command.atmId === atm.id && command.visitId === visit.id

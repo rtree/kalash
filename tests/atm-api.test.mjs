@@ -4,6 +4,7 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
+import { validateCashReadinessEvidence } from '../src/cash.ts';
 
 const origin = process.env.KALASH_TEST_ORIGIN ?? 'http://localhost:3000';
 const fixture = `atm-test-${randomUUID()}`;
@@ -361,8 +362,28 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
     observedAt: Date.now(), deviceState: 'TEST_OBSERVATION',
   })).status, 400, 'an arbitrary state must not activate cash');
   assert.equal((await report('observed', {
-    observedAt: Date.now(), deviceState: 'ACCEPTING',
-  })).status, 200);
+    observedAt: Date.now(), deviceState: 'IDLE',
+  })).status, 400, 'bare IDLE is not proof of post-enable readiness');
+  const idleObservedAt = Date.now();
+  const inventory = {
+    levels: ['1000', '2000', '5000', '10000', '20000', '50000']
+      .map((valuePaise) => ({ valuePaise, payout: 0, cashbox: 0 })),
+    counters: { stored: 0, stacked: 0, dispensed: 0, transferredToStack: 0 },
+  };
+  const fixtureDeviceId = (await db.collection('atms').doc(second).get()).get('controllerHealth.deviceId');
+  const readinessEvidence = validateCashReadinessEvidence({
+      version: 'itl-idle-after-enable-v1', commandId: command.commandId, cashSessionId,
+      deviceId: fixtureDeviceId, disabledObservedAt: idleObservedAt - 3,
+      enableDispatchedAt: idleObservedAt - 2, enableAcknowledgedAt: idleObservedAt - 1,
+      idleObservedAt, disabledRawSequence: 1, rawSequence: 2, deviceStateCode: 5,
+      manualEscrow: true, routesVerified: true, escrowEmpty: true, deviceHealthy: true,
+      baseline: inventory, inventory,
+  });
+  const idleReport = await report('observed', {
+    observedAt: idleObservedAt, deviceState: 'IDLE', readinessEvidence,
+  });
+  const idleResult = await idleReport.json();
+  assert.equal(idleReport.status, 200, `Isolated IDLE proof: ${idleResult.code ?? 'accepted'} ${idleResult.message ?? ''}`);
   assert.equal((await report('reported')).status, 200);
   assert.equal((await report('reported')).status, 200, 'Central acknowledgements are idempotent');
   assert.deepEqual(

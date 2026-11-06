@@ -512,7 +512,7 @@ test('bare IDLE, missing readback fields and wrong command/device/time never est
     (proof: any) => { proof.escrowEmpty = false; },
     (proof: any) => { proof.deviceId = 'different-device'; },
     (proof: any) => { proof.idleObservedAt++; },
-    (proof: any) => { proof.disabledObservedAt = store.read(`controllerCommands/cash-start-${cashSessionId}`).createdAt - 1; },
+    (proof: any) => { proof.disabledObservedAt = store.read(`controllerCommands/cash-start-${cashSessionId}`).createdAt - 5001; },
     (proof: any) => { proof.inventory.counters.stored = 1; },
     (proof: any) => { proof.rawSequence = proof.disabledRawSequence; },
   ]) {
@@ -523,6 +523,16 @@ test('bare IDLE, missing readback fields and wrong command/device/time never est
     assert.equal(store.read(visitPath).state, 'awaiting_device');
     assert.equal(store.read(visitPath).cashDeadline, null);
   }
+});
+test('IDLE proof permits the existing five-second Controller clock tolerance, not stale or reordered evidence', async () => {
+  const report = idleReadinessReport();
+  awaitingObservedStart(report);
+  const path = `controllerCommands/cash-start-${cashSessionId}`;
+  store.records.set(path, { ...store.read(path), createdAt: report.readinessEvidence.disabledObservedAt + 5001 });
+  await assert.rejects(atm.reportControllerCashCommand(atmId, auth, report), { code: 'INVALID_CASH_READINESS_EVIDENCE' });
+  store.records.set(path, { ...store.read(path), createdAt: report.readinessEvidence.disabledObservedAt + 5000 });
+  await atm.reportControllerCashCommand(atmId, auth, report);
+  assert.equal(store.read(visitPath).state, 'accepting');
 });
 test('complete immutable IDLE wire report -> Ready -> note -> Done -> reconciled atomic mint reservation', async (t) => {
   const report: ReturnType<typeof idleReadinessReport> = JSON.parse(readFileSync(

@@ -424,6 +424,10 @@ disabled observation -> Enable dispatch/ack -> later owned-reader IDLE,
 numeric device state 5, manual escrow, verified routes/health/empty escrow, and
 identical baseline/current six-level inventory and four counters. Bare IDLE,
 stale/mismatched proof or a later changed intake baseline is rejected.
+Controller observation times retain strict local ordering. Their comparison to
+Central's command creation permits only the existing five-second command clock
+tolerance; a server/client clock difference must not reverse local causal order.
+The signed expiry and recent observation checks are unchanged.
 
 The explicit `scripts/reconcile-failed-cash-start.mjs` operator tool defaults
 to dry-run. `--apply` only closes the specific failed-start zero-note shape

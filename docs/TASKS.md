@@ -116,6 +116,7 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 19:32以降、`00021-cxs`/source `8991bcc`へIDLE契約配備（build `e56c4212-12c4-43b4-b915-6f6ca12419b8` SUCCESS）。実APIの隔離IDLE fixture検証でserver-createdAtとControllerローカル時刻の厳密比較による拒否を発見。HTTP Dateでserver/client差を確認し、既存command validatorと同じ5秒許容をこのcross-clock下限に揃えた。機内イベント順序・新raw sequence・署名期限は緩めない。TS73/73・typecheck、C#局所44件成功。5000/5001ms境界試験を追加して再配備準備、実機は停止・cashEnabledfalseのまま。
 - M3零枚実照合完了：proof hash `8cb5a93a9b38e74775d2e5ed23c954a9119e3bc6af24ae7fa07f9aa78de024c7`、session `2a364965-289e-4bff-abdf-e7af7cab0c3e`。新schema未対応の最初の復旧試行はローカルdeserialize時点で停止（ITL要求/状態書込みなし）。互換修正後に一回の物理照合・disconnectとCentral apply成功。未知命令の再送・札操作・証拠削除はなし。次の配備中はController/機器接続とも停止、本人紙幣は機外。
 - UTC 2026-11-06 19:17以降、M3実IDLE Ready契約：Central側の完全証拠付きIDLE判定・baseline一致・零枚失敗の明示operator照合を実装。親実行`pnpm run test:cash`72/72・skip0、typecheck成功。evidence/reconciliation試験を通常cash suiteとDocker必須検証へ追加し570release証拠更新。Controllerの実serialized fixture→Central HTTP/store照合は最終統合待ち、未配備。実機Controller12260は完了零枚/停止/前後一致を確認して停止済み、child17780だけ保全。未解決受付を消去せず実証拠を待つ。
 - M3実本人署名まで到達。現在の詰まりはEnable後の実状態IDLEと、未実証だったACCEPTING前提の不一致。STORED・入金・Stampなし。本人未投入、物理前後同値、停止DISABLEDを確認しcashEnabled=falseへ戻した。Controller担当は資料根拠/実IDLE Ready契約、Central担当は同契約と旧command非再送の零枚失敗照合を分担。次の新署名・投入を案内せず、現在の受付を証拠で閉じる。

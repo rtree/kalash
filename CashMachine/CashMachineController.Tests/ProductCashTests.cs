@@ -65,6 +65,7 @@ internal static class ProductCashTests
         await Run("close reconciles all counters and denomination levels", CloseMismatch);
         await Run("inventory wire fields and mandatory counters", InventoryContract);
         await Run("legacy readback stays unknown rather than inventing a device state", LegacyReadback);
+        await Run("readiness permits bounded server clock skew but never stale observations", ReadinessClock);
         await Run("outbox replay after lost receipt survives restart", OutboxRestart);
         await Run("journal ownership and exact ordered acknowledgements", JournalAndAck);
         await Run("consumed raw crash gap latches reconciliation", RawGap);
@@ -245,6 +246,22 @@ internal static class ProductCashTests
             Check(state.Locked && state.Outbox[^1].Type == "intake_closed", $"Close {mismatch} falsely confirmed.");
             Check(state.Outbox[^2].Type == "needs_reconciliation", "Reasons must precede close.");
         }
+        return Task.CompletedTask;
+    }
+
+    private static Task ReadinessClock()
+    {
+        var command = Command();
+        var disabled = command.CreatedAt - 5_000;
+        var now = command.CreatedAt + 10;
+        var evidence = new ProductCashReadinessEvidence("itl-idle-after-enable-v1",
+            command.CommandId, command.CashSessionId, "device", disabled, 1,
+            disabled + 1, disabled + 2, now, 2, 5, true, true, true, true, Inventory(), Inventory());
+        evidence.Validate(command, "device", now);
+        var rejected = false;
+        try { (evidence with { DisabledObservedAt = disabled - 1 }).Validate(command, "device", now); }
+        catch (InvalidDataException) { rejected = true; }
+        Check(rejected, "Readiness outside the existing five-second command clock tolerance must be rejected.");
         return Task.CompletedTask;
     }
 

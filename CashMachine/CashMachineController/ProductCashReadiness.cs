@@ -12,7 +12,7 @@ public sealed record ProductCashReadinessEvidence(
         if (Version != "itl-idle-after-enable-v1" || CommandId != command.CommandId
             || CashSessionId != command.CashSessionId || DeviceId != deviceId
             || DisabledObservedAt <= 0 || DisabledObservedAt > EnableDispatchedAt
-            || EnableDispatchedAt < command.CreatedAt || EnableDispatchedAt >= command.ExpiresAt
+            || DisabledObservedAt < command.CreatedAt - 5_000 || EnableDispatchedAt >= command.ExpiresAt
             || EnableDispatchedAt > EnableAcknowledgedAt || EnableAcknowledgedAt > IdleObservedAt
             || EnableDispatchedAt >= IdleObservedAt || IdleObservedAt > now || now - IdleObservedAt > 2_000
             || DisabledRawSequence < 0 || RawSequence <= DisabledRawSequence

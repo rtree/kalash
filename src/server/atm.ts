@@ -303,7 +303,7 @@ export async function reportControllerCashCommand(
           && readinessEvidence.cashSessionId === visit.cashSessionId
           && readinessEvidence.deviceId === atm.controllerHealth?.deviceId
           && readinessEvidence.idleObservedAt === body.observedAt
-          && readinessEvidence.disabledObservedAt >= command.createdAt
+          && readinessEvidence.disabledObservedAt >= command.createdAt - 5_000
           && readinessEvidence.enableDispatchedAt < command.expiresAt,
         400, 'INVALID_CASH_READINESS_EVIDENCE', 'IDLE must be proven after the bound command enable, not inferred from HTTP success.');
       } else {
