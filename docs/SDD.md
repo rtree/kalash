@@ -207,6 +207,11 @@ Windows checkouts and committed-source Linux archives produce identical evidence
 The lockfile SHA remains byte-exact; versions, effective settings and the
 168-hour release checks are unchanged. The policy test rejects real content
 changes and incorrect Node versions on either host.
+For a committed-source Cloud Build upload on Windows use
+`git -c core.autocrlf=false archive --format=tar.gz` so the archive preserves
+the lockfile's committed bytes. Verify the archive's lock SHA and policy
+fingerprint against its embedded release evidence before upload; never bypass
+the check or include unrelated dirty worktree content.
 
 Pinned Node 26.13.0 (Lithium LTS), pnpm 10.34.9.
 `node scripts/check-policy.mjs` precedes acquisition and every validation entry.

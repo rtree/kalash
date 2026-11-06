@@ -359,6 +359,9 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
   assert.equal((await report('dispatching')).status, 200);
   assert.equal((await report('observed', {
     observedAt: Date.now(), deviceState: 'TEST_OBSERVATION',
+  })).status, 400, 'an arbitrary state must not activate cash');
+  assert.equal((await report('observed', {
+    observedAt: Date.now(), deviceState: 'ACCEPTING',
   })).status, 200);
   assert.equal((await report('reported')).status, 200);
   assert.equal((await report('reported')).status, 200, 'Central acknowledgements are idempotent');
@@ -382,4 +385,24 @@ test('cash visit consent binds one wallet to one cashSession and never starts ac
   })).status, 403, 'another wallet cannot read the linked cash session');
   const screenState = await (await request(`/api/atm/${second}`, { screen: otherCookie })).json();
   assert.equal(screenState.cashAcceptanceEnabled, true, 'only a Controller-reported observed device state activates acceptance');
+  const sessionResponse = await request(`/api/controller/${second}/cash-session`, { token: credential });
+  assert.equal(sessionResponse.status, 200);
+  const { session } = await sessionResponse.json();
+  assert.equal(session.cashSessionId, cashSessionId);
+  assert.equal(session.state, 'accepting');
+  assert.equal(session.closeRequested, false);
+  const done = await request(`/api/atm/${second}/visits/${createdState.visit.id}/done`, {
+    method: 'POST', screen: otherCookie, body: {},
+  });
+  assert.equal(done.status, 200);
+  assert.equal((await done.json()).visit.state, 'closing');
+  const stopped = await (await request(`/api/controller/${second}/cash-session`, { token: credential })).json();
+  assert.equal(stopped.session.closeRequested, true);
+  assert.equal(stopped.session.closeReason, 'done');
+  assert.equal((await request(`/api/controller/${second}/cash-events`, {
+    method: 'POST', token: '0'.repeat(64), body: {},
+  })).status, 401, 'deployed event route enforces Controller authentication');
+  assert.equal((await request(`/api/controller/${second}/cash-events`, {
+    method: 'POST', token: credential, body: {},
+  })).status, 400, 'deployed event route rejects missing evidence rather than fabricating a note');
 });

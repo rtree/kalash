@@ -5,18 +5,18 @@
 - 現在のゴール：M3-cash onsite cash reception。M5a onsite CryptoとM3-device disabled initializationはverified。先輩決定（2026-11-06）：現金はオフチェーンINR台帳、3% USDC feeは寺院が後払い、Stampは既存onsite kind=1。Stage Bの同意・有限受付・イベント照合・Stamp・ATM写真を実装し、自動試験後にだけ現金UIを有効化する。
 - 成功条件：Controller/ITLの機器識別、route、在高/counter、disabled/empty escrowを実応答で確認。現金受付はCentral consent・有限時間・単一poller・STOREDと在高照合を人の立会い下で別途検証する。今回の初期化を現金収納成功と扱わない。
 - 今回の担当：Integratorが統合・既存Cryptoとの型境界・Web・共有SDD/TASKS・Git、Central担当が`src/cash.ts`・`src/server/atm.ts`・現金store/routesとその試験、Controller担当が製品受付ループ・永続状態/Outbox・ホスト接続とC#試験を担当。PoCと診断回収の既存差分は保持する。実環境の操作担当はIntegratorのみ。
-- 2026-11-06再開時の最初の障害：命令APIの配備済み記録はあるが、製品の紙幣イベント送信→Central台帳→Done確定が未接続。作業ツリーには契約・owned pollerの未統合差分があり、現金/crypto型の分離でtypecheckが失敗、`tests/reception.test.ts`は空。診断を追加するのではなく、この製品境界を接続して局所試験する。未配備・実紙幣未確認は別に保持。
+- 現在の障害：製品の紙幣イベント→Central台帳→Done確定の未接続と型エラーは解消、配備も完了。残る主障害は実機のACCEPTING／ESCROW→STORED／counter形状を署名済み受付で実証していないこと。実イベント→実Firestore寄付確定→mint receiptも未確認。製品gateとCentral現金受付は無効のまま、立ち会い・試験一枚・事前在高・回収方法を確認してから進む。
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
 - PoC checkpoint（2026-11-06 06:00Z）：本人がPCでPoCのQRを表示し、MetaMask外のスマホQRリーダーで読取→MetaMask起動→内蔵Browserに`https://kalash-uxmobile-548318651344.asia-south1.run.app/?mode=phone&case=external-qr`が表示されたと報告。PoCのorigin・path・query保持を含む入口は今回の環境で本人確認済み。これはPCの共有snapshotをスマホ実測とみなした結果ではない。稼働版`kalash-uxmobile-00002-j6c`、source `d9bf3ce0ed07`／dirty=false、health200・payments/uploads=falseをread-only再確認。配備のCloud Buildは`19d52ae7-9269-447d-8aac-4763b176e0f9`、37 tests pass・skipなし。並行作業の追加build `a72fb6e2-6136-4d05-a6a2-95ba0284d648`は成功したが、このチームから追加配備はしない。SDDのCloud Run限定方針と一致。次は同じスマホPoCページで明示接続・camera preview→停止のみ。全QRリーダー保証・Reown全面削除・モバイル認証／送金成功には拡張しない。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - Central URL：https://kalash-central-548318651344.asia-south1.run.app（owner-confirmed test/demo service）
-- Cloud Run：revision `kalash-central-00019-jdc`、image `central:666c5165f2cc9a8757c6cbb9cf348b0f7a39bace`。Cloud Build `700c03ce-66d5-4906-a545-02b306485052` 成功。Health ready・Base Sepolia・mint有効・traffic100%。`SOURCE_COMMIT` は完全SHA一致。service account、min/max=1/1、既存環境変数を維持。
+- Cloud Run：revision `kalash-central-00020-xp2`、image `central:cdf55c43a37c6af16add0dbd1560531d626c4f99`。Cloud Build `c9766e9f-03a7-4b15-adb3-b68e21fa4814` SUCCESS、完了18:15:47Z。Health ready・source完全一致・traffic100%。imageとSOURCE_COMMITのみ更新し、既存service設定を維持。
 - Central ATM `atm-01` は登録済み。API test後のFirestore確認でenabled=true、cashEnabled=false、active receptionなし。ペアリングコードは操作開始時に発行する。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：製品cashのController／Central／Done／確定を統合検証し、配備元と実APIを照合。acceptor enable・実紙幣・Wallet署名は今回まだ行わない。CashFeeVault・3% USDC後払い・payoutはStage C。
+- 次の作業：所有者立ち会いで署名済み一枚受付→同じnoteKeyの実STORED→Done→実DB確定→Stamp receiptを確認する。実機操作の承認・在高・回収方法が揃うまではgateを変更しない。CashFeeVault・3% USDC後払い・payoutはStage C。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -110,6 +110,10 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 18:25、M3製品実装・配備まで完了。Cloud Build `c9766e9f...` は18:15:47Z SUCCESS（contracts/policy25、Central54、fail0/skip0）。次に既承認test/demoへ配備し`00020-xp2`100%、health source `cdf55c4...`一致。配備前後とも実ATM active visitなし、cashEnabledは未設定＝false。現金・実Wallet・mint・Payout操作なし。
+- live `pnpm run test:atm` は10/10・skip0。新cash-session GET、paired Done→実Firestore closing/closeRequested、event routeの401/不正evidence400まで確認。旧試験の架空`TEST_OBSERVATION`成功期待は400に修正し、隔離test ATMだけで`ACCEPTING`申告を検証（実機Readyの証拠ではない）。実紙幣台帳・寄付確定・mintは局所fixtureの証拠のみ、実E2E未完を維持。
+- 配備障害の解消：2回目build `72df2279...`もpolicy停止。実upload archiveを調べるとGitのautocrlfがlockfileまでCRLF化していた。`git -c core.autocrlf=false archive`でcommitted sourceを再生成し、upload前にarchive内のpolicy hash・byte-exact lock SHA・570 release-ageを照合して成功。SDDに配備元作成条件を保存。最後のUI追加通信失敗ケースはbrowser reload timeoutで未確認（先のDone正常fixture画面確認とは分離）。
+- 保存：`f7f2929`、`6d942d7`、`f0caf3b`、`cdf55c4`はpush確認済み。今回のtest/証拠記録を追加commit。既存の診断回収5ファイルは未commitのまま保持。次の人の操作：実紙幣一枚の製品検証の立ち会い・回収条件を確認。再開文「TASKSからM3の署名済み一枚E2Eを再開。配備済み00020-xp2を維持、未知の現金操作を再送しない」。
 - UTC 2026-11-06 17:08／今回再開約67分、M3配備境界。committed source `f0caf3b` のCloud Build `8298c8ab-29dc-4143-b4c0-11b673ce1831` はstep0 policyで停止、配備なし。原因をhashで特定：Windowsの`.npmrc`/workspace/Node版のCRLFとGit archiveのLF差だけでpolicy fingerprintが不一致（lockfileは一致）。4 policy入力の改行だけを正規化し、実設定・版・release-age・lock SHAの検証は維持。570 release再検証、policy2/2・skip0。次は修正版committed sourceのbuild一回、成功後に同一test/demoサービスへ配備。現金gateはoffのまま。
 - UTC 2026-11-06 16:40以降／今回再開約40分、M3-cash-local。未commit診断回収を除いたstaged snapshotからController全46試験・warning/error0を独立確認。新規snapshotのassets未作成（NETSDK1004）は空のlocal feedでpackage-free restoreして復旧、外部依存取得なし。実C# HTTP serializationの4イベントをTS validator/ledgerへ通す回帰を追加し、Central/Web局所47/47・skip0、typecheck/build再合格。製品pathから診断回収への依存なし。
 - 次：製品Controller変更をcommit/pushし、既承認のtest/demo Centralへ同じcommitted sourceを配備してrevisionと実APIを確認する。現金フラグ・Controller製品gateは有効化しない。実紙幣・Wallet署名・Payoutは未実施、実機のreadback/event/counter/人の受取確認は未検証のまま。
