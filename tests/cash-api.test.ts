@@ -525,13 +525,12 @@ test('bare IDLE, missing readback fields and wrong command/device/time never est
   }
 });
 test('complete immutable IDLE wire report -> Ready -> note -> Done -> reconciled atomic mint reservation', async (t) => {
-  const report: ReturnType<typeof idleReadinessReport> = process.env.KALASH_CASH_READINESS_WIRE
-    ? JSON.parse(readFileSync(process.env.KALASH_CASH_READINESS_WIRE, 'utf8')) : idleReadinessReport();
-  if (process.env.KALASH_CASH_READINESS_WIRE) {
-    t.mock.timers.enable({ apis: ['Date'], now: report.observedAt + 100 });
-    seed();
-    t.diagnostic('Consumed actual C# serialized HTTP report using controlled local clock; no hardware or live Firestore.');
-  }
+  const report: ReturnType<typeof idleReadinessReport> = JSON.parse(readFileSync(
+    process.env.KALASH_CASH_READINESS_WIRE ?? new URL('fixtures/cash-idle-readiness-wire.synthetic.json', import.meta.url), 'utf8',
+  ));
+  t.mock.timers.enable({ apis: ['Date'], now: report.observedAt + 100 });
+  seed();
+  t.diagnostic('Consumed actual C# serialized HTTP report using controlled local clock; no hardware or live Firestore.');
   awaitingObservedStart(report);
   const response = await request(`/api/controller/${atmId}/commands/${report.commandId}`, report, { Authorization: auth });
   assert.equal(response.status, 200);
@@ -545,9 +544,9 @@ test('complete immutable IDLE wire report -> Ready -> note -> Done -> reconciled
   }), { code: 'CASH_COMMAND_OBSERVATION_CONFLICT' });
   await atm.reportControllerCashCommand(atmId, auth, { ...report, state: 'reported' });
   await start();
-  if (process.env.KALASH_CASH_READINESS_WIRE) t.mock.timers.tick(1);
+  t.mock.timers.tick(1);
   await stored();
-  if (process.env.KALASH_CASH_READINESS_WIRE) t.mock.timers.tick(1);
+  t.mock.timers.tick(1);
   await atm.doneCashVisit(atmId, cookie, visitId);
   await post(closeEvent());
   assert.equal(store.read(visitPath).state, 'confirmed');

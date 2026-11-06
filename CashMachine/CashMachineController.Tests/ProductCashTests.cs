@@ -10,6 +10,22 @@ internal static class ProductCashTests
     private static readonly CancellationToken None = CancellationToken.None;
     private static int passed;
 
+    public static async Task ExportIdleReadinessAsync(string relativePath)
+    {
+        var path = Path.GetFullPath(relativePath);
+        if (Path.IsPathFullyQualified(relativePath)
+            || !path.StartsWith(Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Synthetic wire export must be a project-relative path.");
+        const string session = "20000000-0000-4000-8000-000000000001";
+        var command = Command() with { CommandId = $"cash-start-{session}", CashSessionId = session };
+        await using var fixture = await OwnerFixture.Create(command: command, deviceId: "local-double");
+        await fixture.Start();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var report = fixture.Central.CommandReportBodies.Single(value => value.GetProperty("state").GetString() == "observed");
+        await File.WriteAllTextAsync(path, report.GetRawText());
+        Console.WriteLine("PASS synthetic actual CentralCashCommandClient IDLE report exported; no hardware evidence.");
+    }
+
     public static async Task ExportWireAsync(string relativePath)
     {
         var path = Path.GetFullPath(relativePath);
@@ -73,6 +89,13 @@ internal static class ProductCashTests
         await Run("all Central POST paths carry the canonical configured Origin", CanonicalCentralOrigin);
         await Run("Central unavailable-health POST must pass before startup may continue", CentralPreStartupPost);
         await Run("HTTP failure logs expose status but never response bodies or credentials", SanitizedHttpStatus);
+        await Run("actual IDLE after durable Enable produces immutable bound observation", IdleReadiness);
+        await Run("preexisting IDLE or missing transition never becomes Ready", UnboundIdle);
+        await Run("IDLE readiness rejects changed routes, escrow, counters or numeric state", UnsafeIdleReadiness);
+        await Run("legacy actual ACCEPTING observations remain supported", ActualAccepting);
+        await Run("explicit failed-start zero-note recovery archives exact bytes without command replay", FailedZeroStartRecovery);
+        await Run("zero-note recovery refuses other locks, gaps, notes and altered raw transitions", RejectOtherFailedStarts);
+        await Run("zero-note recovery keeps unknown readbacks and disconnects fail-closed", UnsafeFailedStartRecovery);
         Console.WriteLine($"{passed} product cash tests passed (synthetic fixtures; no hardware evidence).");
     }
 
@@ -98,8 +121,9 @@ internal static class ProductCashTests
     private static CashStartCommand Command()
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        return new($"cash-start-{Guid.NewGuid():D}", "start_cash", "pending", "atm-test",
-            new string('b', 64), "temple-01", Guid.NewGuid().ToString("D"), now + 120_000, now);
+        var session = Guid.NewGuid().ToString("D");
+        return new($"cash-start-{session}", "start_cash", "pending", "atm-test",
+            new string('b', 64), "temple-01", session, now + 120_000, now);
     }
 
     private static CashInventory Inventory(int hundreds = 0) =>
@@ -341,8 +365,8 @@ internal static class ProductCashTests
         foreach (var report in fixture.Central.CommandReportBodies)
         {
             var observed = report.GetProperty("state").GetString() is "observed" or "reported";
-            Fields(report, observed ? ["commandId", "state", "observedAt", "deviceState"] : ["commandId", "state"]);
-            if (observed) Check(report.GetProperty("deviceState").GetString() == "ACCEPTING"
+            Fields(report, observed ? ["commandId", "state", "observedAt", "deviceState", "readinessEvidence"] : ["commandId", "state"]);
+            if (observed) Check(report.GetProperty("deviceState").GetString() == "IDLE"
                 && report.GetProperty("observedAt").GetInt64() > 0, "Ready report omitted physical observation.");
         }
         Check(fixture.Central.CashSessionBodies.Any(body => body.GetProperty("session").GetProperty("state").GetString() == "awaiting_device")
@@ -782,6 +806,204 @@ internal static class ProductCashTests
             && fixture.Itl.EnableCount == 0, "HTTP error handling leaked sensitive content or enabled cash.");
     }
 
+    private static async Task IdleReadiness()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        fixture.Itl.BeforeEnable = async () =>
+        {
+            var state = await fixture.Journal.LoadAsync(None);
+            Check(state.Intake is { EnableDispatchStarted: true, EnableDispatchedAt: not null,
+                DisabledObservedAt: not null, DisabledRawSequence: not null, Started: false, EnableAcknowledgedAt: null },
+                "Enable was not preceded by durable signed-command/disabled binding.");
+            var command = await new CashCommandJournal(fixture.Files.File("commands")).ReadAsync(state.Intake!.Command.CommandId, None);
+            Check(command?.State == "dispatching", "Command dispatch was not durable before physical Enable.");
+        };
+        await fixture.Start();
+        var intake = fixture.Owner.State.Intake!;
+        var evidence = intake.ReadinessEvidence!;
+        evidence.Validate(intake.Command, fixture.Itl.DeviceId, evidence.IdleObservedAt);
+        Check(intake.Deadline == evidence.IdleObservedAt + 120_000 && fixture.Itl.AcceptCount == 0,
+            "IDLE deadline was invented or a note was accepted before ESCROW.");
+        var journal = await new CashCommandJournal(fixture.Files.File("commands")).ReadAsync(intake.Command.CommandId, None);
+        Check(journal?.Observation is { DeviceState: "IDLE", ReadinessEvidence: not null },
+            "Actual IDLE evidence was not persisted with the command.");
+        var observed = fixture.Central.CommandReportBodies.Single(value => value.GetProperty("state").GetString() == "observed");
+        var reported = fixture.Central.CommandReportBodies.Single(value => value.GetProperty("state").GetString() == "reported");
+        Check(observed.GetProperty("readinessEvidence").GetRawText() == reported.GetProperty("readinessEvidence").GetRawText(),
+            "Idempotent report changed readiness evidence.");
+        Check(fixture.Central.RequestPaths.FindIndex(path => path.EndsWith("/cash-events", StringComparison.Ordinal))
+            > fixture.Central.RequestPaths.FindLastIndex(path => path.Contains("/commands/cash-start-", StringComparison.Ordinal)),
+            "Intake baseline was posted before observed/reported command acceptance.");
+        for (var index = 0; index < 6; index++) await fixture.Tick();
+        Check(fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean()
+            && fixture.Owner.State.Intake!.CloseReason is null, "Bound active IDLE did not retain truthful ready heartbeat.");
+    }
+
+    private static async Task UnboundIdle()
+    {
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            fixture.Itl.State = "IDLE";
+            await fixture.Tick();
+            Check(fixture.Itl.EnableCount == 0 && fixture.Owner.State.Intake is null
+                && !fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean(),
+                "Preexisting unbound IDLE was treated as ready.");
+        }
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            fixture.Itl.SuppressEnableEvent = true;
+            await fixture.Tick();
+            Check(fixture.Itl.EnableCount == 1 && fixture.Itl.DisableCount == 1
+                && fixture.Owner.State.Intake is { Started: false } && fixture.Owner.State.Locked
+                && !fixture.Central.CommandReportBodies.Any(value => value.GetProperty("state").GetString() == "observed"),
+                "Bare IDLE/HTTP success without new raw transition became ready.");
+        }
+    }
+
+    private static async Task UnsafeIdleReadiness()
+    {
+        Action<OwnerFixture>[] changes =
+        [
+            fixture => fixture.Itl.ForceEscrow = true,
+            fixture => fixture.Itl.Stored = 1,
+            fixture => fixture.Itl.BadRoute = true,
+            fixture => fixture.Itl.MissingCounter = true,
+            fixture => fixture.Itl.ReadbackState = 4,
+            fixture => fixture.Itl.UsbDisconnected = true,
+            fixture => fixture.Central.Done = true,
+            fixture => fixture.Itl.EnabledValues.Remove(10_000)
+        ];
+        foreach (var change in changes)
+        {
+            await using var fixture = await OwnerFixture.Create();
+            fixture.Itl.AfterEnable = () => change(fixture);
+            await fixture.Tick();
+            Check(fixture.Owner.State.Intake is { Started: false } && fixture.Owner.State.Locked
+                && fixture.Itl.DisableCount == 1 && fixture.Itl.AcceptCount == 0
+                && !fixture.Central.CommandReportBodies.Any(value => value.GetProperty("state").GetString() == "observed"),
+                "Unsafe or no-longer-authorized IDLE readback was reported ready.");
+        }
+    }
+
+    private static async Task ActualAccepting()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        fixture.Itl.EnableState = "ACCEPTING";
+        await fixture.Start();
+        var report = fixture.Central.CommandReportBodies.Single(value => value.GetProperty("state").GetString() == "observed");
+        Check(report.GetProperty("deviceState").GetString() == "ACCEPTING" && !report.TryGetProperty("readinessEvidence", out _),
+            "Actual ACCEPTING observation compatibility changed.");
+        fixture.Itl.State = "IDLE";
+        fixture.Itl.EnqueueState("IDLE");
+        for (var index = 0; index < 6; index++) await fixture.Tick();
+        Check(fixture.Owner.State.Intake!.CloseReason is null, "Observed ACCEPTING followed by IDLE lost its command binding.");
+    }
+
+    private static async Task FailedZeroStartRecovery()
+    {
+        await using var fixture = await OwnerFixture.Create(singleHundred: true, systemClock: true);
+        var command = await fixture.SeedFailedStart();
+        var commands = new CashCommandJournal(fixture.Files.File("commands"));
+        var originalState = await fixture.Journal.ReadEvidenceAsync(None);
+        var originalRaw = await File.ReadAllBytesAsync(fixture.Files.File("raw.jsonl"));
+        var originalCommand = await commands.ReadEvidenceAsync(command.CommandId, None);
+        var receipt = await fixture.RecoverFailedStart(command.CashSessionId);
+        var state = await fixture.Journal.LoadAsync(None);
+        Check(!state.Locked && state.FailedStartRecoveryPhase == "completed" && receipt.Disconnected
+            && !state.ManualEscrowConfigured && state.Intake is { Started: false, Closed: true }
+            && state.CompletedSessions.Contains(command.CashSessionId)
+            && state.NextSequence == 4 && state.AcknowledgedSequence == 3 && state.Outbox.Count == 0,
+            "Recovery reset stream/session history or omitted safe disconnect.");
+        Check(fixture.Itl.EnableCount == 1 && fixture.Itl.DisableCount == 1 && fixture.Itl.DisconnectCount == 1
+            && fixture.Itl.AcceptCount == 0 && fixture.Itl.ReturnCount == 0, "Recovery replayed a physical cash operation.");
+        var currentCommand = await commands.ReadEvidenceAsync(command.CommandId, None);
+        Check(originalCommand.SequenceEqual(currentCommand),
+            "Recovery altered the original terminal unknown command.");
+        foreach (var (name, bytes) in new[] { ("state.json", originalState), ("raw.jsonl", originalRaw), ("command.json", originalCommand) })
+        {
+            var archived = await File.ReadAllBytesAsync(Path.Combine(receipt.ArchiveDirectory, name));
+            Check(bytes.SequenceEqual(archived), "Evidence archive did not preserve original exact bytes.");
+        }
+        var proof = JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(Path.Combine(receipt.ArchiveDirectory, "proof.json")));
+        Fields(proof, ["version", "atmId", "visitId", "cashSessionId", "commandId", "streamId", "deviceId",
+            "acknowledgedSequence", "nextSequence", "started", "closed", "disabledObserved", "pollInFlight",
+            "outboxCount", "noteCount", "deviceState", "escrowEmpty", "observedAt", "baseline", "finalInventory",
+            "currentInventory", "controllerStateSha256", "rawJournalSha256", "commandJournalSha256", "operatorConfirmedNoNotes"]);
+        Check(ProductFailedStartRecovery.IsReconciledCommand(state, (await commands.ReadAsync(command.CommandId, None))!),
+            "Exact reconciled unknown command was not recognized.");
+        await fixture.Restart();
+        Check(!fixture.Owner.State.Locked, "Explicitly reconciled unknown command relocked on restart.");
+        fixture.Central.NoSession = true;
+        await fixture.Tick();
+        Check(fixture.Itl.EnableCount == 1 && fixture.Itl.AcceptCount == 0, "Restart replayed the old physical start.");
+    }
+
+    private static async Task RejectOtherFailedStarts()
+    {
+        Action<ProductCashState>[] changes =
+        [
+            state => state.LockReasons.Add("other_lock"),
+            state => state.PollInFlight = true,
+            state => state.Intake!.Started = true,
+            state => state.Intake!.NoteSequence = 1,
+            state => state.Intake!.DisabledObserved = false,
+            state => state.Intake!.FinalInventory = Inventory(1),
+            state => state.FailedStartRecoveryPhase = "disconnecting"
+        ];
+        foreach (var change in changes)
+        {
+            await using var fixture = await OwnerFixture.Create(singleHundred: true, systemClock: true);
+            var command = await fixture.SeedFailedStart();
+            change(fixture.Owner.State);
+            await fixture.Journal.SaveAsync(fixture.Owner.State, None);
+            var polls = fixture.Itl.StatusCount;
+            await Reject<InvalidOperationException>(() => fixture.RecoverFailedStart(command.CashSessionId));
+            Check(fixture.Itl.StatusCount == polls && fixture.Itl.DisconnectCount == 0, "Ineligible recovery consumed or changed the device.");
+        }
+        await using (var fixture = await OwnerFixture.Create(singleHundred: true, systemClock: true))
+        {
+            var command = await fixture.SeedFailedStart();
+            await Reject<InvalidOperationException>(() => fixture.RecoverFailedStart(command.CashSessionId, false));
+        }
+        await using (var fixture = await OwnerFixture.Create(singleHundred: true, systemClock: true))
+        {
+            var command = await fixture.SeedFailedStart();
+            var raw = await File.ReadAllTextAsync(fixture.Files.File("raw.jsonl"));
+            await File.WriteAllTextAsync(fixture.Files.File("raw.jsonl"), raw.Replace("\"IDLE\"", "\"ACCEPTING\"", StringComparison.Ordinal));
+            await Reject<InvalidDataException>(() => fixture.RecoverFailedStart(command.CashSessionId));
+            Check(fixture.Itl.DisconnectCount == 0, "Changed retained raw evidence was accepted.");
+        }
+    }
+
+    private static async Task UnsafeFailedStartRecovery()
+    {
+        Action<SyntheticItl>[] changes =
+        [
+            itl => itl.Stored = 1,
+            itl => itl.ForceEscrow = true,
+            itl => itl.MissingCounter = true,
+            itl => itl.BadRoute = true,
+            itl => itl.UsbDisconnected = true,
+            itl => itl.DisconnectFails = true,
+            itl => itl.EnqueueState("IDLE")
+        ];
+        foreach (var change in changes)
+        {
+            await using var fixture = await OwnerFixture.Create(singleHundred: true, systemClock: true);
+            var command = await fixture.SeedFailedStart();
+            change(fixture.Itl);
+            if (fixture.Itl.DisconnectFails)
+                await Reject<HttpRequestException>(() => fixture.RecoverFailedStart(command.CashSessionId));
+            else
+                await Reject<InvalidDataException>(() => fixture.RecoverFailedStart(command.CashSessionId));
+            var state = await fixture.Journal.LoadAsync(None);
+            Check(state.Locked && state.FailedStartRecovery is null
+                && state.LockReasons.Contains("failed_start_reconciliation_incomplete")
+                && fixture.Itl.EnableCount == 1 && fixture.Itl.AcceptCount == 0,
+                "Unknown recovery was cleared or a physical command replayed.");
+        }
+    }
+
     private sealed class FixtureDirectory : IDisposable
     {
         private readonly string root = Path.GetFullPath(Path.Combine("CashMachine", "CashMachineController.Tests",
@@ -795,7 +1017,7 @@ internal static class ProductCashTests
     {
         public readonly FixtureDirectory Files = new();
         public readonly SyntheticItl Itl = new();
-        public readonly SyntheticCentral Central = new(Command());
+        public readonly SyntheticCentral Central;
         public ProductCashJournal Journal = null!;
         public ProductCashExecutionOwner Owner = null!;
         private ItlControllerClient client = null!;
@@ -804,9 +1026,13 @@ internal static class ProductCashTests
         private readonly FixtureClock clock = new();
         private bool useSystemClock;
 
-        public static async Task<OwnerFixture> Create(bool singleHundred = false, bool initialize = true, bool systemClock = false)
+        private OwnerFixture(CashStartCommand? command) => Central = new(command ?? Command());
+
+        public static async Task<OwnerFixture> Create(bool singleHundred = false, bool initialize = true, bool systemClock = false,
+            CashStartCommand? command = null, string deviceId = "synthetic-device")
         {
-            var fixture = new OwnerFixture();
+            var fixture = new OwnerFixture(command);
+            fixture.Itl.DeviceId = deviceId;
             fixture.useSystemClock = systemClock;
             fixture.client = new("synthetic-user", "synthetic-password", fixture.Itl);
             fixture.centralClient = fixture.Central.Client();
@@ -819,8 +1045,9 @@ internal static class ProductCashTests
 
         private async Task MakeOwner(bool initialize = true)
         {
-            poller = new(client, "synthetic-device", Files.File("raw.jsonl"));
-            Owner = new("atm-test", centralClient, centralClient, new ItlProductCashDevice(client, poller, "synthetic-device"),
+            poller = new(client, Itl.DeviceId, Files.File("raw.jsonl"))
+            { OwnedTimeProvider = useSystemClock ? TimeProvider.System : clock };
+            Owner = new("atm-test", centralClient, centralClient, new ItlProductCashDevice(client, poller, Itl.DeviceId),
                 Journal, new(Files.File("commands")), true, useSystemClock ? TimeProvider.System : clock);
             if (initialize) await Owner.InitializeAsync(None);
         }
@@ -840,6 +1067,42 @@ internal static class ProductCashTests
             return await new ProductInitializationRecovery(Journal, new(Files.File("commands")),
                 new ItlProductCashDevice(client, poller, "synthetic-device"), Files.File("raw.jsonl"),
                 Files.File("evidence")).ReconcileAndDisconnectAsync(None);
+        }
+
+        public async Task<CashStartCommand> SeedFailedStart()
+        {
+            await Task.Delay(5);
+            var command = Command();
+            var state = Owner.State;
+            state.Begin(command, Inventory(), [10_000L]);
+            state.Intake!.EnableDispatchStarted = true;
+            await client.EnableAcceptorOnceAsync(Itl.DeviceId, None);
+            state.RawSequence = (await poller.PollOwnedAsync(None)).Sequence;
+            state.Reconcile("ready_not_observed", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            state.Intake.DisableDispatchStarted = true;
+            await client.DisableAcceptorOnceAsync(Itl.DeviceId, None);
+            state.RawSequence = (await poller.PollOwnedAsync(None)).Sequence;
+            state.Intake.DisabledObserved = true;
+            state.Reconcile("start_command_not_observed", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            state.Finish(Inventory(), true, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            while (state.Outbox.Count != 0)
+                state.Acknowledge(new(true, state.StreamId, state.Outbox[0].Sequence));
+            await Journal.SaveAsync(state, None);
+            await new CashCommandJournal(Files.File("commands")).SaveAsync(new CashCommandJournalEntry
+            {
+                Command = command, ContentHash = command.ContentHash(), State = "unknown",
+                Reason = "acceptance_state_not_observed", UpdatedAt = DateTimeOffset.UtcNow
+            }, None);
+            return command;
+        }
+
+        public async Task<ProductFailedStartRecoveryReceipt> RecoverFailedStart(string cashSessionId, bool confirmed = true)
+        {
+            await poller.DisposeAsync();
+            poller = new(client, Itl.DeviceId, Files.File("raw.jsonl"));
+            return await new ProductFailedStartRecovery(Journal, new(Files.File("commands")),
+                new ItlProductCashDevice(client, poller, Itl.DeviceId), Files.File("raw.jsonl"),
+                Files.File("failed-evidence"), "atm-test", cashSessionId, confirmed).ReconcileAndDisconnectAsync(None);
         }
 
         public async Task Start(bool expectClosed = false)
@@ -868,9 +1131,9 @@ internal static class ProductCashTests
 
         private sealed class FixtureClock : TimeProvider
         {
-            private DateTimeOffset now = DateTimeOffset.UtcNow;
-            public void Advance() => now = now.AddMilliseconds(1_100);
-            public override DateTimeOffset GetUtcNow() => now;
+            private long offset;
+            public void Advance() => offset += 1_100;
+            public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.AddMilliseconds(offset);
         }
     }
 
@@ -941,7 +1204,22 @@ internal static class ProductCashTests
                 using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
                 Check(body.RootElement.GetProperty("commandId").GetString() == command.CommandId, "Command report ID differs.");
                 CommandReportBodies.Add(body.RootElement.Clone());
-                if (body.RootElement.GetProperty("state").GetString() == "observed") observed = true;
+                if (body.RootElement.GetProperty("state").GetString() == "observed")
+                {
+                    if (body.RootElement.GetProperty("deviceState").GetString() == "IDLE")
+                    {
+                        var evidence = JsonSerializer.Deserialize<ProductCashReadinessEvidence>(
+                            body.RootElement.GetProperty("readinessEvidence"), ProductCashJson.Options)!;
+                        evidence.Validate(command, evidence.DeviceId, body.RootElement.GetProperty("observedAt").GetInt64());
+                        Check(evidence.IdleObservedAt == body.RootElement.GetProperty("observedAt").GetInt64(),
+                            "IDLE observation timestamp differs from immutable proof.");
+                        Fields(body.RootElement.GetProperty("readinessEvidence"),
+                            ["version", "commandId", "cashSessionId", "deviceId", "disabledObservedAt", "disabledRawSequence",
+                                "enableDispatchedAt", "enableAcknowledgedAt", "idleObservedAt", "rawSequence", "deviceStateCode",
+                                "manualEscrow", "routesVerified", "escrowEmpty", "deviceHealthy", "baseline", "inventory"]);
+                    }
+                    observed = true;
+                }
                 return Json(new { accepted = true });
             }
             Check(path == "/api/controller/atm-test/cash-events" && request.Method == HttpMethod.Post, "Unexpected synthetic Central endpoint.");
@@ -966,9 +1244,14 @@ internal static class ProductCashTests
     {
         public int EnableCount, AcceptCount, ReturnCount, DisableCount, Stored, MaximumConcurrentStatus, StatusCount, DisconnectCount;
         public bool AcceptFails, IgnoreDisable, BadRoute, MissingCounter, UsbDisconnected, ForceEscrow, DisconnectFails;
+        public bool SuppressEnableEvent;
+        public string DeviceId = "synthetic-device";
+        public string EnableState = "IDLE";
+        public int? ReadbackState;
         public HashSet<long> EnabledValues { get; } = CashInventory.Denominations.ToHashSet();
-        public Func<Task>? BeforeAccept;
-        private string state = "DISABLED";
+        public Func<Task>? BeforeAccept, BeforeEnable;
+        public Action? AfterEnable;
+        public string State = "DISABLED";
         private bool escrow;
         private int statusRequests;
         private bool disconnected;
@@ -990,7 +1273,7 @@ internal static class ProductCashTests
             {
                 case "Authenticate": return Json(new { token = "synthetic-itl-token", expires_seconds = 3600 });
                 case "GetConnectedUSBDevices": return Json(UsbDisconnected ? Array.Empty<object>() : [new { Port = "COM4" }]);
-                case "GetAllCashDevices": return Json(disconnected ? Array.Empty<string>() : ["synthetic-device"]);
+                case "GetAllCashDevices": return Json(disconnected ? Array.Empty<string>() : [DeviceId]);
                 case "OpenConnection":
                     using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token)))
                     {
@@ -1005,7 +1288,7 @@ internal static class ProductCashTests
                         EnqueueState(status);
                     for (var index = 0; index < 6; index++)
                         events.Enqueue(new { type = "SetDenominationRouteFinishedEventResponse", result = true });
-                    return Json(new { deviceID = "synthetic-device" });
+                    return Json(new { deviceID = DeviceId });
                 case "GetDeviceStatus":
                     StatusCount++;
                     MaximumConcurrentStatus = Math.Max(MaximumConcurrentStatus, Interlocked.Increment(ref statusRequests));
@@ -1013,13 +1296,14 @@ internal static class ProductCashTests
                     {
                         await Task.Yield();
                         var batch = events.ToArray(); events.Clear();
-                        return Json(new { deviceState = state, pollBuffer = batch });
+                        return Json(new { deviceState = State, pollBuffer = batch });
                     }
                     finally { Interlocked.Decrement(ref statusRequests); }
                 case "GetCompleteCashDevice": return Json(new
                 {
                     deviceModel = 2, deviceType = 3, baseDeviceType = 0, firmware = "NVS2004321016000", dataset = "INR02006",
-                    deviceState = 0, deviceError = 0, dispenseState = 0, isOpen = true, isStarted = true, noteInEscrow = escrow || ForceEscrow
+                    deviceState = ReadbackState ?? (State == "DISABLED" ? 4 : State == "IDLE" ? 5 : 6),
+                    deviceError = 0, dispenseState = 0, isOpen = true, isStarted = true, noteInEscrow = escrow || ForceEscrow
                 });
                 case "GetAllLevels": return Json(CashInventory.Denominations.Select(value => new
                 {
@@ -1029,8 +1313,17 @@ internal static class ProductCashTests
                 case "GetCounters": return MissingCounter
                     ? Json(new { stored = Stored, stacked = 0, dispensed = 0 })
                     : Json(new { stored = Stored, stacked = 0, dispensed = 0, transferredToStack = 0 });
-                case "EnableAcceptor": EnableCount++; state = "ACCEPTING"; return Json(new { });
-                case "DisableAcceptor": DisableCount++; if (!IgnoreDisable) state = "DISABLED"; return Json(new { });
+                case "EnableAcceptor":
+                    if (BeforeEnable is not null) await BeforeEnable();
+                    EnableCount++;
+                    State = EnableState;
+                    if (!SuppressEnableEvent) EnqueueState(State);
+                    AfterEnable?.Invoke();
+                    return Json(new { });
+                case "DisableAcceptor":
+                    DisableCount++;
+                    if (!IgnoreDisable) { State = "DISABLED"; EnqueueState(State); }
+                    return Json(new { });
                 case "AcceptFromEscrow":
                     if (BeforeAccept is not null) await BeforeAccept();
                     AcceptCount++;

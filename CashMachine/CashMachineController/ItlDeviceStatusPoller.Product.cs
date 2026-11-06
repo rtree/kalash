@@ -10,6 +10,7 @@ public sealed partial class ItlDeviceStatusPoller
     private long ownedSequence;
     private string? ownedPreviousState;
     private readonly SemaphoreSlim ownedPollGate = new(1, 1);
+    public TimeProvider OwnedTimeProvider { private get; init; } = TimeProvider.System;
 
     public async Task<IReadOnlyList<CashRawSnapshot>> RecoverOwnedAsync(CancellationToken cancellationToken)
     {
@@ -53,7 +54,7 @@ public sealed partial class ItlDeviceStatusPoller
             var status = new ItlDeviceStatusSnapshot(
                 ProductCashReadback.Text(root, "deviceState").ToUpperInvariant(),
                 events.EnumerateArray().Select(value => value.Clone()).ToArray(),
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                OwnedTimeProvider.GetUtcNow().ToUnixTimeMilliseconds());
             long sequence = 0;
             if (status.Events.Count > 0 || !status.DeviceState.Equals(ownedPreviousState, StringComparison.OrdinalIgnoreCase))
             {

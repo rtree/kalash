@@ -18,6 +18,7 @@ internal static partial class Program
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
             Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | reconcile-product-initialization | diagnose-cash | run [--one-100]");
+            Console.WriteLine("Zero-note recovery: reconcile-product-failed-start --cash-session <uuid> --confirm-no-notes");
             Console.WriteLine(
                 $"Inspect uses the unchanged vendor default credentials from the local Fresh package at {VendorBootstrapCredentials.PackageDirectoryVariable}; no password changes or persistence are performed.");
             Console.WriteLine("validate never starts a child; inspect performs read-only checks and stops its child.");
@@ -31,7 +32,8 @@ internal static partial class Program
         }
 
         var singleHundred = args is ["run", "--one-100"];
-        if (!singleHundred && (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "reconcile-product-initialization" or "diagnose-cash" or "run")))
+        var failedStartRecovery = args is ["reconcile-product-failed-start", "--cash-session", _, "--confirm-no-notes"];
+        if (!singleHundred && !failedStartRecovery && (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "reconcile-product-initialization" or "diagnose-cash" or "run")))
         {
             Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', 'reconcile', 'finish-initialization', 'diagnose-cash', or the explicit 'run' command.");
             return 2;
@@ -54,6 +56,7 @@ internal static partial class Program
                 "reconcile" => await ReconcileExistingDeviceAsync(),
                 "finish-initialization" => await FinishInitializationAsync(),
                 "reconcile-product-initialization" => await ReconcileProductInitializationAsync(),
+                "reconcile-product-failed-start" => await ReconcileProductFailedStartAsync(args[2]),
                 "diagnose-cash" => await DiagnoseCashAsync(),
                 _ => await RunServerAsync(singleHundred)
             };

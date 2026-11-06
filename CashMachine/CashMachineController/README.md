@@ -125,7 +125,9 @@ consuming poller, and idle status observation continues on the same owner.
 Readback/report failure blocks acceptance; shutdown posts unavailable.
 Central's independent registered `cashEnabled` flag must also be authorized by
 the integrator; heartbeat does not switch it on. Await an actual fresh ready
-screen/health record before signed claim and actual ACCEPTING before insertion.
+screen/health record before signed claim and a Central-confirmed, causally bound
+device-ready observation before insertion. The observed waiting state can be
+actual `IDLE`; it is never renamed `ACCEPTING`.
 All Central requests include the configured canonical HTTPS `Origin`
 (scheme/authority, no trailing slash) as well as the Controller Bearer credential.
 Before starting any REST child, product `run` durably advances the same health
@@ -198,6 +200,97 @@ general `Complete-Initialization-Local.ps1` assumes a different inhibit profile
 and is not a substitute for this exact startup-only reconciliation.
 Another product launch requires fresh parent/operator approval.
 
+### Actual IDLE readiness evidence
+
+The repository-local **Spectral Payout REST API Manual, Document Revision v.14**
+(`Spectral Payout REST API Manual-v14.pdf`) is the reference:
+**GetCompleteCashDevice V2 (Spectral Payout), pp.81–91**;
+**GetDeviceStatus V2 (Spectral Payout), pp.95–99**, particularly the ordered
+response example on p.99; and **EnableAcceptor V2 (Spectral Payout), p.133**.
+The response example distinguishes waiting IDLE from the subsequent
+ACCEPTING/ESCROW/storage sequence. The complete-device schema has no explicit
+acceptor-enabled field. Manufacturer material is not copied into source.
+
+An arbitrary IDLE, numeric state alone, or successful HTTP response cannot
+authorize intake. The sole owner must first observe DISABLED and verify the
+signed session, empty escrow, manual-escrow connection, six payout routes,
+inhibits, identity, inventory and four counters. It persists the disabled raw
+sequence and Enable dispatch timestamp **before** its one Enable. Following
+the acknowledgement, it requires a new persisted DeviceStatusResponse IDLE,
+a fresh matching full readback (numeric state 5), unchanged baseline inventory,
+and still-current signed permission. The immutable
+`readinessEvidence.version=itl-idle-after-enable-v1` includes actual timestamps,
+command/session/device binding, raw sequences and both strict inventories.
+The command journal retains it for identical observed/reported retries.
+Central receives the actual `deviceState:"IDLE"` and anchors its deadline to
+that observation; command acceptance precedes the intake baseline event and
+any physical Accept. Actual ACCEPTING observations remain supported.
+An active IDLE heartbeat requires that same durable enabled intake; an idle
+unbound device is available only when DISABLED. Closing and reconciliation
+remain unavailable and require actual DISABLED/empty before safe shutdown.
+
+Export the actual synthetic HTTP observation, without credentials or hardware:
+
+```powershell
+node scripts\check-policy.mjs
+dotnet run --project CashMachine\CashMachineController.Tests\KALASH.CashMachineController.Tests.csproj --no-restore -- --export-idle-readiness-wire .local\cash-idle-readiness-wire.json
+```
+
+### Explicit zero-note failed-start recovery
+
+This **separate** helper applies only to the closed one-₹100 start that retained
+exactly `ready_not_observed` and `start_command_not_observed`, zero notes, no
+Ready/deadline, exact outbox ACKs, original terminal-unknown command reason
+`acceptance_state_not_observed`, and unchanged baseline/final inventory.
+It rejects every other lock, interrupted poll/connection, cash event, changed
+raw history, unresolved command, or earlier incomplete recovery.
+
+Only the integrator/operator may execute this procedure, after stopping the
+Controller owner while preserving its disabled child, confirming no note was
+inserted, keeping Central cashEnabled=false, and preparing Central's matching
+operator reconciliation. Do not start another owner or diagnostic poller.
+
+```powershell
+.\CashMachine\CashMachineController\Reconcile-ProductFailedStart-Local.ps1 -ServerPid <verified-existing-pid> -CashSessionId <failed-session-uuid> -ConfirmNoNotes
+```
+
+The wrapper verifies the retained server PID/DLL/port and resolves the existing
+registered configuration without printing secrets. The Controller mutex and
+journal ownership must be free. Before consuming status, the helper writes
+exact original `state.json`, `raw.jsonl` and `command.json` bytes to a new,
+write-once directory under
+`%LOCALAPPDATA%\KALASH\cash-product\<atmId>\failed-start-recovery-evidence`.
+It verifies retained initialization-only history followed by one actual IDLE
+and DISABLED transition, then brackets fresh identity/USB/binding/one-100
+routes/empty escrow/six levels/four counters with its sole DISABLED/no-event
+reader. Current inventory and every counter must equal baseline and final.
+
+It exports the agreed `failed-cash-start-zero-v1` **proof.json**, SHA256-bound
+to all three original archives, plus **readback.json**. It persists the
+disconnect marker, sends Disconnect once and requires the connected list empty.
+Only then does it clear these two local reasons, retain the reconciliation
+receipt, and mark the connection unavailable. The old command stays terminal
+unknown and non-replayable; completed session, stream, sequence and cash history
+are not reset. Restart recognizes only this exact archived reconciled command.
+The wrapper stops only the verified disconnected child; it never restarts it.
+
+Immediately use the printed archive directory for Central's separate operator
+dry-run/apply. The proof must remain fresh (120 seconds); do not change its
+timestamp or rerun physical recovery blindly:
+
+```powershell
+$evidence = '<printed-evidence-directory>'
+node scripts\reconcile-failed-cash-start.mjs --proof "$evidence\proof.json" --state-archive "$evidence\state.json" --raw-archive "$evidence\raw.jsonl" --command-archive "$evidence\command.json"
+# Integrator only, after validating the dry-run:
+node scripts\reconcile-failed-cash-start.mjs --proof "$evidence\proof.json" --state-archive "$evidence\state.json" --raw-archive "$evidence\raw.jsonl" --command-archive "$evidence\command.json" --apply
+```
+
+Central remains locked until that explicit verified operation and keeps cash
+disabled afterward. Recovery sends no OpenConnection, Enable, Accept, Return
+or Payout. Any unknown result preserves the phase/locks/evidence and child for
+manual reconciliation rather than an automatic retry. A subsequent one-note
+launch requires fresh operator approval and a **new** signed reception.
+
 When explicitly enabled, `run` opens at most one device with automatic escrow
 acceptance and the acceptor disabled, or attaches only its journal-bound device.
 OpenConnection dispatch is durable and an unknown result is not retried.
@@ -231,8 +324,8 @@ stored/stacked/dispensed/transferredToStack counters. Reasons are queued before
 intake_closed. A timeout alone cannot manufacture a successful close. Unknown
 shutdown leaves the owned REST child for reconciliation instead of killing it.
 
-Hardware uncertainties remain: actual ACCEPTING/state/event spellings, complete
-counter/module shapes, route/fullness semantics and delayed-event timing need
+Hardware uncertainties remain: actual ESCROW/STORED event details, runtime
+counter changes, route/fullness semantics and delayed-event timing need
 owner-attended verification with the installed firmware. No synthetic fixture
 proves real note acceptance, physical capacity, Central persistence or donation
 settlement.

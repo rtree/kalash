@@ -2,7 +2,8 @@ using System.Text.Json;
 
 namespace Kalash.CashMachineController;
 
-public sealed record ProductDeviceReadback(CashInventory Inventory, long[] EnabledValues, bool EscrowEmpty, bool Healthy);
+public sealed record ProductDeviceReadback(CashInventory Inventory, long[] EnabledValues, bool EscrowEmpty, bool Healthy,
+    int DeviceStateCode);
 public sealed record ProductDeviceHealth(bool UsbConnected, bool ConnectionOpen, bool DeviceStarted, ProductDeviceReadback Readback);
 
 public interface IProductCashDevice
@@ -79,7 +80,8 @@ public sealed class ItlProductCashDevice(
             identity.DeviceModel == 2 && identity.DeviceType == 3 && identity.BaseDeviceType == 0
             && identity.Firmware.Equals("NVS2004321016000", StringComparison.OrdinalIgnoreCase)
             && identity.Dataset.Equals("INR02006", StringComparison.OrdinalIgnoreCase)
-            && identity.IsOpen && identity.IsStarted && identity.DeviceError == 0 && identity.DispenseState == 0);
+            && identity.IsOpen && identity.IsStarted && identity.DeviceError == 0 && identity.DispenseState == 0,
+            identity.DeviceState);
     }
 
     public static bool IsPayout(JsonElement route) =>

@@ -24,6 +24,11 @@ public sealed class ProductCashIntake
     public List<ProductCashNote> Notes { get; init; } = [];
     public List<string> Reasons { get; init; } = [];
     public bool EnableDispatchStarted { get; set; }
+    public long? DisabledObservedAt { get; set; }
+    public long? DisabledRawSequence { get; set; }
+    public long? EnableDispatchedAt { get; set; }
+    public long? EnableAcknowledgedAt { get; set; }
+    public ProductCashReadinessEvidence? ReadinessEvidence { get; set; }
     public bool Started { get; set; }
     public long? Deadline { get; set; }
     public string? CloseReason { get; set; }
@@ -56,6 +61,8 @@ public sealed class ProductCashState
     public int SuccessfulRouteResults { get; set; }
     public string? InitializationRecoveryPhase { get; set; }
     public ProductInitializationRecoveryReceipt? InitializationRecovery { get; set; }
+    public string? FailedStartRecoveryPhase { get; set; }
+    public ProductFailedStartRecoveryReceipt? FailedStartRecovery { get; set; }
     public bool Locked { get; set; }
     public List<string> LockReasons { get; init; } = [];
     public List<string> CompletedSessions { get; init; } = [];
@@ -259,6 +266,8 @@ public sealed class ProductCashJournal : IDisposable
         }
         File.Move(replacement, path, overwrite: true);
     }
+
+    public Task<byte[]> ReadEvidenceAsync(CancellationToken token) => File.ReadAllBytesAsync(path, token);
 
     public void Dispose() => ownership.Dispose();
 }

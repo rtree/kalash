@@ -27,6 +27,11 @@ internal static class Program
             await ProductCashTests.ExportWireAsync(output);
             return 0;
         }
+        if (args is ["--export-idle-readiness-wire", var idleOutput])
+        {
+            await ProductCashTests.ExportIdleReadinessAsync(idleOutput);
+            return 0;
+        }
         if (args is ["--product"])
         {
             await Run("cash command journal prevents duplicate execution", CashCommandExecutionIsIdempotent);

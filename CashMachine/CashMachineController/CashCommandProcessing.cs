@@ -49,7 +49,8 @@ public sealed record CashStartCommand(
 public sealed record CashCommandResponse(
     [property: JsonPropertyName("command")] CashStartCommand? Command);
 
-public sealed record CashCommandObservation(string DeviceState, long ObservedAt);
+public sealed record CashCommandObservation(string DeviceState, long ObservedAt,
+    ProductCashReadinessEvidence? ReadinessEvidence = null);
 
 public sealed record CashDevicePreflight(bool Ready, string DeviceState, string Reason);
 
@@ -152,6 +153,8 @@ public sealed partial class CentralCashCommandClient : ICashCommandCentral, ICas
         {
             body["observedAt"] = observation.ObservedAt;
             body["deviceState"] = observation.DeviceState;
+            if (observation.ReadinessEvidence is { } evidence)
+                body["readinessEvidence"] = JsonSerializer.SerializeToElement(evidence, ProductCashJson.Options);
         }
 
         using var response = await client.PostAsJsonAsync(
@@ -251,6 +254,9 @@ public sealed class CashCommandJournal(string directory)
 
         return entries;
     }
+
+    public Task<byte[]> ReadEvidenceAsync(string commandId, CancellationToken token) =>
+        File.ReadAllBytesAsync(EntryPath(commandId), token);
 
     private string EntryPath(string commandId)
     {
