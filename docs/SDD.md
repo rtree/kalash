@@ -100,6 +100,13 @@ The normal approval sequence is to persist the donation intent and approve opera
 then call the connected wallet provider to request the exact USDC approval. MetaMask
 must display that request before any approval receipt can be checked; the Central
 recovery action is not an approval substitute and never opens MetaMask.
+A wallet write can fail while Viem prepares fees/gas, before the wallet modal appears.
+For example, `Custom eth_getBlockByNumber: Unauthorized` is a wallet/provider RPC
+failure, not an approval or donation result. The browser's public allowance RPC and
+the wallet provider may use different RPC backends; do not infer that the wallet
+endpoint is healthy from the browser read, force gas values, or retry blindly.
+Keep the exact error and sanitized provider trace, and verify the wallet's chain/RPC
+configuration before making another approval attempt.
 
 ## 3. Authentication and API contract
 
