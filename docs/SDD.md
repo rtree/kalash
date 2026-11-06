@@ -443,6 +443,14 @@ Confirmed cash remains visible until the paired screen uses Finish (`/close`).
 Browsers show INR, a finite deadline and Done; a local stop request suppresses
 acceptance instructions even if its HTTP response is lost.
 
+`node scripts/verify-cash-session.mjs --preflight atm-01` reads registration,
+reconciliation lock and global demo reservations without granting cash permission.
+For an actual UUID, `node scripts/verify-cash-session.mjs CASH_SESSION_UUID`
+replays persisted event evidence, checks attribution and exact owner/temple points,
+then verifies persisted mint completion against the canonical receipt and exact
+Stamp/ERC1155 events. Pending, missing, changed or contradictory evidence remains
+nonzero. This is read-only DB/chain proof, not independent physical note proof.
+
 The separate `diagnose-cash` command reuses that ITL adapter and has no Central,
 donation, or mint side effects. It requires interactive owner/operator
 confirmation, enables only ₹100, observes `ACCEPTING`, accepts at most one

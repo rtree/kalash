@@ -112,6 +112,8 @@
 
 ## 最新チェックポイント
 
+- UTC 2026-11-06 18:35以降、M3実機準備。Central read-only preflight：demo budget未使用、₹100一枚可、atm-01 active/reconciliationなし、cashEnabled=false、Controller未Ready。担当確認でmint有効・残り8件・reserved gas上限まで0.002961095724 ETH・pending job0（予算余力でありWallet残高証明ではない）。read-only台帳/points/canonical mint verifierを追加、12/12試験・skip0。既存実機許可を維持。
+- Controller担当が未接続heartbeatを実readbackから接続し、1枚制限profileを追加（50試験成功報告、まだ実機未起動）。既存regular runを維持し、今回の`--one-100`だけ一回のclose+exact ACK+安全停止後に自然終了する仕上げ中。理由：遠隔toolからCtrl+Cを安全配送できず、プロセス強制終了を通常手順にしないため。次：staged製品差分の検証・保存→一回起動→実Ready/開始在高確認→本人の既存別PCでCash選択・本人QR署名。まだ投入案内は出していない。
 - UTC 2026-11-06 18:25、M3製品実装・配備まで完了。Cloud Build `c9766e9f...` は18:15:47Z SUCCESS（contracts/policy25、Central54、fail0/skip0）。次に既承認test/demoへ配備し`00020-xp2`100%、health source `cdf55c4...`一致。配備前後とも実ATM active visitなし、cashEnabledは未設定＝false。現金・実Wallet・mint・Payout操作なし。
 - live `pnpm run test:atm` は10/10・skip0。新cash-session GET、paired Done→実Firestore closing/closeRequested、event routeの401/不正evidence400まで確認。旧試験の架空`TEST_OBSERVATION`成功期待は400に修正し、隔離test ATMだけで`ACCEPTING`申告を検証（実機Readyの証拠ではない）。実紙幣台帳・寄付確定・mintは局所fixtureの証拠のみ、実E2E未完を維持。
 - 配備障害の解消：2回目build `72df2279...`もpolicy停止。実upload archiveを調べるとGitのautocrlfがlockfileまでCRLF化していた。`git -c core.autocrlf=false archive`でcommitted sourceを再生成し、upload前にarchive内のpolicy hash・byte-exact lock SHA・570 release-ageを照合して成功。SDDに配備元作成条件を保存。最後のUI追加通信失敗ケースはbrowser reload timeoutで未確認（先のDone正常fixture画面確認とは分離）。
