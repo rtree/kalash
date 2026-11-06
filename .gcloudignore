@@ -10,3 +10,4 @@ _
 artifacts
 *.log
 scripts/e2e-*.mjs
+CashMachine/RESTAPIServer/**
