@@ -2,8 +2,8 @@
 
 This is the KALASH-owned Windows controller project, targeting .NET 10 with
 the distinct product/process identity `KALASH.CashMachineController`. It
-currently contains the local REST API Server process host and a read-only ITL
-API client; build outputs are ignored by Git.
+currently contains the local REST API Server process host and a gated ITL
+diagnostic client; build outputs are ignored by Git.
 
 The controller will manage only the manufacturer REST API Server child process
 that it starts from an explicitly configured local installation. It must not
@@ -29,14 +29,27 @@ validator or consume events.
 The `validate` command checks local package configuration without launching the
 server. `inspect` verifies loopback binding and Host filtering, authenticates
 with the unchanged vendor default account, reads only USB and connected-device
-lists, then stops its child. The client exposes no credential-update, device
-connection, event-poll, acceptor, or payout API. The long-running `run` command
-only reports process liveness.
+lists, then stops its child. `ItlControllerClient` has no credential-update,
+acceptor-enable, escrow accept/return, or payout API. The long-running `run`
+command only reports process liveness.
+
+`.\CashMachine\CashMachineController\Initialize-Local.ps1` is the separately
+scoped Stage 2 operation. It sends exactly one `OpenConnection` using the
+detected single COM port, Spectral Payout Route=1, and both acceptor and
+automatic escrow acceptance disabled. A single `GetDeviceStatus` poller checks
+the route-complete events; identity, escrow state, levels, counters and
+currency assignment are then read. After verifying `DISABLED` and an empty
+escrow, it sends one `DisconnectDevice`, confirms the device list is empty, and
+stops its own server child. It never accepts or dispenses a note. If device
+state is unresolved, it does not retry `OpenConnection` or stop the server
+child; follow the reported PID and reconcile the state first.
 
 If `KALASH_ITL_JWT_KEY` is absent, the controller creates a fresh ephemeral
 signing key in memory for the server child; it is not persisted. The test runner
-does not start the manufacturer server. No cash-device commands are implemented.
-No Windows service/autostart setup is included.
+does not start the manufacturer server. The only device-changing API exposed
+is the explicitly gated OpenConnection/DisconnectDevice initialization pair;
+cash acceptance and payout are not implemented. No Windows service/autostart
+setup is included.
 
 Keep credentials and machine-specific paths outside Git. Never log credentials
 or copy manufacturer binaries, manuals, or configuration into this project.

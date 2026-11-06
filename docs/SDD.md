@@ -454,9 +454,10 @@ from an open port.
 
 `ItlReadOnlyClient` targets only `127.0.0.1:5000`, keeps credentials and bearer
 tokens in memory, refreshes the token before expiry, and serializes each request.
-It exposes authentication and non-consuming USB/device/inventory GETs only.
-It has no credential-update, `GetDeviceStatus`, `OpenConnection`, route,
-acceptor, or payout method. It does not consume events or change credentials.
+`ItlControllerClient` exposes authentication and non-consuming USB/device/
+inventory GETs plus only the specifically gated `OpenConnection`,
+`GetDeviceStatus`, and `DisconnectDevice` initialization sequence. There is no
+credential-update, acceptor-enable, escrow accept/return, or payout method.
 HTTP errors expose status codes, not response bodies; there are no blind retries.
 
 The Stage 1 `inspect` command loads the default v2 Authenticate sample from the
@@ -469,11 +470,22 @@ addresses and Host filtering, authenticates, reads `GetConnectedUSBDevices` and
 never printed or persisted. The local one-command entry point is
 `CashMachine/CashMachineController/Inspect-Local.ps1`.
 
+`Initialize-Local.ps1` is the separate Stage 2 hardware initialization. It uses
+one `OpenConnection` with a single detected COM port, the Spectral Payout route,
+and `EnableAcceptor=false` / `EnableAutoAcceptEscrow=false`. A sole poller
+consumes `GetDeviceStatus` until all route-result events succeed and state is
+`DISABLED`; it then verifies model/firmware/dataset, empty escrow, denomination
+levels, counters and currency assignment. Only with a verified disabled and
+empty state does it issue one `DisconnectDevice`, verify the connected-device
+list is empty, and stop its child. An ambiguous OpenConnection or unresolved
+device state leaves the owned server child running with its PID reported; do
+not retry or kill it until reconciled. This sequence issues no cash acceptance
+or payout commands.
+
 The vendor child receives `AllowedHosts=localhost;127.0.0.1;[::1]`, a per-run
-ephemeral JWT key, and warning-level application/Serilog filters. Its output is
-drained but not recorded. This limits application logging but is not a claim that
-the vendor creates no file logs. Service/autostart and persistent JWT credential
-decisions are deferred until this one-shot Stage 1 operation is verified.
+ephemeral JWT key, and warning-level application/Serilog filters. Its stdout
+and stderr are drained but not recorded. Vendor file logs are not read or
+committed. Service/autostart and persistent JWT decisions are deferred.
 
 Canonical link generation is shared in `src/atm.ts`; local HTTP API tests return
 an explicit QR-unavailable reason instead of manufacturing a mobile link.
