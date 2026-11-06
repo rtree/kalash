@@ -8,7 +8,7 @@ public static class ProductCashHost
         enabled ? product() : noCash();
 
     public static async Task<string> OpenDisabledAsync(bool enabled, ItlControllerClient client,
-        ProductCashJournal journal, string comPort, string logDirectory, CancellationToken token)
+        ProductCashJournal journal, string comPort, string logDirectory, CancellationToken token, bool singleHundred = false)
     {
         if (!enabled) throw new InvalidOperationException("Product connection is forbidden while the physical gate is off.");
         var state = await journal.LoadAsync(token);
@@ -16,11 +16,13 @@ public static class ProductCashHost
             throw new InvalidOperationException("Unresolved product cash state forbids another OpenConnection.");
         state.ConnectionDispatchPending = true;
         state.ManualEscrowConfigured = false;
+        state.SingleHundred = singleHundred;
         state.RouteVerificationRequired = true;
         state.SuccessfulRouteResults = 0;
         await journal.SaveAsync(state, token);
         Directory.CreateDirectory(logDirectory);
-        using var opened = await client.OpenConnectionAsync(comPort, logDirectory, token);
+        using var opened = await client.OpenConnectionAsync(comPort, logDirectory, token,
+            enabledDenominations: singleHundred ? new HashSet<int> { 10_000 } : null);
         var id = ProductCashReadback.Text(opened.RootElement, "deviceID");
         state.ConnectionDispatchPending = false;
         state.ManualEscrowConfigured = true;

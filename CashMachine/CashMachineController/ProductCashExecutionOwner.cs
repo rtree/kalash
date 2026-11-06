@@ -8,6 +8,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     private readonly string atmId;
     private readonly ICashCommandCentral commands;
     private readonly ICashEventCentral central;
+    private readonly IControllerHealthCentral healthCentral;
     private readonly IProductCashDevice device;
     private readonly ProductCashJournal journal;
     private readonly CashCommandJournal commandJournal;
@@ -18,10 +19,15 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     private long permissionObservedAt;
     private long nextPermissionPoll;
     private long nextCommandPoll;
+    private long nextHealthReport;
+    private bool healthReady;
     private ItlDeviceStatusSnapshot? latest;
+    private long? lastOwnedPollAt;
     private bool initialized;
     private bool emergencyStopAttempted;
+    private string? singleHundredSession;
     public ProductCashState State { get; private set; } = null!;
+    public bool CompletedSingleHundred { get; private set; }
 
     public ProductCashExecutionOwner(string atmId, ICashCommandCentral commands, ICashEventCentral central,
         IProductCashDevice device, ProductCashJournal journal, CashCommandJournal commandJournal,
@@ -32,6 +38,8 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         this.atmId = atmId;
         this.commands = commands;
         this.central = central;
+        healthCentral = central as IControllerHealthCentral
+            ?? throw new ArgumentException("The product Central transport must support authenticated health reports.", nameof(central));
         this.device = device;
         this.journal = journal;
         this.commandJournal = commandJournal;
@@ -43,7 +51,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     private Task SaveAsync() => journal.SaveAsync(State, CancellationToken.None);
     private bool Bound(CentralCashSession? session) => session is not null && State.Intake is { } intake
         && session.VisitId == intake.Command.VisitId && session.CashSessionId == intake.Command.CashSessionId;
-    private bool CanAccept => Bound(permission) && permission!.State == "accepting" && !permission.CloseRequested
+    private bool CanAccept => healthReady && Bound(permission) && permission!.State == "accepting" && !permission.CloseRequested
         && permission.Deadline > Now && Now - permissionObservedAt <= 2_000;
 
     public async Task InitializeAsync(CancellationToken token)
@@ -100,6 +108,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             while (!token.IsCancellationRequested)
             {
                 await TickAsync(token);
+                if (await CompleteSingleHundredIfSafeAsync(token)) return;
                 await Task.Delay(TimeSpan.FromMilliseconds(200), clock, token);
             }
         }
@@ -127,6 +136,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                     Log("shutdown_unresolved");
                 }
             }
+            await ReportUnavailableAsync(CancellationToken.None);
         }
     }
 
@@ -136,6 +146,8 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         try
         {
             if (!initialized) throw new InvalidOperationException("Product owner is not initialized.");
+            if (State.Intake is not { Closed: false }) await PollAsync(token);
+            await ReportHealthIfDueAsync(token);
             var permissionRefreshed = false;
             try
             {
@@ -167,7 +179,8 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
                 await StopIfClosingAsync(token);
                 await FinishIfClosedAsync(token);
             }
-            else if (allowStart && permissionRefreshed && Now >= nextCommandPoll && !State.Locked
+            else if (allowStart && healthReady && permissionRefreshed && Now >= nextCommandPoll && !State.Locked
+                && (!State.SingleHundred || singleHundredSession is null)
                 && State.Outbox.Count == 0 && permission is { State: "awaiting_device", CloseRequested: false })
             {
                 nextCommandPoll = Now + 2_000;
@@ -233,7 +246,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
     public async Task<CashDevicePreflight> CheckPreconditionsAsync(CashStartCommand command, CancellationToken token)
     {
         command.Validate(atmId, Now);
-        if (State.Locked || !State.ManualEscrowConfigured || State.Intake is { Closed: false } || State.Outbox.Count != 0
+        if (!healthReady || State.Locked || !State.ManualEscrowConfigured || State.Intake is { Closed: false } || State.Outbox.Count != 0
             || State.CompletedSessions.Contains(command.CashSessionId))
             return new(false, "unknown", "product_journal_not_clear");
         permission = await central.GetCashSessionAsync(token);
@@ -251,9 +264,11 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         var readback = await device.ReadAsync(token);
         if (latest?.DeviceState != "DISABLED" || !readback.Healthy || !readback.EscrowEmpty
             || readback.Inventory.Paise >= 100_000 || readback.Inventory.Notes >= 10
+            || State.SingleHundred && (!readback.EnabledValues.SequenceEqual([10_000L]) || readback.Inventory.Paise + 10_000 > 100_000)
             || readback.EnabledValues.Length == 0)
             return new(false, latest?.DeviceState ?? "unknown", "device_preconditions_not_safe");
         State.Begin(command, readback.Inventory, readback.EnabledValues);
+        if (State.SingleHundred) singleHundredSession = command.CashSessionId;
         await SaveAsync();
         return new(true, "DISABLED", "");
     }
@@ -320,6 +335,7 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
         State.PollInFlight = true;
         await SaveAsync();
         var raw = await device.PollAsync(token);
+        lastOwnedPollAt = Now;
         latest = raw.Status;
         if (State.Intake is { Started: false, EnableDispatchStarted: true, CloseReason: null }
             && raw.Status.DeviceState == "ACCEPTING") State.Ready(raw.Status.ObservedAt);
@@ -451,6 +467,102 @@ public sealed class ProductCashExecutionOwner : ICashStartDevice
             var ack = await central.PostCashEventAsync(State.Outbox[0], token);
             State.Acknowledge(ack);
             await SaveAsync();
+        }
+    }
+
+    private async Task ReportHealthIfDueAsync(CancellationToken token)
+    {
+        if (Now < nextHealthReport) return;
+        nextHealthReport = Now + 5_000;
+        healthReady = false;
+        try
+        {
+            var health = await device.ReadHealthAsync(token);
+            var readback = health.Readback;
+            var idle = State.Intake is not { Closed: false };
+            var routes = readback.Healthy && readback.EnabledValues.Length > 0
+                && (!State.SingleHundred || readback.EnabledValues.SequenceEqual([10_000L]))
+                && (!State.SingleHundred || !idle || readback.Inventory.Paise + 10_000 <= 100_000)
+                && !State.RouteVerificationRequired && State.ManualEscrowConfigured
+                && !State.Locked && State.Intake is not { CloseReason: not null, Closed: false }
+                && (idle
+                    ? readback.Inventory.Paise < 100_000 && readback.Inventory.Notes < 10
+                    : readback.Inventory.Paise <= 100_000 && readback.Inventory.Notes <= 10)
+                && (!idle || readback.EscrowEmpty && latest?.DeviceState == "DISABLED");
+            var freshPoll = lastOwnedPollAt is { } observed && Now - observed is >= 0 and <= 2_000;
+            var report = new ControllerHealthReport(await NextHealthSequenceAsync(), Now,
+                health.UsbConnected, health.ConnectionOpen, health.DeviceStarted, routes,
+                freshPoll, State.DeviceId);
+            await healthCentral.ReportHealthAsync(report, token);
+            healthReady = report.UsbConnected && report.ConnectionOpen && report.DeviceStarted
+                && report.RoutesVerified && report.PollerOwned;
+            if (!healthReady && State.Intake is { Closed: false, CloseReason: null })
+            {
+                State.Close("offline", Now);
+                await SaveAsync();
+            }
+        }
+        catch (Exception exception) when (IsOperational(exception))
+        {
+            healthReady = false;
+            if (State.Intake is { Closed: false }) State.Close("offline", Now);
+            await SaveAsync();
+            Log("health_readback_or_report_failed");
+            await ReportUnavailableAsync(token);
+        }
+    }
+
+    public async Task ReportUnavailableAsync(CancellationToken token)
+    {
+        healthReady = false;
+        try
+        {
+            await healthCentral.ReportHealthAsync(new ControllerHealthReport(
+                await NextHealthSequenceAsync(), Now, false, false, false, false, false, State.DeviceId), token);
+        }
+        catch (Exception exception) when (IsOperational(exception))
+        {
+            Log("unavailable_health_report_failed");
+        }
+    }
+
+    private async Task<long> NextHealthSequenceAsync()
+    {
+        State.HealthSequence = Math.Max(checked(State.HealthSequence + 1), Now);
+        await SaveAsync();
+        return State.HealthSequence;
+    }
+
+    private async Task<bool> CompleteSingleHundredIfSafeAsync(CancellationToken token)
+    {
+        if (!State.SingleHundred || singleHundredSession is null || State.Locked || State.Outbox.Count != 0
+            || State.Intake is not { Closed: true, DisabledObserved: true, FinalInventory: not null } intake
+            || intake.Command.CashSessionId != singleHundredSession || intake.Reasons.Count != 0 || intake.Pending is not null)
+            return false;
+        try
+        {
+            await PollAsync(token);
+            var readback = await device.ReadAsync(token);
+            if (State.Locked || latest?.DeviceState != "DISABLED" || !readback.Healthy || !readback.EscrowEmpty
+                || readback.Inventory.Counters != intake.FinalInventory.Counters
+                || !readback.Inventory.Levels.OrderBy(level => level.ValuePaise)
+                    .SequenceEqual(intake.FinalInventory.Levels.OrderBy(level => level.ValuePaise)))
+            {
+                State.Reconcile("single_note_shutdown_unverified", Now);
+                await SaveAsync();
+                return false;
+            }
+            // The final physical readbacks must not bypass a newly queued reconciliation event.
+            if (State.Outbox.Count != 0) return false;
+            CompletedSingleHundred = true;
+            return true;
+        }
+        catch (Exception exception) when (IsOperational(exception))
+        {
+            State.Reconcile("single_note_shutdown_unverified", Now);
+            await SaveAsync();
+            Log("single_note_shutdown_unverified");
+            return false;
         }
     }
 

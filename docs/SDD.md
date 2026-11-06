@@ -402,6 +402,12 @@ Product physical acceptance is off by default. Only the explicit
 `KALASH_PRODUCT_CASH_ENABLE=OWNER_ATTENDED_PRODUCT_CASH` configuration selects
 the product owner; it does not replace Central cash enablement, signed consent,
 device preflight or owner attendance. The default worker never enables cash.
+For the specifically authorized one-note test, `run --one-100` restricts routing
+and decisions to one INR100, including in-flight notes, and automatically stops
+at that capacity. It naturally exits only after clean closure, exact Outbox ACKs
+and reverified DISABLED/empty escrow with unchanged final inventory/counters.
+Regular `run` stays resident. A readback-derived authenticated heartbeat runs
+every five seconds without a second event reader; shutdown reports unavailable.
 
 The product owner is the sole consuming ITL reader and physical action sender.
 It persists note identity/accept decision/dispatch intent and events before

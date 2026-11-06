@@ -32,6 +32,8 @@ public sealed class ProductCashIntake
     public bool DisabledObserved { get; set; }
     public bool Closed { get; set; }
     public long NoteSequence { get; set; }
+    public bool SingleHundred { get; init; }
+    public CashInventory? FinalInventory { get; set; }
     [JsonIgnore] public ProductCashNote? Pending => Notes.SingleOrDefault(note => !note.Stored && !note.Returned);
     [JsonIgnore] public long CommittedPaise => Notes.Where(note => note.Decision == "accept" && !note.Returned).Sum(note => note.Value);
     [JsonIgnore] public long CommittedNotes => Notes.LongCount(note => note.Decision == "accept" && !note.Returned);
@@ -44,6 +46,8 @@ public sealed class ProductCashState
     public long NextSequence { get; set; } = 1;
     public long AcknowledgedSequence { get; set; }
     public long RawSequence { get; set; }
+    public long HealthSequence { get; set; }
+    public bool SingleHundred { get; set; }
     public bool PollInFlight { get; set; }
     public bool ConnectionDispatchPending { get; set; }
     public bool ManualEscrowConfigured { get; set; }
@@ -62,9 +66,10 @@ public sealed class ProductCashState
         if (Locked || Intake is { Closed: false } || Outbox.Count != 0
             || CompletedSessions.Contains(command.CashSessionId)
             || baseline.Paise >= 100_000 || baseline.Notes >= 10
+            || (SingleHundred && (baseline.Paise + 10_000 > 100_000 || !enabled.SequenceEqual([10_000L])))
             || enabled.Length == 0 || enabled.Any(value => !CashInventory.Denominations.Contains(value)))
             throw new InvalidOperationException("Product cash preconditions prevent a new intake.");
-        Intake = new ProductCashIntake { Command = command, Baseline = baseline, EnabledValues = enabled };
+        Intake = new ProductCashIntake { Command = command, Baseline = baseline, EnabledValues = enabled, SingleHundred = SingleHundred };
     }
 
     public void Ready(long now)
@@ -116,6 +121,7 @@ public sealed class ProductCashState
         var accept = !Locked && intake.Started && intake.CloseReason is null && online
             && intake.Deadline > now && intake.EnabledValues.Contains(value)
             && intake.CommittedPaise + value <= 40_000
+            && (!intake.SingleHundred || value == 10_000 && intake.CommittedNotes == 0)
             && intake.Baseline.Paise + intake.CommittedPaise + value <= 100_000
             && intake.Baseline.Notes + intake.CommittedNotes + 1 <= 10;
         var note = new ProductCashNote
@@ -152,7 +158,8 @@ public sealed class ProductCashState
             note.Returned = true;
             Emit("note_returned", new { noteKey = note.Key, valuePaise = Value(value), currency }, now);
         }
-        if (intake.CommittedPaise >= 40_000 || intake.Baseline.Paise + intake.CommittedPaise >= 100_000
+        if (intake.SingleHundred && intake.CommittedNotes >= 1
+            || intake.CommittedPaise >= 40_000 || intake.Baseline.Paise + intake.CommittedPaise >= 100_000
             || intake.Baseline.Notes + intake.CommittedNotes >= 10) Close("capacity", now);
     }
 
@@ -185,6 +192,7 @@ public sealed class ProductCashState
             escrowEmpty, reconciliationReasons = intake.Reasons.ToArray()
         }, now);
         intake.Closed = true;
+        intake.FinalInventory = after;
         CompletedSessions.Add(intake.Command.CashSessionId);
     }
 

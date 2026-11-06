@@ -17,7 +17,7 @@ internal static class Program
     {
         if (args.Length == 1 && args[0] is "--help" or "-h")
         {
-            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | diagnose-cash | run");
+            Console.WriteLine("Usage: KALASH.CashMachineController.exe validate | inspect | initialize | reconcile | finish-initialization | diagnose-cash | run [--one-100]");
             Console.WriteLine(
                 $"Inspect uses the unchanged vendor default credentials from the local Fresh package at {VendorBootstrapCredentials.PackageDirectoryVariable}; no password changes or persistence are performed.");
             Console.WriteLine("validate never starts a child; inspect performs read-only checks and stops its child.");
@@ -30,7 +30,8 @@ internal static class Program
             return ValidateConfiguration();
         }
 
-        if (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "diagnose-cash" or "run"))
+        var singleHundred = args is ["run", "--one-100"];
+        if (!singleHundred && (args.Length != 1 || args[0] is not ("inspect" or "initialize" or "reconcile" or "finish-initialization" or "diagnose-cash" or "run")))
         {
             Console.Error.WriteLine("Specify 'validate', 'inspect', 'initialize', 'reconcile', 'finish-initialization', 'diagnose-cash', or the explicit 'run' command.");
             return 2;
@@ -53,7 +54,7 @@ internal static class Program
                 "reconcile" => await ReconcileExistingDeviceAsync(),
                 "finish-initialization" => await FinishInitializationAsync(),
                 "diagnose-cash" => await DiagnoseCashAsync(),
-                _ => await RunServerAsync()
+                _ => await RunServerAsync(singleHundred)
             };
         }
         catch (ControllerConfigurationException exception)
@@ -114,7 +115,7 @@ internal static class Program
         }
     }
 
-    private static async Task<int> RunServerAsync()
+    private static async Task<int> RunServerAsync(bool singleHundred = false)
     {
         var configuration = RestApiServerConfiguration.FromEnvironment();
         var freshPackageDirectory = Environment.GetEnvironmentVariable(
@@ -130,6 +131,8 @@ internal static class Program
             freshPackageDirectory);
         var itlCredentials = VendorBootstrapCredentials.Load(freshPackageDirectory);
         var centralConfiguration = CashControllerConfiguration.Load();
+        if (singleHundred && !centralConfiguration.ProductCashEnabled)
+            throw new ControllerConfigurationException("The one-₹100 restriction does not enable the product physical gate.");
         var productDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "KALASH", "cash-product", centralConfiguration.AtmId);
@@ -174,13 +177,16 @@ internal static class Program
             if (centralConfiguration.ProductCashEnabled && selectedDeviceId is not null
                 && (await productJournal!.LoadAsync(cancellation.Token)).DeviceId != selectedDeviceId)
                 throw new InvalidOperationException("The connected device is not bound to this durable product owner.");
+            if (centralConfiguration.ProductCashEnabled && selectedDeviceId is not null
+                && (await productJournal!.LoadAsync(cancellation.Token)).SingleHundred != singleHundred)
+                throw new InvalidOperationException("The connected device intake restriction differs from this launch.");
             if (centralConfiguration.ProductCashEnabled && connectedDevices.RootElement.GetArrayLength() == 0)
             {
                 using var usb = await itl.GetConnectedUsbDevicesAsync(cancellation.Token);
                 var ports = GetComPorts(usb.RootElement);
                 if (ports.Length != 1) throw new InvalidOperationException("Product cash requires exactly one USB device.");
                 selectedDeviceId = await ProductCashHost.OpenDisabledAsync(
-                    true, itl, productJournal!, ports[0], Path.Combine(productDirectory, "ssp-logs"), cancellation.Token);
+                    true, itl, productJournal!, ports[0], Path.Combine(productDirectory, "ssp-logs"), cancellation.Token, singleHundred);
             }
             if (centralConfiguration.ProductCashEnabled && selectedDeviceId is null)
                 throw new InvalidOperationException("Product cash requires one exclusively owned device.");
@@ -249,7 +255,9 @@ internal static class Program
             if (commandTask.IsCompleted)
             {
                 await commandTask;
-                throw new InvalidOperationException("The Central cash command worker stopped unexpectedly.");
+                if (!singleHundred || productOwner?.CompletedSingleHundred != true)
+                    throw new InvalidOperationException("The Central cash command worker stopped unexpectedly.");
+                Console.WriteLine("The one-₹100 intake closed, its exact outbox was acknowledged, and disabled/empty was reverified.");
             }
 
             cancellation.Cancel();

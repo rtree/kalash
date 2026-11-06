@@ -112,6 +112,7 @@
 
 ## 最新チェックポイント
 
+- M3実機起動前：今回staged sourceだけの隔離snapshotで全Controller52/52（既存27＋製品25）成功、policy合格。1枚制限・readback heartbeat・自然安全終了を確認。通常runの常駐と要照合時のchild保全を維持。今回commitの製品版を一回だけ起動し、Central現金flagは実Ready/開始在高確認までfalseを維持する。診断未commit差分は使用しない。
 - UTC 2026-11-06 18:35以降、M3実機準備。Central read-only preflight：demo budget未使用、₹100一枚可、atm-01 active/reconciliationなし、cashEnabled=false、Controller未Ready。担当確認でmint有効・残り8件・reserved gas上限まで0.002961095724 ETH・pending job0（予算余力でありWallet残高証明ではない）。read-only台帳/points/canonical mint verifierを追加、12/12試験・skip0。既存実機許可を維持。
 - Controller担当が未接続heartbeatを実readbackから接続し、1枚制限profileを追加（50試験成功報告、まだ実機未起動）。既存regular runを維持し、今回の`--one-100`だけ一回のclose+exact ACK+安全停止後に自然終了する仕上げ中。理由：遠隔toolからCtrl+Cを安全配送できず、プロセス強制終了を通常手順にしないため。次：staged製品差分の検証・保存→一回起動→実Ready/開始在高確認→本人の既存別PCでCash選択・本人QR署名。まだ投入案内は出していない。
 - UTC 2026-11-06 18:25、M3製品実装・配備まで完了。Cloud Build `c9766e9f...` は18:15:47Z SUCCESS（contracts/policy25、Central54、fail0/skip0）。次に既承認test/demoへ配備し`00020-xp2`100%、health source `cdf55c4...`一致。配備前後とも実ATM active visitなし、cashEnabledは未設定＝false。現金・実Wallet・mint・Payout操作なし。

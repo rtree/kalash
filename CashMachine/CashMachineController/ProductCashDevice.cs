@@ -3,12 +3,14 @@ using System.Text.Json;
 namespace Kalash.CashMachineController;
 
 public sealed record ProductDeviceReadback(CashInventory Inventory, long[] EnabledValues, bool EscrowEmpty, bool Healthy);
+public sealed record ProductDeviceHealth(bool UsbConnected, bool ConnectionOpen, bool DeviceStarted, ProductDeviceReadback Readback);
 
 public interface IProductCashDevice
 {
     Task<IReadOnlyList<CashRawSnapshot>> RecoverAsync(CancellationToken token);
     Task<CashRawSnapshot> PollAsync(CancellationToken token);
     Task<ProductDeviceReadback> ReadAsync(CancellationToken token);
+    Task<ProductDeviceHealth> ReadHealthAsync(CancellationToken token);
     Task EnableAsync(CancellationToken token);
     Task DisableAsync(CancellationToken token);
     Task AcceptAsync(CancellationToken token);
@@ -24,6 +26,22 @@ public sealed class ItlProductCashDevice(
     public Task DisableAsync(CancellationToken token) => client.DisableAcceptorOnceAsync(deviceId, token);
     public Task AcceptAsync(CancellationToken token) => client.AcceptFromEscrowOnceAsync(deviceId, token);
     public Task ReturnAsync(CancellationToken token) => client.ReturnFromEscrowOnceAsync(deviceId, token);
+
+    public async Task<ProductDeviceHealth> ReadHealthAsync(CancellationToken token)
+    {
+        using var usb = await client.GetConnectedUsbDevicesAsync(token);
+        using var devices = await client.GetAllCashDevicesAsync(token);
+        if (usb.RootElement.ValueKind != JsonValueKind.Array || devices.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Product health requires explicit USB and connected-device lists.");
+        var connected = devices.RootElement.GetArrayLength() == 1
+            && (devices.RootElement[0].ValueKind == JsonValueKind.String
+                ? devices.RootElement[0].GetString()
+                : ProductCashReadback.Text(devices.RootElement[0], "deviceID")) == deviceId;
+        var readback = await ReadAsync(token);
+        // Healthy is true only after identity, IsOpen, IsStarted and error/dispense readbacks match.
+        return new ProductDeviceHealth(usb.RootElement.GetArrayLength() == 1,
+            connected && readback.Healthy, connected && readback.Healthy, readback);
+    }
 
     public async Task<ProductDeviceReadback> ReadAsync(CancellationToken token)
     {

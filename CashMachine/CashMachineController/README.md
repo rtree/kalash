@@ -88,6 +88,70 @@ Central's signed-consent command, matching visit/session, online permission,
 deadline, verified INR routing and available capacity. Do not set it before
 owner-attended hardware validation. No product payout path is implemented.
 
+### Owner-attended single ₹100 product run
+
+The operator alone runs this, from the repository root, after attendance and
+physical authorization. This preparation does not itself run either command:
+
+```powershell
+$env:KALASH_PRODUCT_CASH_ENABLE = 'OWNER_ATTENDED_PRODUCT_CASH'
+.\CashMachine\CashMachineController\Run-Local.ps1 -OneHundred
+```
+
+`Run-Local.ps1` resolves the same repository-local REST server, Fresh package and
+explicit `dotnet.exe` as the existing initialization scripts. It runs the policy
+check and uses the protected registered ATM file without printing credentials.
+It never sets the physical gate. Without the gate, its default run is no-cash;
+`-OneHundred` refuses to start without the existing gate. Remove unintended
+`KALASH_CENTRAL_URL`/`KALASH_ATM_ID` overrides before launching if the registered
+origin/ATM should be used. Do not start the vendor server separately.
+
+The `run --one-100` restriction opens with only ₹100 uninhibited, verifies that
+exact readback, and durably restricts the session to one accepted ₹100 note,
+including an in-flight note. Other denominations remain inhibited. All original
+₹400/session and ₹1,000/10-note inventory ceilings still apply. The first matching
+STORED automatically stops acceptance with `capacity`; Done can race safely with
+that close, but must not be fabricated if capacity has already closed it. Do not
+open a second reception in this operator run. The bounded worker cannot start
+another reception after the first intake has begun. This restriction is not a new
+authorization gate or a payout permission.
+
+Every five seconds, the product owner posts authenticated `/health` from actual
+USB/connected-device, identity, open/started, route, inventory and counter reads.
+Its durable increasing sequence survives restart. Readiness also requires a
+fresh observation from the existing event reader, no reconciliation lock, and
+matching one-note inhibits when selected. The health path never starts another
+consuming poller, and idle status observation continues on the same owner.
+Readback/report failure blocks acceptance; shutdown posts unavailable.
+Central's independent registered `cashEnabled` flag must also be authorized by
+the integrator; heartbeat does not switch it on. Await an actual fresh ready
+screen/health record before signed claim and actual ACCEPTING before insertion.
+
+After the one note, use Done if the intake is still accepting; wait for its
+actual Central close/confirmation and retained journal/outbox acknowledgement.
+`-OneHundred` then exits naturally: only after that first intake is cleanly
+closed, every outbox event has its exact durable ACK, and the same reader plus
+fresh readbacks reverify DISABLED, empty escrow, and unchanged final
+inventory/counters. The host then performs its existing safe disconnect and
+owned-child shutdown. No Ctrl+C or external process termination is needed on
+this successful bounded path. Regular `run` stays resident.
+
+For an operator cancellation, press **Ctrl+C once** in the controller console.
+It disables once if necessary,
+continues that same reader for pending cash, reports unavailable, and disconnects
+and stops only its own child after verified safe state. Unknown/reconciliation
+states never count as bounded completion or trigger automatic child killing.
+An unresolved shutdown
+prints the retained child PID: do not kill/relaunch or clear journals; reconcile
+that same operation. After a clean exit remove the process gate:
+
+```powershell
+Remove-Item Env:\KALASH_PRODUCT_CASH_ENABLE -ErrorAction SilentlyContinue
+```
+
+No Payout/Dispense command belongs in this procedure. The note remains in the
+machine for the separately authorized later fee/admin payout.
+
 When explicitly enabled, `run` opens at most one device with automatic escrow
 acceptance and the acceptor disabled, or attaches only its journal-bound device.
 OpenConnection dispatch is durable and an unknown result is not retried.
