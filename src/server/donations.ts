@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
-  encodeFunctionData, keccak256,
+  encodeFunctionData, keccak256, parseAbi,
   toHex, TransactionReceiptNotFoundError, TransactionNotFoundError,
   type Address, type Hex, type TransactionReceipt,
 } from 'viem';
@@ -70,6 +70,72 @@ export async function recordOperation(id: unknown, owner: Address, operation: un
       amount: data.amount, startBlock: data.startBlock, createdAt: new Date().toISOString(),
     });
     if (operation === 'donate') transaction.update(reference, { donateAttemptId: attemptId, status: 'submitting' });
+  });
+  return ownedDonation(id, owner);
+}
+export async function resolveExpiredApproval(id: unknown, owner: Address, attemptId: unknown): Promise<Donation> {
+  requireValue(deployment, 503, 'CONTRACTS_NOT_DEPLOYED', 'Contracts unavailable.');
+  requireValue(typeof attemptId === 'string' && /^[a-z0-9-]{36}$/i.test(attemptId),
+    400, 'INVALID_ATTEMPT', 'A stable approval attempt ID is required.');
+  const reference = donationReference(id);
+  const record = await ownedDonation(id, owner);
+  if (record.status === 'expired' && record.approvalResolution?.attemptId === attemptId) return record;
+  requireValue(record.status === 'intent' && record.deadline <= Math.floor(Date.now() / 1000)
+    && !record.donateAttemptId && !record.txHash,
+  409, 'NOT_EXPIRED_APPROVAL', 'Only an expired intent with no donation submission can be resolved.');
+
+  const operations = await reference.collection('operations').get();
+  const attempt = operations.docs.find((operation) => operation.id === attemptId);
+  requireValue(operations.size > 0 && attempt?.get('operation') === 'approve'
+    && attempt.get('source')?.toLowerCase() === owner.toLowerCase()
+    && attempt.get('target')?.toLowerCase() === USDC.toLowerCase()
+    && attempt.get('amount') === record.amount
+    && operations.docs.every((operation) => operation.get('operation') === 'approve'),
+  409, 'NOT_APPROVAL_ONLY', 'This intent has a non-approval operation or no registered approval to resolve.');
+
+  const start = BigInt(record.startBlock);
+  const latest = await chain.getBlockNumber();
+  requireValue(latest >= start && latest - start < 20000n,
+    409, 'RECONCILIATION_REQUIRED', 'This intent is outside the safe on-chain check window; operator review is required.');
+  for (let from = start; from <= latest; from += 200n) {
+    const to = from + 199n < latest ? from + 199n : latest;
+    const events = await chain.getLogs({
+      address: deployment.vault, event: vaultAbi[1], args: { donationId: record.id },
+      fromBlock: from, toBlock: to, strict: true,
+    });
+    requireValue(events.length === 0, 409, 'DONATION_EVENT_FOUND',
+      'A matching donation event exists. Keep this operation and ask Central to reconcile it.');
+  }
+  const allowance = await chain.readContract({
+    address: USDC,
+    abi: parseAbi(['function allowance(address owner,address spender) view returns (uint256)']),
+    functionName: 'allowance',
+    args: [owner, deployment.vault],
+  });
+  requireValue(allowance === 0n, 409, 'ALLOWANCE_ACTIVE',
+    'USDC allowance to the donation vault is still active. Do not clear this operation; review the wallet allowance first.');
+
+  const resolvedAt = new Date().toISOString();
+  await db.runTransaction(async (transaction) => {
+    const currentSnapshot = await transaction.get(reference);
+    const current = currentSnapshot.data() as Donation | undefined;
+    requireValue(current?.ownerWallet.toLowerCase() === owner.toLowerCase()
+      && current.status === 'intent' && current.deadline <= Math.floor(Date.now() / 1000)
+      && !current.donateAttemptId && !current.txHash,
+    409, 'OPERATION_CHANGED', 'The donation state changed during reconciliation; reload it before continuing.');
+    transaction.update(reference, {
+      status: 'expired',
+      expiredAt: resolvedAt,
+      error: 'Expired approval-only operation checked on Base Sepolia; no donation event or allowance was found.',
+      approvalResolution: {
+        attemptId,
+        resolvedAt,
+        fromBlock: start.toString(),
+        throughBlock: latest.toString(),
+        allowanceUnits: '0',
+        donatedEvents: 0,
+      },
+    });
   });
   return ownedDonation(id, owner);
 }

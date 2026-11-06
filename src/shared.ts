@@ -66,6 +66,14 @@ export interface Donation {
   error?: string;
   startBlock: string;
   donateAttemptId?: string;
+  approvalResolution?: {
+    attemptId: string;
+    resolvedAt: string;
+    fromBlock: string;
+    throughBlock: string;
+    allowanceUnits: '0';
+    donatedEvents: 0;
+  };
 }
 export interface PhotoDto {
   id: string;

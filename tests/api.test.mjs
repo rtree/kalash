@@ -121,6 +121,26 @@ test('real operation registration is idempotent and unknown submission cannot be
   assert.equal((await request(`/api/donations/${donation.id}/operation`, {
     method: 'POST', bearer: token, body: { operation: 'donate', attemptId: crypto.randomUUID() },
   })).status, 409);
+  const unsafeResolution = await request(`/api/donations/${donation.id}/expire-approval`, {
+    method: 'POST', bearer: token, body: { attemptId: operation.attemptId },
+  });
+  assert.equal(unsafeResolution.status, 409, 'an active donate attempt must never be expired as an approval-only operation');
+
+  const approvalIntent = await request('/api/donations', {
+    method: 'POST', bearer: token, body: { templeId: 'temple-01', amount: '0.01' },
+  });
+  assert.equal(approvalIntent.status, 201);
+  const approval = await approvalIntent.json();
+  const approvalAttemptId = crypto.randomUUID();
+  assert.equal((await request(`/api/donations/${approval.id}/operation`, {
+    method: 'POST', bearer: token, body: { operation: 'approve', attemptId: approvalAttemptId },
+  })).status, 200);
+  const earlyResolution = await request(`/api/donations/${approval.id}/expire-approval`, {
+    method: 'POST', bearer: token, body: { attemptId: approvalAttemptId },
+  });
+  assert.equal(earlyResolution.status, 409, 'a live approval intent must not be resolved as expired');
+  assert.equal((await (await request(`/api/donations/${approval.id}`, { bearer: token })).json()).status, 'intent');
+
   const unknown = await request(`/api/donations/${donation.id}/verify`, { method: 'POST', bearer: token, body: {} });
   assert.equal(unknown.status, 200);
   assert.equal((await unknown.json()).status, 'unknown');

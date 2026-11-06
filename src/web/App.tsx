@@ -696,6 +696,38 @@ export function App({ runtime }: { runtime: Runtime }) {
     }
   };
 
+  const resolveExpiredApproval = async () => {
+    if (!donation || !pendingOperation || pendingOperation.donationId !== donation.id
+      || pendingOperation.operation !== 'approve' || pendingOperation.txHash
+      || donation.status !== 'intent' || donation.deadline > Math.floor(Date.now() / 1000)
+      || donation.donateAttemptId || donation.txHash) return;
+    const confirmed = window.confirm(
+      'This approval attempt expired. Central will check Base Sepolia for a matching donation and verify the Vault allowance is zero. This does not cancel any wallet request. Continue only if no MetaMask request is open.',
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError('');
+    try {
+      const expired = await api<Donation>(
+        `/api/donations/${encodeURIComponent(donation.id)}/expire-approval`,
+        { method: 'POST', body: JSON.stringify({ attemptId: pendingOperation.attemptId }) },
+        true,
+      );
+      setDonation(expired);
+      persistPending(null);
+      if (currentDonationId === expired.id) {
+        localStorage.removeItem(CURRENT_DONATION);
+        setCurrentDonationId(null);
+      }
+      setRefreshVersion((version) => version + 1);
+      setNotice('Central verified this expired approval on Base Sepolia. No donation was sent; you may start a fresh test if you choose.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not safely resolve this expired approval.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const resumeAfterApproval = async () => {
     if (!pendingOperation?.txHash || pendingOperation.operation !== 'approve' || !donation || !publicClient) return;
     setBusy(true);
@@ -823,6 +855,7 @@ export function App({ runtime }: { runtime: Runtime }) {
             onDonate={() => void startDonation()}
             onCheck={() => void checkCentral()}
             onResumeApproval={() => void resumeAfterApproval()}
+            onResolveExpiredApproval={() => void resolveExpiredApproval()}
             onRestore={() => void restoreDonation()}
             onCollection={() => { setRefreshVersion((version) => version + 1); navigate('/collection'); }}
             onExplore={() => navigate('/temples')}
@@ -954,6 +987,7 @@ function TempleDetail(props: {
   onDonate: () => void;
   onCheck: () => void;
   onResumeApproval: () => void;
+  onResolveExpiredApproval: () => void;
   onRestore: () => void;
   onCollection: () => void;
   onExplore: () => void;
@@ -1036,8 +1070,13 @@ function TempleDetail(props: {
           {props.pendingOperation?.operation === 'approve' && (
             <div className="pending-box">
               <strong>USDC approval is not confirmed</strong>
-              <p>No donation has been sent yet. Check the approval in your wallet, then continue only after it succeeds.</p>
+              <p>No donation has been sent yet. Do not retry an unknown wallet request.</p>
               {props.pendingOperation.txHash && <button className="button button-secondary button-wide" onClick={props.onResumeApproval} disabled={props.busy}>Check approval & continue</button>}
+              {!props.pendingOperation.txHash && props.donation?.status === 'intent'
+                && props.donation.deadline <= Math.floor(Date.now() / 1000)
+                && !props.donation.donateAttemptId && !props.donation.txHash
+                && props.pendingOperation.donationId === props.donation.id
+                && <button className="button button-secondary button-wide" onClick={props.onResolveExpiredApproval} disabled={props.busy}>Verify expired approval safely</button>}
             </div>
           )}
           {props.donation && (

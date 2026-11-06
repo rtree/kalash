@@ -67,6 +67,14 @@ Missing receipt or hash means unknown/pending, never safe to resend.
 Mint: reserved -> prepared (signed bytes/hash persisted) -> submitted -> minted;
 errors remain explicit and retryable only by the same persisted transaction.
 Expiry forbids new execution; a matching timely chain transaction can still settle.
+An expired approve-only intent may leave a client-side pending operation. Do not
+silently clear it or retry approval. An owner-only recovery endpoint may mark it
+expired only when the immutable intent is expired, its registered operations are
+approval-only, no `donateAttemptId` or `txHash` exists, a bounded canonical Vault
+event scan finds no matching `Donated`, and current Vault USDC allowance is zero.
+Preserve the operation history and resolution block/allowance evidence. The UI must
+ask the owner to confirm no wallet request is still open; this path never signs,
+approves, donates, refunds, or deletes the record.
 
 ## 3. Authentication and API contract
 
@@ -82,6 +90,7 @@ Planned same-origin endpoints:
 - `POST /api/donations`: authenticated templeId/amount -> immutable intent.
 - `POST /api/donations/:id/operation`: persist operation, source, chain and start block.
 - `POST /api/donations/:id/verify`: optional txHash hint, owner only; await verification.
+- `POST /api/donations/:id/expire-approval`: owner-only, proof-checked recovery of an expired approval-only intent; never a payment retry.
 - `GET /api/donations/:id`, `GET /api/collection`, `GET /api/history`: owner only.
 
 Confirm a canonical successful receipt on chain 84532 and the exact immutable
