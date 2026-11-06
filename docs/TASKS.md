@@ -6,13 +6,13 @@
 - 別トラック（UX-mobile限定PoC、今回の本体approval課題とは分離）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／camera previewを検証する。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
-- PoC checkpoint（2026-11-06）：指定調査報告と3人のread-onlyレビューを確認。公式deeplink `https://link.metamask.io/dapp/<host>/<path>?mode=phone&case=external-qr`を採用し、host/path/query全体はencodeしない。local build成功、PoC tests 37 pass・skipなし。Cloud Build `19d52ae7-9269-447d-8aac-4763b176e0f9`成功し、独立revision `kalash-uxmobile-00002-j6c`（image `uxmobile:d9bf3ce0ed07`）へ配備。実HTTPSの`/lab-health.json`は200、payments/uploads=false、QR targetはHTTP200。本人はPCでquery付きURLを開きQR表示済みと報告。共有ブラウザーsnapshotはroot URLだがQRの行き先はquery付き。スマホで実際にQRを読む／最終origin/path/queryへ到達した証拠はまだない。本体と分離、署名・寄付・撮影保存・uploadなし。
+- PoC checkpoint（2026-11-06 06:00Z）：本人がPCでPoCのQRを表示し、MetaMask外のスマホQRリーダーで読取→MetaMask起動→内蔵Browserに`https://kalash-uxmobile-548318651344.asia-south1.run.app/?mode=phone&case=external-qr`が表示されたと報告。PoCのorigin・path・query保持を含む入口は今回の環境で本人確認済み。これはPCの共有snapshotをスマホ実測とみなした結果ではない。稼働版`kalash-uxmobile-00002-j6c`、source `d9bf3ce0ed07`／dirty=false、health200・payments/uploads=falseをread-only再確認。配備のCloud Buildは`19d52ae7-9269-447d-8aac-4763b176e0f9`、37 tests pass・skipなし。並行作業の追加build `a72fb6e2-6136-4d05-a6a2-95ba0284d648`は成功したが、このチームから追加配備はしない。SDDのCloud Run限定方針と一致。次は同じスマホPoCページで明示接続・camera preview→停止のみ。全QRリーダー保証・Reown全面削除・モバイル認証／送金成功には拡張しない。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
 - Cloud Run：revision `kalash-central-00016-w6k`、health ready・Base Sepolia・mint有効、source `1790e57`。History recovery、expired-signature guard、Provider approval trace、walletClient preflightを含む。
 - DonationVault：`0x7a5b5ccc5410e1c9ad4fef8f40bf9786cb842073`。Stamp：`0x853d271ed9461f4e56c449d8c2b7c83b410b4cbb`。
 - M1はPC MetaMaskで完了。M2では本人の写真1枚が`temple-01`に掲載済み。画像内容や表示名はログへ記録しない。
-- 次の作業：M1の本体approval prompt試験を再開する。cancelled signatureは期限切れ。Historyの旧expired intentを本人確認後にresolveし、通常Donateを一度だけ行ってMetaMask approval promptを確認する。PoCのAndroid QR試験は別タスクのhuman-waitとする。
+- 次の作業：M1の本体approval prompt試験を再開する。cancelled signatureは期限切れ。Historyの旧expired intentを本人確認後にresolveし、通常Donateを一度だけ行ってMetaMask approval promptを確認する。PoCのQR到達は本人確認済み、モバイル接続／cameraは別タスクのhuman-waitとする。
 - 個人用Skill `android-mobile-testing` を `~/.copilot/skills/` に作成。ADB・Chrome・MetaMaskの安全な確認手順を記録した。
 
 ## ゴールと担当
@@ -21,7 +21,8 @@
 |---|---|---|---|---|---|
 | UX-mobile-research | 限定PoC | 調査：上記research/manual-testのみ | なし | verified | 指定commitの2資料・公式仕様を照合。link.metamask.ioを採用、一般QRリーダー保証不可。本人用試験表あり |
 | UX-mobile-probe | 限定PoC | 実装：上記5ファイルのみ | なし | verified（実装・PC接続） | Reownなし、明示接続2method限定。本人のPC添付画面でMetaMask/EIP-6963・1 account・84532確認。PoCモバイル接続／cameraはhuman-wait |
-| UX-mobile-integrate | 限定PoC | 統合：配信／配備／検証・共有文書・Git | UX-mobile-research、UX-mobile-probe | human-wait | revision `00002-j6c`、health/QR-target HTTP200、37 pass・skipなし。PCでQR表示済み。Android QR読取と最終PoC origin/path/query到達は本人確認待ち |
+| UX-mobile-integrate | 限定PoC | 統合：配信／配備／検証・共有文書・Git | UX-mobile-research、UX-mobile-probe | verified（配備・QR到達） | revision `00002-j6c`、health200、37 pass・skipなし。本人がPC QR→外部スマホQRリーダー→MetaMask BrowserのPoC origin/path/query一致を確認 |
+| UX-mobile-device | 限定PoC | 本人：Cloud Run PoCの同じスマホページ | UX-mobile-integrate | human-wait | 残る確認はinjected接続（アカウント数／chain）とcamera preview→停止。本体での撮影・CommunityBoard掲載成功とは分離。試験中は再配備しない |
 | M1-entry | M1 | Integrator：AGENTS、仕様、依存ポリシー | なし | 完了 | 初期入力・preflight・公開手順を保存。初期lock検証539件、監査0件 |
 | M1-hosts | M1 | Integrator：ホスト・権限診断 | なし | 完了 | Windows開発、Cloud Build Linux、GCP/Auth/ADBの実態を記録 |
 | M1-wallets | M1 | Integrator：テストWallet | M1-entry | 完了 | 役割別Wallet、残高・予算の確認済み。残高が多くても当初予算を増やさない |
