@@ -5,7 +5,7 @@
 - UX-mobile限定PoC（本人依頼、独立HTTPSサイトを選択）：本体のReown・稼働版を変更せず、PC MetaMask拡張／外部QRリーダー→内蔵Browser／カメラpreviewを検証する。実機テストは本人。資料・実装は`docs/lab/uxmobile/`へ集約。署名・送金・撮影・uploadは対象外。
 - PoC担当：調査担当=`docs/lab/uxmobile/research.md`・`manual-test.md`、実装担当=`index.html`・`app.mjs`・`style.css`・`probe.mjs`・`probe.test.mjs`、統合担当=同ディレクトリの配信／build／配備／README／自動検証、および共有SDD/TASKS・Git。担当外の変更禁止。
 - PoC本人結果（2026-11-06 05:23Z）：本体向けQR→スマホの外部QRリーダー→MetaMask起動→内蔵BrowserでKalash表示を本人確認。本体でカメラ起動・撮影・CommunityBoard掲載まで成功との本人報告。添付画面ではPCのisolated PoCがEIP-6963で1 account／Base Sepolia接続。PoC自身のモバイルinjected接続／cameraは未確認。本体はまだReownあり、削除完了の証拠ではない。以降はPCにQR表示→スマホ→Cloud Run試験サイトのみ、スマホ→開発PC localhostは使わない。
-- PoC checkpoint（2026-11-06 05:22Z）：source `4a1801a44ad3`、Cloud Build `4713ba82-6b9d-4dd5-ad8a-a0ed73889b5b`成功、独立revision `kalash-uxmobile-00001-csq`へ配備。URL https://kalash-uxmobile-548318651344.asia-south1.run.app/ 。実HTTPSでQR・正しい宛先・外部resource 0・PC 1280幅／mobile 288幅表示を確認。37 tests pass、skipなし。`/healthz`だけアプリ外のHTML404となったため`/lab-health.json`へ修正、HTTP 6件を再検証済み。次は修正版配備とhealth実応答確認、本人の実機試験待ち。SDD隔離方針と一致、本体変更を取り込まない。
+- PoC checkpoint（2026-11-06 14:25 JST）：HEAD `fa29d04a6757`でlocal build成功、PoC tests 37 pass・skipなし。Liveは依然revision `kalash-uxmobile-00001-csq`（source `4a1801a44ad3`）、root HTTP200だが`/lab-health.json`はHTTP404なので`0bebbf9`修正は未配備。共有ブラウザーsnapshotではQRが公式`link.metamask.io/dapp/<host>/<path>?mode=phone&case=external-qr`形式で表示される一方、現在ページはroot・query未指定。これはQR読取／スマホ到達の証拠ではない。実機試験前後に再配備を調整し、本人に実機のURL origin/path/queryを確認する。PoCは署名・寄付・保存・uploadなし、本体と分離。
 - ゴール：M1 モバイル寄付。MetaMask内蔵Browserのapprove-only停滞を安全に解決し、新しい0.01 test USDC寄付→Central確認→Stamp→Collection再読込を本人のWallet承認で通す。その後M2写真共有へ戻る。
 - チェーン：Base Sepolia（84532）のテストUSDCのみ。実価値の送金は行わない。
 - 本番URL：https://kalash-central-548318651344.asia-south1.run.app
