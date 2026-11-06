@@ -31,7 +31,7 @@
 | M1-ui | M1 | Integrator/UI：Pilgrim UI・E2E | M1-api、M1-chain | 完了 | ユーザーがConnect、VerifyWallet、SpendingCap、送金、Central確定、Stamp/CollectionをPC MetaMaskで確認 |
 | M1-deploy | M1 | Integrator：Cloud Run | M1-api、M1-ui | 完了 | 実オリジン、runtime SA、Health、mint loop確認 |
 | M1-e2e | M1 | Integrator：MetaMask・テスト | M1-deploy | 完了 | PCのMetaMaskに加え、Android MetaMask内蔵Browserでも0.01 USDC approval→Donate→Central確認→Stamp/Collection再読込を本人確認。receipt canonical、Vault `Donated` event、mint receiptを照合 |
-| M2 | M2 | Integrator：写真・ボード | M1-e2e | 進行中 | 写真の同意・公開・置換・取り下げ・サイズ、実機カメラ確認。運営者取り下げ権限は未実装 |
+| M2 | M2 | Integrator：写真・ボード | M1-e2e | 進行中 | 本人の写真共有→Devotee board表示を実機で確認。運営者取り下げ権限・残りのcamera/size/withdraw検証は未完 |
 | M3 | M3 | Integrator：Windows Controller/ITL | M2 | 未着手 | QR紐付け、紙幣収納、受付終了・照合・Stamp |
 | M4 | M4 | Integrator：精算・払い出し | M3 | 未着手 | 実入金、管理者承認、実機全量払い出し、在高照合 |
 | M5 | M5 | Integrator：現地Crypto | M4 | 未着手 | ATM QR、スマホ送金、両画面とStampの一致 |
@@ -64,8 +64,8 @@
 - 画像サイズは本人の累計Pointで4段階。公開DTOにwallet、donation ID、金額、正確なPoint、Storage pathを含めない。
 - Cloud Build `a80fc3f1-a8d0-4311-8271-66a32f4daac0`（M2 API）と`30b9c882-5915-44ac-b0ac-e625951feedc`（カメラUI）成功。revision `kalash-central-00009-hgk`、source `65cf51cee9a7c908c516d7aac7e4448b940d358e`。
 - 実Central API 7件成功・skipなし：合成ポートレート、同意拒否、非公開Storage配信、差し替え、他Walletのwithdraw拒否、本人withdraw、取り下げ後404。既存ユーザー写真を残したままテストするようAPIテストを修正済み。
-- ユーザーが`temple-01`に写真を1枚登録。状態published、tier1、期限2026-12-05。画像内容・表示名は読まず、公開一覧とprivate objectの存在のみ確認。
-- `/board/temple-01`はLotus Courtyardの空状態・Navigationを表示。任意Reown inline scriptのCSP警告が1件あるが視覚上の破綻なし。CSPは緩めない。
+- ユーザーはAndroidで写真を撮って共有し、Devotee boardに出たと報告。read-only確認では`temple-01`公開写真1件、本人slot1件、published tier1。画像内容・表示名は読まず、画像ファイルも取得しない。
+- `/api/board/temple-01/photos`はHTTP200で写真1件を返す。これは本人の表示確認と一致。個人写真をテスト・削除・再アップロードせず、CSPも緩めない。
 - Android撮影：MetaMask内蔵BrowserでCamera permissionを本人が許可した後、Take photo/Close cameraが表示されることを確認。Streamを閉じ、撮影・uploadなし。
 
 ## 現在のモバイル状態（安全な復旧が必要）
