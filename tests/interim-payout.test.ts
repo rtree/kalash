@@ -278,6 +278,32 @@ test('positive-credit operationally unresolved ledgers still cannot fund Interim
   assert.deepEqual(store.records.get(`cashSessions/${cashSessionId}`), before);
 });
 
+test('relayed wallet fee receipt uses exact vault and payer events rather than outer sender or target', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  const hash = `0x${'e'.repeat(64)}` as Hex;
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  feeReceipt = { status: 'success', to: `0x${'1'.repeat(40)}`, from: `0x${'2'.repeat(40)}`,
+    blockHash: `0x${'d'.repeat(64)}`, blockNumber: 1n, logs: feeLogs(invoice, hash) };
+  const paid = await payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, { txHash: hash });
+  assert.equal(paid.status, 'paid');
+  assert.equal((await payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, {})).status, 'paid');
+  const result = await approveActualPayout();
+  assert.equal(store.records.get(`cashPayouts/${result.payoutId}`).command.amountPaise, '20000');
+});
+
+test('relayed receipt cannot replace the payer bound by FeePaid and the actual USDC transfer', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  const hash = `0x${'e'.repeat(64)}` as Hex;
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  feeReceipt = { status: 'success', to: `0x${'1'.repeat(40)}`, from: `0x${'2'.repeat(40)}`,
+    blockHash: `0x${'d'.repeat(64)}`, blockNumber: 1n,
+    logs: feeLogs({ ...invoice, payer: `0x${'3'.repeat(40)}` }, hash) };
+  await assert.rejects(payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, { txHash: hash }),
+    { code: 'FEE_EVENT_MISMATCH' });
+  assert.equal(store.records.get(`cashFeeInvoices/${invoice.invoiceId}`).status, 'submitted');
+  assert.equal(store.records.has(`cashFeeCoverage/cash-session:${cashSessionId}`), false);
+});
+
 test('canonical fee coverage permits one signed full actual payout despite ledger mismatch or prior dispensed excess', async () => {
   await createAndPayInvoice();
   const payoutResult = await approveActualPayout();

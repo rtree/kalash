@@ -4,8 +4,64 @@ import { EventEmitter } from 'node:events';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { createConfig, injected, http } from 'wagmi';
 import { connect, disconnect, switchChain } from 'wagmi/actions';
-import { type EIP1193RequestFn } from 'viem';
-import { BASE_SEPOLIA_RPC, customRpcUrls, kalashChain, switchToKalashChain } from '../src/web/walletNetwork.ts';
+import { createWalletClient, custom, type EIP1193RequestFn } from 'viem';
+import { authorizeSigningAccount, BASE_SEPOLIA_RPC, customRpcUrls, kalashChain, switchToKalashChain } from '../src/web/walletNetwork.ts';
+
+test('desktop signing reauthorizes an unauthorized account without swallowing a rejected prompt', async () => {
+  const account = '0x0000000000000000000000000000000000000001';
+  for (const rejected of [false, true]) {
+    let authorized = false;
+    const calls: string[] = [];
+    const client = createWalletClient({ chain: kalashChain, transport: custom({
+      request: async ({ method }) => {
+        calls.push(method);
+        if (method === 'eth_requestAccounts') {
+          if (!authorized) throw Object.assign(new Error('Account unauthorized'), { code: 4100 });
+          return [account];
+        }
+        if (method === 'wallet_requestPermissions') {
+          if (rejected) throw Object.assign(new Error('User rejected request'), { code: 4001 });
+          authorized = true;
+          return [{ parentCapability: 'eth_accounts' }];
+        }
+        throw new Error(`Unexpected method ${method}`);
+      },
+    }) });
+    if (rejected) await assert.rejects(authorizeSigningAccount(client, account), /rejected/i);
+    else await authorizeSigningAccount(client, account);
+    assert.equal(calls.filter((method) => method === 'wallet_requestPermissions').length, 1);
+  }
+});
+
+test('desktop signing never signs as a different permitted account', async () => {
+  const expected = '0x0000000000000000000000000000000000000001';
+  const calls: string[] = [];
+  const client = createWalletClient({ chain: kalashChain, transport: custom({
+    request: async ({ method }) => {
+      calls.push(method);
+      if (method === 'eth_requestAccounts') return ['0x0000000000000000000000000000000000000002'];
+      if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+      throw new Error(`Unexpected method ${method}`);
+    },
+  }) });
+  await assert.rejects(authorizeSigningAccount(client, expected), /Authorize the connected wallet account/);
+  assert.equal(calls.includes('personal_sign'), false);
+});
+
+test('explicit injected-wallet verification renews permission even when cached accounts remain visible', async () => {
+  const account = '0x0000000000000000000000000000000000000001';
+  const calls: string[] = [];
+  const client = createWalletClient({ chain: kalashChain, transport: custom({
+    request: async ({ method }) => {
+      calls.push(method);
+      if (method === 'eth_requestAccounts') return [account];
+      if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+      throw new Error(`Unexpected method ${method}`);
+    },
+  }) });
+  await authorizeSigningAccount(client, account, true);
+  assert.deepEqual(calls, ['wallet_requestPermissions', 'eth_requestAccounts']);
+});
 
 test('AppKit Wagmi network metadata preserves the explicit public RPC', () => {
   const adapter = new WagmiAdapter({ projectId: '0'.repeat(32), networks: [kalashChain], customRpcUrls, ssr: true });

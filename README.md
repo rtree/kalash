@@ -9,20 +9,20 @@ and [current verification / next action](docs/TASKS.md) before resuming.
 ### How it's Made
 
 KALASH bridges a physical bill acceptor and a mobile, wallet-based donation
-experience. The two key pieces are the NV200 Spectral's PC-accessible device
-interface and a mobile flow that brings the KALASH page into MetaMask, where
-the user's own wallet is already available.
+experience. Its defining breakthrough is the NV200 Spectral: unlike most bill
+validators, it can connect to a Windows PC over USB and be controlled through
+the manufacturer's REST API. That unusually direct hardware-to-software path
+is what made this project possible.
 
 #### NV200 bill validator
 
-The NV200 Spectral connects to a Windows PC over USB. Instead of having the web
-app talk to a serial device directly, KALASH uses the manufacturer's ITL
-CashDevice REST API Server as the local hardware interface. KALASH's .NET
-Windows Controller starts and communicates with that server over loopback;
-the server in turn talks to the validator. The Controller reports device
-readiness and cash-session events to KALASH Central over authenticated HTTPS.
-This keeps the vendor-specific device protocol behind a local API and gives
-the application a defined boundary for hardware status and operations.
+The manufacturer's ITL CashDevice REST API Server exposes the USB-connected
+validator to software on the Windows PC. KALASH's .NET Windows Controller
+starts and communicates with that server over loopback; the server in turn
+talks to the validator. The Controller reports device readiness and cash-session
+events to KALASH Central over authenticated HTTPS. This keeps the vendor-specific
+device protocol behind a local API and gives the application a defined boundary
+for hardware status and operations.
 
 Cash intake is treated as a stateful, reconciled operation rather than a
 button that simply adds an amount. For a cash-enabled session, the Controller

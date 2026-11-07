@@ -14,7 +14,7 @@ import {
 } from '../shared.ts';
 import type { Runtime } from './runtime.ts';
 import { recordWalletTrace, startWalletAttempt } from './walletTrace.ts';
-import { switchToKalashChain } from './walletNetwork.ts';
+import { authorizeSigningAccount, switchToKalashChain } from './walletNetwork.ts';
 import { PhoneEntry, ReceptionPanel } from './Reception.tsx';
 import { TempleAdmin } from './TempleAdmin.tsx';
 import { VISIT_REFERENCE } from '../atm.ts';
@@ -495,10 +495,11 @@ export function App({ runtime }: { runtime: Runtime }) {
     setConnectingAuth(true);
     try {
       if (chainId !== CHAIN_ID) await switchChainAsync(switchToKalashChain);
-      const signingClient = walletClient ?? (await refreshWalletClient()).data;
+      const signingClient = (await refreshWalletClient()).data ?? walletClient;
       if (!signingClient) {
         throw new Error('MetaMask is connected, but its signing session is not ready. Reconnect the wallet and try again.');
       }
+      await authorizeSigningAccount(signingClient, address, connector?.type === 'injected');
       const challenge = await api<{ nonce: string; message: string }>('/api/auth/challenge', {
         method: 'POST',
         body: JSON.stringify({ wallet: address }),
@@ -534,10 +535,11 @@ export function App({ runtime }: { runtime: Runtime }) {
       throw new Error('Verify the wallet for this cash reception before signing its consent.');
     }
     if (chainId !== CHAIN_ID) await switchChainAsync(switchToKalashChain);
-    const signingClient = walletClient ?? (await refreshWalletClient()).data;
+    const signingClient = (await refreshWalletClient()).data ?? walletClient;
     if (!signingClient) {
       throw new Error('MetaMask signing session is not ready. Reconnect the wallet before authorizing cash.');
     }
+    await authorizeSigningAccount(signingClient, address);
     return signingClient.signMessage({ account: address, message });
   };
 

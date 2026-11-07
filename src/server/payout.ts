@@ -336,10 +336,10 @@ export async function verifyCashFee(atmId: string, wallet: Address, invoiceId: s
     return { ...initial, status: 'submitted' as const, txHash: hash, reason: 'Waiting for the existing fee receipt; do not resubmit.' };
   }
   const block = await chain.getBlock({ blockNumber: receipt.blockNumber });
-  requireValue(receipt.status === 'success' && receipt.to && getAddress(receipt.to) === getAddress(initial.vault)
-    && getAddress(receipt.from) === getAddress(initial.payer) && block.hash === receipt.blockHash
+  // Relayed wallets change the outer sender/target; FeePaid and USDC Transfer bind the payer and vault below.
+  requireValue(receipt.status === 'success' && block.hash === receipt.blockHash
     && receipt.blockNumber >= BigInt(initial.startBlock) && await chain.getChainId() === CHAIN_ID,
-  400, 'FEE_RECEIPT_MISMATCH', 'Canonical successful fee receipt, expected chain and payer are required.');
+  400, 'FEE_RECEIPT_MISMATCH', 'Canonical successful fee receipt and expected chain are required.');
   requireValue(receipt.logs.every((log) => log.transactionHash === hash && log.blockHash === receipt.blockHash
     && log.blockNumber === receipt.blockNumber && !log.removed), 400, 'FEE_LOG_CONTEXT_MISMATCH', 'Fee logs must belong to the canonical receipt.');
   const logIndex = validateCashFeeReceipt(receipt.logs, initial, block.timestamp);
