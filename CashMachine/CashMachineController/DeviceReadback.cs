@@ -15,6 +15,9 @@ public sealed record DeviceReadback(
     bool IsStarted,
     bool NoteInEscrow)
 {
+    // ITL DispenserTransactionState: 0=IN_PROGRESS, 1=COMPLETED, 2=ERROR.
+    public bool DispenserHasError => DispenseState is not (0 or 1);
+
     public static DeviceReadback ParseCompleteCashDevice(JsonElement value)
     {
         return new DeviceReadback(

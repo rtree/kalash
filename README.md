@@ -90,3 +90,80 @@ link. The user reviews the temple and request, explicitly joins with a verified
 wallet, and confirms each wallet action. For Crypto donations, any needed token
 approval and the donation itself are distinct requests. MetaMask remains the
 signer throughout; KALASH does not receive or store the user's private key.
+
+#### Architecture and communication boundaries
+
+```mermaid
+flowchart LR
+  subgraph PilgrimDevice["Pilgrim device"]
+    P["Pilgrim web app<br/>served by Central"]
+    W["External wallet<br/>MetaMask or compatible wallet"]
+    P <-->|"Reown AppKit / injected wallet provider"| W
+  end
+
+  subgraph AdminDevice["Temple administrator's device"]
+    T["Temple Admin web app<br/>served by Central"]
+    TW["Administrator's external wallet"]
+    T <-->|"Wallet connection / signing"| TW
+  end
+
+  subgraph TemplePC["Temple Windows PC"]
+    D["ATM Donate Screen<br/>browser app"]
+    B["ATM Board Screen<br/>browser app"]
+    H["KALASH Cash Machine Controller<br/>.NET 10 resident process"]
+    I["ITL CashDevice REST API Server"]
+    N["ITL NV200 Spectral + Spectral Payout"]
+    H <-->|"Loopback REST API"| I
+    I <-->|"USB / serial device connection"| N
+  end
+
+  subgraph Cloud["Google Cloud"]
+    C["KALASH Central<br/>single Cloud Run service<br/>Web app + API + background loops"]
+    FA["Firebase Authentication"]
+    DB["Firestore<br/>application records and processing state"]
+    SM["Secret Manager<br/>minter key and service configuration"]
+    GCS["Private Cloud Storage<br/>photo objects"]
+    C <-->|"Firebase Admin SDK<br/>custom tokens / ID-token verification"| FA
+    C <-->|"Firestore Admin SDK<br/>Central is the application writer"| DB
+    C -->|"ADC secret access"| SM
+    C <-->|"Private object access"| GCS
+  end
+
+  CH["Base Sepolia testnet · chain ID 84532<br/>DonationVault · CashFeeVault · KalashStamp"]
+
+  P <-->|"HTTPS: web app and same-origin APIs"| C
+  T <-->|"HTTPS: web app and same-origin APIs"| C
+  D <-->|"HTTPS: ATM reception and state APIs"| C
+  B -->|"HTTPS: public board and image APIs"| C
+  H <-->|"Controller-initiated HTTPS polling,<br/>health and event reports"| C
+  P <-->|"Firebase Auth SDK<br/>Central-issued custom-token sign-in"| FA
+  T <-->|"Firebase Auth SDK<br/>Central-issued custom-token sign-in"| FA
+  W -->|"USDC approval and Crypto donation"| CH
+  TW -->|"Cash-fee settlement when due"| CH
+  C <-->|"Base Sepolia RPC<br/>verify receipts/events; submit stamp mints"| CH
+```
+
+- Central serves the browser applications and their same-origin APIs. The ATM
+  screen submits reception requests to Central; Central authorizes and records
+  work for the Controller. The Controller initiates HTTPS requests to poll for
+  commands and report health, device events and results. There is no inbound
+  Windows port, and browser screens do not connect directly to the Controller
+  or the ITL REST API Server.
+- Pilgrim and administrator wallets sign messages and blockchain transactions
+  in the external wallet. Central verifies wallet sign-in and issues Firebase
+  custom tokens; the browser uses the Firebase Auth SDK, while protected API
+  requests are verified by Central. Authentication does not give the browser
+  direct Firestore write access. The public Board Screen uses Central's public
+  board APIs.
+- Crypto donations are sent by the donor wallet to `DonationVault`, which
+  distributes USDC to the temple recipient and fee recipient. Cash is recorded
+  off-chain only after the device session is stopped and inventory/counters are
+  reconciled; it is not a `DonationVault` payment. Recognized cash fees are
+  settled separately through `CashFeeVault`. Central's minter submits stamp
+  transactions to `KalashStamp`.
+- Central validates and writes application records to Firestore and accesses
+  photos in a private Cloud Storage bucket. Public board data and images are
+  served through Central's same-origin API; the bucket is not public.
+- The configured chain is **Base Sepolia, not Base mainnet**. In local
+  development the local Central process serves the web app and API, while
+  Firebase, Firestore, Cloud Storage and Base Sepolia remain real services.

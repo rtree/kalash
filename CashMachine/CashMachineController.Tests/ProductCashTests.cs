@@ -84,6 +84,7 @@ internal static class ProductCashTests
         await Run("single consuming poller ownership is enforced", PollerOwnership);
         await Run("route, four-counter and signed binding failures stop Enable", PreflightFailures);
         await Run("idle heartbeat derives readiness without another event reader", IdleHealth);
+        await Run("ITL completed dispense state remains healthy while error and unknown states fail", CompletedDispenseReadback);
         await Run("heartbeat sequence persists and shutdown reports unavailable", HealthSequenceAndShutdown);
         await Run("unverified USB, routes, counters or health ACK never enable", FailedHealth);
         await Run("one-100 profile inhibits other values and closes after one stored note", SingleHundredProfile);
@@ -720,6 +721,22 @@ internal static class ProductCashTests
             Check(fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0, $"Preflight {failure} enabled cash.");
         }
     }
+
+        private static async Task CompletedDispenseReadback()
+        {
+            foreach (var state in new[] { 0, 1, 2, 3, -1 })
+            {
+                await using var fixture = await OwnerFixture.Create();
+                fixture.Central.NoSession = true;
+                fixture.Itl.DispenseState = state;
+                await fixture.Tick();
+                var health = fixture.Central.HealthBodies.Single();
+                Check(health.GetProperty("routesVerified").GetBoolean() == (state is 0 or 1),
+                    $"Wrong readiness for dispenseState={state}.");
+                Check(fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0,
+                    "Readback validation sent a cash command.");
+            }
+        }
 
         private static async Task IdleHealth()
         {
@@ -2003,6 +2020,7 @@ internal static class ProductCashTests
         public string DeviceId = "synthetic-device";
         public string EnableState = "IDLE";
         public int? ReadbackState;
+        public int DispenseState;
         public HashSet<long> EnabledValues { get; } = CashInventory.Denominations.ToHashSet();
         public Func<Task>? BeforeAccept, BeforeEnable;
         public Action? AfterEnable;
@@ -2061,7 +2079,7 @@ internal static class ProductCashTests
                 {
                     deviceModel = 2, deviceType = 3, baseDeviceType = 0, firmware = "NVS2004321016000", dataset = "INR02006",
                     deviceState = ReadbackState ?? (State == "DISABLED" ? 4 : State == "IDLE" ? 5 : 6),
-                    deviceError = 0, dispenseState = 0, isOpen = true, isStarted = true, noteInEscrow = escrow || ForceEscrow
+                    deviceError = 0, dispenseState = DispenseState, isOpen = true, isStarted = true, noteInEscrow = escrow || ForceEscrow
                 });
                 case "GetAllLevels": return Json(CashInventory.Denominations.Select(value => new
                 {

@@ -311,7 +311,7 @@ internal static partial class Program
                     var deviceId = GetConnectedDeviceId(connected.RootElement[0]);
                     using var complete = await itl.GetCompleteCashDeviceAsync(deviceId, CancellationToken.None);
                     var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
-                    if (!readback.NoteInEscrow && readback.DeviceError == 0 && readback.DispenseState == 0)
+                    if (!readback.NoteInEscrow && readback.DeviceError == 0 && !readback.DispenserHasError)
                     {
                         await itl.DisconnectDeviceAsync(deviceId, CancellationToken.None);
                         using var afterDisconnect = await itl.GetAllCashDevicesAsync(CancellationToken.None);
@@ -504,7 +504,7 @@ internal static partial class Program
             {
                 using var complete = await api.GetCompleteCashDeviceAsync(deviceId);
                 var readback = DeviceReadback.ParseCompleteCashDevice(complete.RootElement);
-                if (!readback.NoteInEscrow && readback.DeviceError == 0 && readback.DispenseState == 0)
+                if (!readback.NoteInEscrow && readback.DeviceError == 0 && !readback.DispenserHasError)
                 {
                     await api.DisconnectDeviceAsync(deviceId);
                     using var afterDisconnect = await api.GetAllCashDevicesAsync();
@@ -709,7 +709,7 @@ internal static partial class Program
             if (!readback.IsOpen
                 || !readback.IsStarted
                 || readback.DeviceError != 0
-                || readback.DispenseState != 0
+                || readback.DispenserHasError
                 || readback.NoteInEscrow)
             {
                 throw new InvalidOperationException(
@@ -944,7 +944,7 @@ internal static partial class Program
             || !readback.IsOpen
             || !readback.IsStarted
             || readback.DeviceError != 0
-            || readback.DispenseState != 0
+            || readback.DispenserHasError
             || readback.NoteInEscrow)
         {
             throw new InvalidOperationException(

@@ -215,7 +215,7 @@ public sealed class ItlCashStartDevice(
             || !readback.IsOpen
             || !readback.IsStarted
             || readback.DeviceError != 0
-            || readback.DispenseState != 0
+            || readback.DispenserHasError
             || readback.NoteInEscrow)
         {
             return new CashDevicePreflight(false, status.DeviceState, "device_identity_or_state_mismatch");

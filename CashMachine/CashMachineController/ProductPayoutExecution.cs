@@ -312,7 +312,8 @@ public sealed partial class ProductCashExecutionOwner
             || !readback.EscrowEmpty || lastOwnedPollAt is not { } polled
             || Now - polled < 0 || Now - polled > ProductTiming.StatusFreshnessMs || !ProductPayoutInventory.PartialEnd(payout.Command.Baseline, readback.Inventory))
             return;
-        if (payout.EndState is { } previous && ProductPayoutInventory.Same(previous.After, readback.Inventory)) return;
+        if (payout.EndState is { } previous && ProductPayoutInventory.Same(previous.After, readback.Inventory)
+            && Now - previous.ObservedAt <= ProductTiming.StatusFreshnessMs) return;
         var before = payout.Command.Baseline;
         var end = new ProductPayoutEndState(before, readback.Inventory, State.DeviceId!, State.StreamId,
             State.RawSequence, Now, "DISABLED", true,

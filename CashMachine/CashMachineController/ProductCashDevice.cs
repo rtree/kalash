@@ -83,7 +83,7 @@ public sealed class ItlProductCashDevice(
             identity.DeviceModel == 2 && identity.DeviceType == 3 && identity.BaseDeviceType == 0
             && identity.Firmware.Equals("NVS2004321016000", StringComparison.OrdinalIgnoreCase)
             && identity.Dataset.Equals("INR02006", StringComparison.OrdinalIgnoreCase)
-            && identity.IsOpen && identity.IsStarted && identity.DeviceError == 0 && identity.DispenseState == 0,
+            && identity.IsOpen && identity.IsStarted && identity.DeviceError == 0 && !identity.DispenserHasError,
             identity.DeviceState);
     }
 
