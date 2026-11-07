@@ -444,6 +444,40 @@ test('strict mode cannot use submitted-fee risk settlement or unsigned direct pa
   } finally { process.env.KALASH_CASH_POLICY = 'interim-ledger'; }
 });
 
+test('risk-covered cash is never charged again, while newly recognized cash gets a new invoice and payout', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  const firstHash = `0x${'e'.repeat(64)}` as Hex;
+  const first = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID(), txHash: firstHash });
+  const record = store.records.get(`cashPayouts/${first.payoutId}`);
+  record.state = 'reported';
+  const atm = store.records.get(`atms/${atmId}`);
+  atm.activePayoutId = null;
+  atm.lastPayoutId = first.payoutId;
+  assert.equal((await payout.getTemplePayout(atmId, adminWallet.address)).unsettledCashPaise, '0');
+  await assert.rejects(payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() }),
+    { code: 'NO_UNSETTLED_CASH' });
+
+  const newSessionId = randomUUID();
+  const newVisitId = 'b'.repeat(64);
+  const oldSession = store.records.get(`cashSessions/${cashSessionId}`);
+  store.records.set(`cashSessions/${newSessionId}`, { ...structuredClone(oldSession), cashSessionId: newSessionId, visitId: newVisitId });
+  store.records.set(`visits/${newVisitId}`, { id: newVisitId, atmId, templeId: 'temple-01', cashSessionId: newSessionId, state: 'closed' });
+  assert.equal((await payout.getTemplePayout(atmId, adminWallet.address)).unsettledCashPaise, '10000');
+  const next = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  assert.equal(next.cashPaise, '10000');
+  assert.deepEqual(next.sourceKeys, [`cash-session:${newSessionId}`]);
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, next.invoiceId);
+  await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: next.invoiceId, requestId: randomUUID(), txHash: firstHash }), { code: 'FEE_ALREADY_USED' });
+  const second = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: next.invoiceId, requestId: randomUUID(), txHash: `0x${'f'.repeat(64)}` });
+  assert.notEqual(second.payoutId, first.payoutId);
+  assert.equal(store.records.get(`cashPayouts/${second.payoutId}`).command.amountPaise, '20000');
+  assert.equal(store.records.get(`cashFeeInvoices/${invoice.invoiceId}`).status, 'submitted');
+});
+
 test('strict policy does not use the Interim closed-ledger fallback', async () => {
   const configured = process.env.KALASH_CASH_POLICY;
   delete process.env.KALASH_CASH_POLICY;

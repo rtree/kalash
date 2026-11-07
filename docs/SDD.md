@@ -185,8 +185,13 @@ on Central and Controller (default `strict`, invalid values reject startup).
 Signed QR consent still starts each reception. Historical accounting
 differences remain auditable but do not by themselves block a new intake.
 The fee basis is recognized ledger cash at 3%, independently of the live
-Payout-compartment baseline. After canonical fee verification, explicit
-administrator approval pays out all actual Payout notes; value differences
+Payout-compartment baseline. The authenticated administrator explicitly clicks
+Open Fee Settlement on temple-admin. In Interim, the fee Send txHash starts
+full Payout without waiting for a successful receipt; Kalash assumes settlement
+risk. An already-paid invoice uses the same button without another payment.
+The primary button replaces the separate Payout QR/button; no additional
+payout signature is required. Page loads and state polling never dispense.
+Strict retains canonical fee verification and signed approval. Value differences
 are retained, not turned into invented donation credit or ignored device
 faults. Cashbox remains excluded and uncertain physical commands never retry.
 
@@ -235,6 +240,18 @@ Cash fee receipts support relayed/delegated wallets: canonical success, chain,
 block/log context, exact Vault FeePaid payer/invoice and exact USDC transfer
 bind settlement, rather than the outer transaction sender or router target.
 Existing paid transaction hashes and coverage stay immutable and idempotent.
+Interim's authenticated `POST /api/temple-admin/:atmId/settlement` binds an
+invoice once to a stable payout request and reuses the existing inventory-bound
+approval/dispatch implementation without a QR or extra signature. Submitted
+fee coverage is explicitly marked `submitted_at_kalash_risk`; the invoice
+remains submitted, with no invented paidBlock or chain event. Later canonical
+verification upgrades that same coverage to paid evidence. A rejected/reverted
+receipt remains an explicit settlement error, not a cash success or permission
+to resend. A hash-less unknown Send never starts Payout. The hash cannot change
+or be assigned to another risk invoice. Retries, different browser request IDs,
+and unknown/completed payout states return the original command, never a second
+dispense. New unpaid cash creates a new exact invoice; previously risk-covered
+or paid cash is not charged again.
 Cash remains configured ON independently of fresh device readiness; an active
 payout blocks new Cash/Crypto reception, cash consent and start reports.
 

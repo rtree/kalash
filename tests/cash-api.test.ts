@@ -111,6 +111,7 @@ mock.module('../src/server/config.ts', { namedExports: {
 } });
 mock.module('../src/server/authentication.ts', { namedExports: {
   identity: async (authorization: string) => {
+    if (authorization === 'Bearer settlement-admin') return adminWallet.address;
     if (authorization === 'Bearer payout-test-owner') return wallet.address;
     if (authorization === 'Bearer local-owner') return wallet.address;
     if (authorization === 'Bearer local-other') return other.address;
@@ -264,6 +265,30 @@ async function payInvoice(invoice: CashFeeInvoice) {
     blockNumber: 1n, logs: feeLogs(invoice, hash) };
   return payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, { txHash: hash });
 }
+test('direct settlement HTTP action requires authentication, exact origin and Interim, then returns one paid payout', async () => {
+  const invoice = await settledCashSource();
+  await payInvoice(invoice);
+  const path = `${url}/api/temple-admin/${atmId}/settlement`;
+  const body = JSON.stringify({ invoiceId: invoice.invoiceId, requestId: randomUUID() });
+  const headers = { Authorization: 'Bearer settlement-admin', 'Content-Type': 'application/json', Origin: origin };
+  const unauthenticated = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body });
+  assert.equal(unauthenticated.status, 401);
+  const foreign = await fetch(path, { method: 'POST', headers: { ...headers, Origin: 'https://foreign.invalid' }, body });
+  assert.equal(foreign.status, 403);
+  const strict = await fetch(path, { method: 'POST', headers, body });
+  assert.equal(strict.status, 409);
+  assert.equal((await strict.json()).error, 'DIRECT_SETTLEMENT_DISABLED');
+  assert.equal(store.count('cashPayouts'), 0);
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  const first = await fetch(path, { method: 'POST', headers, body });
+  assert.equal(first.status, 200, JSON.stringify(await first.clone().json()));
+  const result = await first.json();
+  assert.equal(store.read(`cashPayouts/${result.payoutId}`).command.amountPaise, '10000');
+  const repeat = await fetch(path, { method: 'POST', headers, body });
+  assert.equal(repeat.status, 200);
+  assert.deepEqual(await repeat.json(), result);
+  assert.equal(store.count('cashPayouts'), 1);
+});
 test('exact cash invoice requires one reconciled source, survives unknown payment and reserves no second fee', async () => {
   const invoice = await settledCashSource();
   assert.equal(invoice.amount, '30000');

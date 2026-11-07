@@ -159,6 +159,7 @@ export async function getTemplePayout(atmId: string, wallet: Address) {
     cashFeeVaultAvailable: Boolean(deployment?.cashFeeVault),
     feeRatePercent: 3, feePaymentWallet: wallet, donationRecipientUnchanged: true,
     cashPolicy: currentCashPolicy(), recognizedCashPaise: undefined as string | undefined,
+    unsettledCashPaise: undefined as string | undefined,
     actualPayoutPaise: undefined as string | undefined, differencePaise: undefined as string | undefined };
   if (interimCashEnabled()) {
     const candidates = await sources(atm.templeId, atmId);
@@ -572,16 +573,18 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
         || (row.get('invoiceId') === invoiceId && row.get('txHash') === hash)),
       409, 'FEE_ALREADY_USED', 'Cash coverage belongs to another invoice.');
       if (invoice.status !== 'paid') {
-        tx.update(invoiceRef, { status: 'submitted', txHash: hash!, settlementRiskAcceptedAt: Date.now(),
+        requireValue(hash, 409, 'FEE_SUBMISSION_REQUIRED', 'The existing fee transaction hash is required.');
+        tx.update(invoiceRef, { status: 'submitted', txHash: hash, settlementRiskAcceptedAt: Date.now(),
           settlementPayoutRequestId: body.requestId });
-        if (riskRef && !risk?.exists) tx.create(riskRef, { invoiceId, atmId });
         coverageKeys.forEach((key) => tx.set(db.collection('cashFeeCoverage').doc(key),
-          { invoiceId, atmId, txHash: hash!, settlementBasis: 'submitted_at_kalash_risk' }));
+          { invoiceId, atmId, txHash: hash, settlementBasis: 'submitted_at_kalash_risk' }));
       } else tx.update(invoiceRef, { settlementPayoutRequestId: body.requestId });
+      if (riskRef && !risk?.exists) tx.create(riskRef, { invoiceId, atmId });
       return body.requestId as string;
     });
     const prepared = await preparePayoutApproval(atmId, { requestId }, wallet, undefined, invoiceId);
-    const approval = (await db.collection('cashPayoutApprovals').doc(prepared.approvalId).get()).data() as Approval;
+    const approval = (await db.collection('cashPayoutApprovals').doc(prepared.approvalId).get()).data() as Approval | undefined;
+    requireValue(approval?.directInvoiceId === invoiceId, 409, 'PAYOUT_APPROVAL_NOT_FOUND', 'The bound settlement approval is missing.');
     return dispatchPayoutApproval(atmId, wallet, prepared.approvalId, approval);
   }
   export async function getPayoutCommand(atmId: string, authorization: string | undefined) {

@@ -46,6 +46,17 @@ gates. Continue recording full inventories and cumulative budget evidence.
 Strict mode retains those limits. Signed consent, INR400 per reception,
 240-second windows, actual device faults and no-blind-retry remain unchanged.
 
+2026-11-07 owner settlement override: in Interim, the registered administrator
+verifies their wallet on temple-admin and clicks Open Fee Settlement. The exact
+fee contract Send returning a transaction hash starts full Payout without
+waiting for a successful receipt; Kalash takes settlement failure risk. For an
+already-paid invoice, the same button starts Payout without paying again.
+Replace the separate Payout QR/button with the primary Open Fee Settlement
+button. No further payout signature is required after wallet verification.
+Page loads never dispense. Preserve actual fee status, immutable once-only
+payout binding, physical exclusivity/readiness and unknown-command no retry.
+Strict mode retains canonical fee verification and signed payout approval.
+
 ```
 ### 最初の操作に適用する短いルールとチェック
 
