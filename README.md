@@ -2,6 +2,9 @@
 
 An donation webApp that connect devotees and temple in confortable way. Devotees can donate cashes to temple by crypto remotely and also by notes using ATMs that are placed in temples.
 
+![Uploading Screenshot 2026-11-07 at 6.52.27.png…]()
+
+
 ### How it's Made
 
 KALASH bridges a physical bill acceptor and a mobile, wallet-based donation
