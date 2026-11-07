@@ -1,4 +1,4 @@
-# KALASH
+# kalash
 
 An donation webApp that connect devotees and temple in confortable way. Devotees can donate cashes to temple by crypto remotely and also by notes using ATMs that are placed in temples.
 
