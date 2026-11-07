@@ -1,0 +1,105 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - button "KALASH home" [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]:
+        - text: KALASH
+        - generic [ref=e7]: ✦
+      - generic [ref=e8]: A pilgrim’s guide
+    - button "Connect wallet" [ref=e10] [cursor=pointer]
+  - main [ref=e11]:
+    - generic [ref=e12]:
+      - generic [ref=e13]: A GENTLER WAY TO GIVE
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - heading "Find a place to begin" [level=1] [ref=e16]
+          - paragraph [ref=e17]: Explore welcoming community temples and support the work that happens there.
+        - generic [ref=e18]: Illustrative demo catalog
+      - generic [ref=e19]:
+        - generic [aria-hidden] [ref=e20]: ⌕
+        - textbox "Search temples" [ref=e21]
+      - generic [ref=e22]:
+        - paragraph [ref=e23]: Ten fictional demo points near Jio World Convention Centre · no temple affiliation.
+        - tablist "Temple view" [ref=e24]:
+          - tab "Map" [selected] [ref=e25] [cursor=pointer]
+          - tab "List" [ref=e26] [cursor=pointer]
+      - generic [ref=e27]:
+        - generic "Illustrative map of the demo temple area" [ref=e28]:
+          - generic: Jio World Convention Centre area
+          - button "Open Lotus Courtyard" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: "1"
+          - button "Open Golden Banyan" [ref=e32] [cursor=pointer]:
+            - generic [ref=e33]: "2"
+          - button "Open River Bell" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: "3"
+          - button "Open Sunrise Mandapa" [ref=e36] [cursor=pointer]:
+            - generic [ref=e37]: "4"
+          - button "Open Jasmine Steps" [ref=e38] [cursor=pointer]:
+            - generic [ref=e39]: "5"
+          - button "Open Peacock Garden" [ref=e40] [cursor=pointer]:
+            - generic [ref=e41]: "6"
+          - button "Open Moonstone Shrine" [ref=e42] [cursor=pointer]:
+            - generic [ref=e43]: "7"
+          - button "Open Marigold Gate" [ref=e44] [cursor=pointer]:
+            - generic [ref=e45]: "8"
+          - button "Open Sacred Grove" [ref=e46] [cursor=pointer]:
+            - generic [ref=e47]: "9"
+          - button "Open Harmony Pavilion" [ref=e48] [cursor=pointer]:
+            - generic [ref=e49]: "10"
+        - generic [ref=e50]:
+          - generic [ref=e51]: Fictional demo points · no temple affiliation
+          - link "© OpenStreetMap contributors" [ref=e52] [cursor=pointer]:
+            - /url: https://www.openstreetmap.org/copyright
+      - generic [ref=e53]:
+        - button "1 Lotus Courtyard ›" [ref=e54] [cursor=pointer]:
+          - generic [ref=e55]: "1"
+          - text: Lotus Courtyard
+          - generic [ref=e56]: ›
+        - button "2 Golden Banyan ›" [ref=e57] [cursor=pointer]:
+          - generic [ref=e58]: "2"
+          - text: Golden Banyan
+          - generic [ref=e59]: ›
+        - button "3 River Bell ›" [ref=e60] [cursor=pointer]:
+          - generic [ref=e61]: "3"
+          - text: River Bell
+          - generic [ref=e62]: ›
+        - button "4 Sunrise Mandapa ›" [ref=e63] [cursor=pointer]:
+          - generic [ref=e64]: "4"
+          - text: Sunrise Mandapa
+          - generic [ref=e65]: ›
+        - button "5 Jasmine Steps ›" [ref=e66] [cursor=pointer]:
+          - generic [ref=e67]: "5"
+          - text: Jasmine Steps
+          - generic [ref=e68]: ›
+        - button "6 Peacock Garden ›" [ref=e69] [cursor=pointer]:
+          - generic [ref=e70]: "6"
+          - text: Peacock Garden
+          - generic [ref=e71]: ›
+        - button "7 Moonstone Shrine ›" [ref=e72] [cursor=pointer]:
+          - generic [ref=e73]: "7"
+          - text: Moonstone Shrine
+          - generic [ref=e74]: ›
+        - button "8 Marigold Gate ›" [ref=e75] [cursor=pointer]:
+          - generic [ref=e76]: "8"
+          - text: Marigold Gate
+          - generic [ref=e77]: ›
+        - button "9 Sacred Grove ›" [ref=e78] [cursor=pointer]:
+          - generic [ref=e79]: "9"
+          - text: Sacred Grove
+          - generic [ref=e80]: ›
+        - button "10 Harmony Pavilion ›" [ref=e81] [cursor=pointer]:
+          - generic [ref=e82]: "10"
+          - text: Harmony Pavilion
+          - generic [ref=e83]: ›
+  - navigation "Main navigation" [ref=e84]:
+    - button "Explore" [ref=e85] [cursor=pointer]:
+      - generic [aria-hidden] [ref=e86]: ⌂
+      - text: Explore
+    - button "Collection" [ref=e87] [cursor=pointer]:
+      - generic [aria-hidden] [ref=e88]: ✦
+      - text: Collection
+    - button "Scan QR" [ref=e89] [cursor=pointer]:
+      - generic [aria-hidden] [ref=e90]: ▦
+      - text: Scan QR
+    - button "History" [ref=e91] [cursor=pointer]:
+      - generic [aria-hidden] [ref=e92]: ◷
+      - text: History

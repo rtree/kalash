@@ -183,7 +183,7 @@ public sealed partial class ItlDeviceStatusPoller : IAsyncDisposable
 public sealed class ItlCashStartDevice(
     ItlControllerClient client,
     ItlDeviceStatusPoller statusPoller,
-    string deviceId) : ICashStartDevice, ILocalCashDiagnosticDevice
+    string deviceId) : ICashStartDevice, ILocalCashDiagnosticDevice, ILocalCashRecoveryDevice
 {
     private static readonly TimeSpan StatusFreshness = TimeSpan.FromMilliseconds(ProductTiming.StatusFreshnessMs);
 
@@ -284,7 +284,8 @@ public sealed class ItlCashStartDevice(
 
         var stored = FindCounterTotals(counters.RootElement, "stored");
         var stacked = FindCounterTotals(counters.RootElement, "stacked");
-        return new CashDiagnosticInventory(levelMap, stored, stacked);
+        var dispensed = FindCounterTotals(counters.RootElement, "dispensed");
+        return new CashDiagnosticInventory(levelMap, stored, stacked, dispensed);
     }
 
     public async Task<bool> ReadNoteInEscrowAsync(CancellationToken cancellationToken)
@@ -310,6 +311,9 @@ public sealed class ItlCashStartDevice(
 
     public Task AcceptFromEscrowOnceAsync(CancellationToken cancellationToken) =>
         client.AcceptFromEscrowOnceAsync(deviceId, cancellationToken);
+
+    public Task DispenseValueOnceAsync(long amountPaise, CancellationToken cancellationToken) =>
+        client.DispenseValueOnceAsync(deviceId, amountPaise, cancellationToken);
 
     public async Task<CashCommandObservation?> WaitForAcceptingAsync(
         string cashSessionId,

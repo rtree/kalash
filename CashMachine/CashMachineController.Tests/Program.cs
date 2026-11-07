@@ -943,6 +943,7 @@ internal static class Program
             return Task.FromResult(new CashDiagnosticInventory(
                 levels,
                 inventoryReads > 1 ? 1 : 0,
+                0,
                 0));
         }
 

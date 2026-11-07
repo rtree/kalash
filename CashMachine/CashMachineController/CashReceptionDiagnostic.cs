@@ -8,11 +8,14 @@ public sealed record CashDiagnosticLevel(long Value, long StoredInPayout, long S
 public sealed record CashDiagnosticInventory(
     IReadOnlyDictionary<long, CashDiagnosticLevel> Levels,
     long StoredCounter,
-    long StackedCounter)
+    long StackedCounter,
+    long DispensedCounter)
 {
     public long TotalPaise => Levels.Values.Sum(level =>
         level.Value * (level.StoredInPayout + level.StoredInCashbox));
     public long TotalNotes => Levels.Values.Sum(level => level.StoredInPayout + level.StoredInCashbox);
+    public long PayoutPaise => Levels.Values.Sum(level => level.Value * level.StoredInPayout);
+    public long PayoutNotes => Levels.Values.Sum(level => level.StoredInPayout);
 }
 
 public sealed record CashDiagnosticEvent(string Name, long Value, string CountryCode, long ObservedAt);
@@ -28,6 +31,17 @@ public interface ILocalCashDiagnosticDevice
     Task EnableAcceptorOnceAsync(CancellationToken cancellationToken);
     Task AcceptFromEscrowOnceAsync(CancellationToken cancellationToken);
     Task DisableAcceptorOnceAsync(CancellationToken cancellationToken);
+}
+
+public interface ILocalCashRecoveryDevice
+{
+    Task<CashDevicePreflight> CheckPreconditionsAsync(CancellationToken cancellationToken);
+    Task<CashDiagnosticInventory> ReadInventoryAsync(CancellationToken cancellationToken);
+    Task<bool> ReadNoteInEscrowAsync(CancellationToken cancellationToken);
+    ValueTask<ItlDeviceStatusSnapshot?> ReadNextStatusAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken);
+    Task DispenseValueOnceAsync(long amountPaise, CancellationToken cancellationToken);
 }
 
 public sealed class CashDiagnosticJournal(string directory)
@@ -53,7 +67,8 @@ public sealed class CashDiagnosticJournal(string directory)
     {
         Directory.CreateDirectory(directory);
         var prior = await ReadAllAsync(cancellationToken);
-        if (prior.Any(record => record.State is not ("reconciled" or "precondition_failed" or "preflight")))
+        if (prior.Any(record => record.State is not ("reconciled" or "precondition_failed" or "preflight")
+            || record.RecoveryState is "dispatching" or "needs_reconciliation"))
         {
             throw new InvalidOperationException(
                 "A previous cash diagnostic is unresolved; reconcile it before another intake.");
@@ -67,6 +82,26 @@ public sealed class CashDiagnosticJournal(string directory)
             PriorDiagnosticPaise = prior.Sum(record => record.AcceptedPaise),
             PriorDiagnosticNotes = prior.Sum(record => record.AcceptedNotes)
         };
+    }
+
+    public async Task<CashDiagnosticRecord> GetRecoveryCandidateAsync(CancellationToken cancellationToken)
+    {
+        var records = await ReadAllAsync(cancellationToken);
+        if (records.Any(record => record.RecoveryState is "dispatching" or "needs_reconciliation"))
+        {
+            throw new InvalidOperationException(
+                "A prior diagnostic recovery has an unknown outcome; do not retry its payout command.");
+        }
+
+        var candidates = records.Where(record =>
+            record.State == "reconciled"
+            && record.RecoveryState == "none"
+            && record.AcceptedPaise == 10_000
+            && record.AcceptedNotes == 1).ToArray();
+        return candidates.Length == 1
+            ? candidates[0]
+            : throw new InvalidOperationException(
+                "Recovery requires exactly one unrecovered, reconciled ₹100 diagnostic session.");
     }
 
     public async Task SaveAsync(CashDiagnosticRecord record, CancellationToken cancellationToken)
@@ -125,6 +160,18 @@ public sealed class CashDiagnosticRecord
     public long PriorDiagnosticPaise { get; init; }
     public int PriorDiagnosticNotes { get; init; }
     public string? Outcome { get; set; }
+    public List<CashDiagnosticLevel> BaselineLevels { get; set; } = [];
+    public List<CashDiagnosticLevel> FinalLevels { get; set; } = [];
+    public long BaselineStoredCounter { get; set; }
+    public long FinalStoredCounter { get; set; }
+    public long BaselineStackedCounter { get; set; }
+    public long FinalStackedCounter { get; set; }
+    public long BaselineDispensedCounter { get; set; }
+    public long FinalDispensedCounter { get; set; }
+    public string RecoveryState { get; set; } = "none";
+    public long RecoveryAmountPaise { get; set; }
+    public long RecoveryDispensedCounterBefore { get; set; }
+    public long RecoveryDispensedCounterAfter { get; set; }
 }
 
 public sealed class CashReceptionDiagnostic(
@@ -163,6 +210,15 @@ public sealed class CashReceptionDiagnostic(
                 "A note is already in escrow; cash diagnostic acceptance remains disabled.");
         }
 
+        if (before.PayoutNotes != 0)
+        {
+            record.State = "precondition_failed";
+            record.Outcome = "payout_not_empty_before_diagnostic";
+            await journal.SaveAsync(record, cancellationToken);
+            throw new InvalidOperationException(
+                "The local diagnostic requires an empty Payout so its single note can be recovered unambiguously.");
+        }
+
         if (before.TotalPaise + record.PriorDiagnosticPaise + FirstNotePaise > MaximumStoredPaise
             || before.TotalNotes + record.PriorDiagnosticNotes + 1 > MaximumStoredNotes)
         {
@@ -172,6 +228,12 @@ public sealed class CashReceptionDiagnostic(
             throw new InvalidOperationException(
                 "The diagnostic intake would exceed the ₹1,000 / 10-note total device cap.");
         }
+
+        record.BaselineLevels = before.Levels.Values.OrderBy(level => level.Value).ToList();
+        record.BaselineStoredCounter = before.StoredCounter;
+        record.BaselineStackedCounter = before.StackedCounter;
+        record.BaselineDispensedCounter = before.DispensedCounter;
+        await journal.SaveAsync(record, cancellationToken);
 
         var enableMayHaveDispatched = false;
         var disableMayHaveDispatched = false;
@@ -240,6 +302,10 @@ public sealed class CashReceptionDiagnostic(
 
             record.State = "reconciled";
             record.Outcome = "local_diagnostic_only";
+            record.FinalLevels = after.Levels.Values.OrderBy(level => level.Value).ToList();
+            record.FinalStoredCounter = after.StoredCounter;
+            record.FinalStackedCounter = after.StackedCounter;
+            record.FinalDispensedCounter = after.DispensedCounter;
             await journal.SaveAsync(record, cancellationToken);
             return record;
         }
@@ -379,6 +445,7 @@ public sealed class CashReceptionDiagnostic(
     {
         if (before.StoredCounter + 1 != after.StoredCounter
             || before.StackedCounter != after.StackedCounter
+            || before.DispensedCounter != after.DispensedCounter
             || before.Levels.Count != after.Levels.Count)
         {
             return false;
