@@ -51,9 +51,32 @@ through Central, so the phone does not connect directly to the ATM or Windows
 Controller. An external mobile browser can also offer an **Open in MetaMask**
 link.
 
+To build the link, start with the canonical HTTPS page for the temple. For an
+active ATM reception, add its opaque reference as the `visit` query parameter:
+
+```ts
+const target = new URL(`/temples/${templeId}`, canonicalOrigin);
+target.searchParams.set('visit', reference);
+const deepLink =
+  `https://link.metamask.io/dapp/${target.href.slice('https://'.length)}`;
+```
+
+For example, `https://<canonical-host>/temples/temple-01?visit=<reference>`
+becomes
+`https://link.metamask.io/dapp/<canonical-host>/temples/temple-01?visit=<reference>`.
+Build the target URL first, validate that it uses the configured HTTPS origin
+and an allowed temple path, then put its host, path and query after
+`https://link.metamask.io/dapp/`. Do not URL-encode the entire target a second
+time: that would encode its separators and prevent MetaMask from opening the
+intended page. A normal temple link can omit the `visit` parameter. KALASH's
+implementation is in [`src/atm.ts`](src/atm.ts), with URL-preservation and
+rejection cases in [`tests/atm.test.ts`](tests/atm.test.ts).
+
 The QR is an entry point, not permission to transact. Opening it does not
 connect a wallet, join the reception, start cash acceptance, or send a payment.
-The user reviews the temple and request, explicitly joins with a verified
-wallet, and confirms each wallet action. For Crypto donations, any needed
-token approval and the donation itself are distinct requests. MetaMask remains
-the signer throughout; KALASH does not receive or store the user's private key.
+The reference is for finding the pending reception, not a credential or payment
+authorization; do not put wallet keys, session credentials or tokens in the
+link. The user reviews the temple and request, explicitly joins with a verified
+wallet, and confirms each wallet action. For Crypto donations, any needed token
+approval and the donation itself are distinct requests. MetaMask remains the
+signer throughout; KALASH does not receive or store the user's private key.
