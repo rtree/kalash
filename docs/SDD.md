@@ -228,6 +228,13 @@ The owner-approved demo administrator/fee payer for temple-01 is explicitly
 registered in `config/temple-admins.public.json`. Wallet ownership is verified
 through the existing one-use SIWE/Firebase session; this demo role does not
 change the temple donation recipient or grant access to other temples.
+Desktop injected-wallet verification renews the account permission and checks
+that the connected account is authorized before SIWE signing. A different
+permitted account or rejected permission never becomes a verified session.
+Cash fee receipts support relayed/delegated wallets: canonical success, chain,
+block/log context, exact Vault FeePaid payer/invoice and exact USDC transfer
+bind settlement, rather than the outer transaction sender or router target.
+Existing paid transaction hashes and coverage stay immutable and idempotent.
 Cash remains configured ON independently of fresh device readiness; an active
 payout blocks new Cash/Crypto reception, cash consent and start reports.
 
