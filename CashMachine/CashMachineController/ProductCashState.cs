@@ -124,7 +124,7 @@ public sealed class ProductCashState
     {
         Locked = true;
         if (!LockReasons.Contains(reason)) LockReasons.Add(reason);
-        if (Intake is not { } intake) return;
+        if (Intake is not { Closed: false } intake) return;
         Close("fault", now, reason);
         if (intake.Reasons.Contains(reason)) return;
         intake.Reasons.Add(reason);

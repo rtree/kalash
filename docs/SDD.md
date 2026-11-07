@@ -195,6 +195,16 @@ Strict retains canonical fee verification and signed approval. Value differences
 are retained, not turned into invented donation credit or ignored device
 faults. Cashbox remains excluded and uncertain physical commands never retry.
 
+Idle hardware faults retain the device lock but do not append reconciliation
+events or reasons to an already closed cash intake. An active intake retains
+the existing fault/event behavior. Owner-confirmed recovery of the pre-fix
+post-close COMMS_LOST event preserves its exact payload/hash and original
+rejection as an audit-only event, advances the contiguous stream only once,
+and obtains the real Central ACK. The completed ledger and payout are unchanged.
+Lock retirement requires new owned DISABLED/empty-escrow/error-free readback,
+six route results and inventory/counters matching the latest reported payout;
+it does not replay Enable, Accept, fee payment or Dispense.
+
 Interim retirement requires a closed historical intake, no pending outbox or
 unresolved payout dispatch, and a new owned healthy DISABLED/empty-escrow
 readback. The Host may reopen that allowlisted historical state only in disabled

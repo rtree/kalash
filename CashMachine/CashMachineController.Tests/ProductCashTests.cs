@@ -84,6 +84,7 @@ internal static class ProductCashTests
         await Run("single consuming poller ownership is enforced", PollerOwnership);
         await Run("route, four-counter and signed binding failures stop Enable", PreflightFailures);
         await Run("idle heartbeat derives readiness without another event reader", IdleHealth);
+        await Run("idle faults preserve closed cash ledger while locking the device", ClosedIntakeFault);
         await Run("ITL completed dispense state remains healthy while error and unknown states fail", CompletedDispenseReadback);
         await Run("heartbeat sequence persists and shutdown reports unavailable", HealthSequenceAndShutdown);
         await Run("unverified USB, routes, counters or health ACK never enable", FailedHealth);
@@ -721,6 +722,22 @@ internal static class ProductCashTests
             Check(fixture.Itl.EnableCount == 0 && fixture.Itl.AcceptCount == 0, $"Preflight {failure} enabled cash.");
         }
     }
+
+        private static Task ClosedIntakeFault()
+        {
+            var state = new ProductCashState { StreamId = Guid.NewGuid().ToString() };
+            var baseline = new CashInventory(CashInventory.Denominations.Select(value => new CashInventoryLevel(
+                value.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, 0)).ToArray(), new(0, 0, 0, 0));
+            state.Begin(Command(), baseline, CashInventory.Denominations.Select(value => (long)value).ToArray());
+            state.Intake!.Closed = true;
+            state.Intake.FinalInventory = baseline;
+            var count = state.Outbox.Count;
+            state.Reconcile("unexpected_device_state_event", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            Check(state.Locked && state.LockReasons.Contains("unexpected_device_state_event"), "Idle device fault did not lock.");
+            Check(state.Outbox.Count == count && state.Intake.Reasons.Count == 0,
+                "Idle device fault mutated a closed ledger or emitted after-close cash evidence.");
+            return Task.CompletedTask;
+        }
 
         private static async Task CompletedDispenseReadback()
         {
