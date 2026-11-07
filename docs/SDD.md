@@ -211,6 +211,12 @@ ledgers must still meet historical settlement eligibility.
 The administrator view shows recognized cash, actual Payout cash and their
 signed difference before approving the exact actual full payout amount.
 
+During reception, named REJECTING/REJECTED states are ordinary device rejection,
+not an unknown fault or a RETURNED/STORED cash outcome. They retain fresh healthy
+readiness when no escrow outcome is pending. Done/deadline waits for REJECTING
+to finish before disabling. Rejection with a pending escrow remains an explicit
+reconciliation error; neither a credit nor a return is fabricated.
+
 The owner-approved demo administrator/fee payer for temple-01 is explicitly
 registered in `config/temple-admins.public.json`. Wallet ownership is verified
 through the existing one-use SIWE/Firebase session; this demo role does not

@@ -66,7 +66,10 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
 
     private bool NeedsEscrowResolution(ProductCashIntake intake) =>
         intake.Pending is not null || latest is null || !Fresh(latest.ObservedAt, Now)
-        || latest.DeviceState is "ACCEPTING" or "ESCROW";
+        || latest.DeviceState is "ACCEPTING" or "ESCROW" or "REJECTING";
+
+    private static bool IsActiveAcceptorState(string? state) =>
+        state is "IDLE" or "ACCEPTING" or "ESCROW" or "REJECTING" or "REJECTED";
 
     public async Task InitializeAsync(CancellationToken token)
     {
@@ -515,8 +518,10 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
         {
             if (intake.DisableDispatchStarted)
                 intake.DisabledObserved = raw.Status.DeviceState == "DISABLED";
-            if (raw.Status.DeviceState is not ("DISABLED" or "ACCEPTING" or "IDLE" or "ESCROW"))
+            if (raw.Status.DeviceState != "DISABLED" && !IsActiveAcceptorState(raw.Status.DeviceState))
                 State.Reconcile("unexpected_device_state", Now);
+            if (raw.Status.DeviceState is "REJECTING" or "REJECTED" && intake.Pending is not null)
+                State.Reconcile("rejection_with_pending_escrow", raw.Status.ObservedAt);
         }
         State.PollInFlight = false;
         await SaveAsync();
@@ -597,7 +602,8 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
             {
                 var state = ProductCashReadback.Text(item, "stateAsString").ToUpperInvariant();
                 lastStateEvent = (type, state);
-                if (state is not ("CONNECTING" or "CONNECTED" or "STARTING" or "STARTED" or "DISABLED" or "IDLE" or "ACCEPTING" or "ESCROW"))
+                if (state is not ("CONNECTING" or "CONNECTED" or "STARTING" or "STARTED" or "DISABLED")
+                    && !IsActiveAcceptorState(state))
                     State.Reconcile("unexpected_device_state_event", observedAt);
                 else if (State.Intake is { Closed: false, EnableDispatchStarted: true }
                     && state is "CONNECTING" or "CONNECTED" or "STARTING" or "STARTED")
@@ -610,6 +616,9 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
                     acceptanceObserved = true;
                 if (state == "ACCEPTING" && State.Intake is { Started: true })
                     State.ObserveAccepting(observedAt);
+                if (state is "REJECTING" or "REJECTED"
+                    && State.Intake is { Closed: false, Pending: not null })
+                    State.Reconcile("rejection_with_pending_escrow", observedAt);
                 return;
             }
             if (type != "CashEventResponse") { State.Reconcile("unknown_device_event", observedAt); return; }
@@ -751,7 +760,7 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
             }
             var routes = readback.Healthy && readback.EnabledValues.Length > 0
                 && (idle ? readback.DeviceStateCode == 4
-                    : latest?.DeviceState is "IDLE" or "ACCEPTING" && readback.DeviceStateCode != 4)
+                    : IsActiveAcceptorState(latest?.DeviceState) && readback.DeviceStateCode != 4)
                 && (!State.SingleHundred || readback.EnabledValues.SequenceEqual([10_000L]))
                 && (!State.SingleHundred || !idle || readback.Inventory.Paise + 10_000 <= 100_000)
                 && !State.RouteVerificationRequired && State.ManualEscrowConfigured
@@ -775,7 +784,7 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
             routes = routes && !State.Locked && State.Intake is not { CloseReason: not null, Closed: false }
                 && (idle
                     ? readback.EscrowEmpty && latest?.DeviceState == "DISABLED" && readback.DeviceStateCode == 4
-                    : latest?.DeviceState is "IDLE" or "ACCEPTING" && readback.DeviceStateCode != 4);
+                    : IsActiveAcceptorState(latest?.DeviceState) && readback.DeviceStateCode != 4);
             var freshPoll = lastOwnedPollAt is { } observed && Fresh(observed, Now);
             var report = new ControllerHealthReport(await NextHealthSequenceAsync(), Now,
                 health.UsbConnected, health.ConnectionOpen, health.DeviceStarted, routes,

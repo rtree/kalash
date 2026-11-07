@@ -108,6 +108,8 @@ internal static class ProductCashTests
         await Run("start-report latency and repeated heartbeat readbacks retain ready waiting intake", DelayedActiveHeartbeats);
         await Run("heartbeat accepts real-order IDLE to ESCROW and STORED transitions", ActiveNoteDuringHeartbeat);
         await Run("active heartbeat uses fresh named status without guessing numeric mappings", UnmappedActiveReadback);
+        await Run("rejected note retains readiness and next note is stored without invented credit", RejectedNoteContinues);
+        await Run("Done waits for rejection completion without clearing unknown escrow", RejectionCloseAndPendingEscrow);
         await Run("actual health loss closes intake with explicit sanitized components", ActualHealthLoss);
         await Run("transient health report outage waits for freshness timeout", TransientHealthReportFailure);
         await Run("transient permission GET retains only a fresh cached authorization", TransientPermissionFailure);
@@ -1443,6 +1445,82 @@ internal static class ProductCashTests
             Check(fixture.Owner.State.Locked && fixture.Itl.AcceptCount == 0
                 && fixture.Owner.State.LockReasons.Contains("unexpected_device_state_event"),
                 "An unmapped numeric readback overrode an unsafe named device event.");
+        }
+    }
+
+    private static async Task RejectedNoteContinues()
+    {
+        await using var fixture = await OwnerFixture.Create();
+        await fixture.Start();
+        fixture.Itl.Enqueue("ESCROW");
+        await fixture.Tick();
+        fixture.Itl.Stored = 1;
+        fixture.Itl.State = "IDLE";
+        fixture.Itl.Enqueue("STORED");
+        fixture.Itl.EnqueueState("IDLE");
+        await fixture.Tick();
+        foreach (var state in new[] { "ACCEPTING", "REJECTING", "REJECTED", "IDLE" })
+        {
+            fixture.Itl.State = state;
+            fixture.Itl.ReadbackState = state == "IDLE" ? 5 : 42;
+            fixture.Itl.EnqueueState(state);
+            fixture.AdvanceHealthInterval();
+            await fixture.Tick();
+            Check(!fixture.Owner.State.Locked && fixture.Owner.State.Intake!.CloseReason is null
+                && fixture.Itl.DisableCount == 0
+                && fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean(),
+                $"Normal rejection state {state} closed reception or revoked readiness.");
+        }
+        Check(fixture.Owner.State.Intake!.Notes.Count == 1 && fixture.Itl.AcceptCount == 1
+            && fixture.Itl.ReturnCount == 0, "Rejection fabricated a cash outcome or sent a money command.");
+        fixture.Itl.Enqueue("ESCROW");
+        await fixture.Tick();
+        fixture.Itl.Stored = 2;
+        fixture.Itl.Enqueue("STORED");
+        fixture.Itl.EnqueueState("IDLE");
+        await fixture.Tick();
+        fixture.Central.Done = true;
+        for (var index = 0; index < 6 && !fixture.Owner.State.Intake!.Closed; index++) await fixture.Tick();
+        Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked
+            && fixture.Owner.State.Intake.Notes.Count == 2
+            && fixture.Owner.State.Intake.Notes.All(note => note.Stored && note.Credited)
+            && fixture.Itl.AcceptCount == 2 && fixture.Itl.ReturnCount == 0,
+            "Two real STORED notes did not reconcile after an intervening rejection.");
+    }
+
+    private static async Task RejectionCloseAndPendingEscrow()
+    {
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            await fixture.Start();
+            fixture.Itl.State = "REJECTING";
+            fixture.Itl.ReadbackState = 42;
+            fixture.Itl.EnqueueState("REJECTING");
+            fixture.Central.Done = true;
+            await fixture.Tick();
+            Check(fixture.Itl.DisableCount == 0 && !fixture.Owner.State.Locked,
+                "Done interrupted an in-flight physical rejection.");
+            fixture.Itl.State = "REJECTED";
+            fixture.Itl.EnqueueState("REJECTED");
+            await fixture.Tick();
+            for (var index = 0; index < 6 && !fixture.Owner.State.Intake!.Closed; index++) await fixture.Tick();
+            Check(fixture.Owner.State.Intake is { Closed: true } && !fixture.Owner.State.Locked
+                && fixture.Itl.DisableCount == 1 && fixture.Itl.AcceptCount == 0 && fixture.Itl.ReturnCount == 0,
+                "Rejected zero-credit note did not close after its physical rejection completed.");
+        }
+        await using (var fixture = await OwnerFixture.Create())
+        {
+            await fixture.Start();
+            fixture.Itl.Enqueue("ESCROW");
+            await fixture.Tick();
+            fixture.Itl.State = "REJECTED";
+            fixture.Itl.EnqueueState("REJECTED");
+            await fixture.Tick();
+            Check(fixture.Owner.State.Locked
+                && fixture.Owner.State.LockReasons.Contains("rejection_with_pending_escrow")
+                && fixture.Owner.State.Intake!.Notes.Single() is { Stored: false, Returned: false, Credited: false }
+                && fixture.Itl.AcceptCount == 1 && fixture.Itl.ReturnCount == 0,
+                "Device rejection erased an unknown dispatched escrow outcome or retried a command.");
         }
     }
 
