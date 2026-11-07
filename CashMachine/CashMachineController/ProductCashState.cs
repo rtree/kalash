@@ -85,8 +85,9 @@ public sealed class ProductCashState
         if (Locked || Payouts.Any(payout => !payout.Reconciled && payout.State is not ("reported" or "precondition_failed"))
             || Intake is { Closed: false } || Outbox.Count != 0
             || CompletedSessions.Contains(command.CashSessionId)
-            || baseline.Paise >= 100_000 || baseline.Notes >= 10
-            || (SingleHundred && (baseline.Paise + 10_000 > 100_000 || !enabled.SequenceEqual([10_000L])))
+            || !ProductCashPolicy.WithinIntakeCapacity(baseline.Paise, baseline.Notes)
+            || (SingleHundred && (!ProductCashPolicy.WithinIntakeCapacity(baseline.Paise + 10_000, baseline.Notes + 1, true)
+                || !enabled.SequenceEqual([10_000L])))
             || enabled.Length == 0 || enabled.Any(value => !CashInventory.Denominations.Contains(value)))
             throw new InvalidOperationException("Product cash preconditions prevent a new intake.");
         if (Intake is { Closed: true, AuditRetiredAt: not null } retired)
@@ -152,8 +153,8 @@ public sealed class ProductCashState
             && intake.Deadline > now && intake.EnabledValues.Contains(value)
             && intake.CommittedPaise + value <= 40_000
             && (!intake.SingleHundred || value == 10_000 && intake.CommittedNotes == 0)
-            && intake.Baseline.Paise + intake.CommittedPaise + value <= 100_000
-            && intake.Baseline.Notes + intake.CommittedNotes + 1 <= 10;
+            && ProductCashPolicy.WithinIntakeCapacity(intake.Baseline.Paise + intake.CommittedPaise + value,
+                intake.Baseline.Notes + intake.CommittedNotes + 1, true);
         var note = new ProductCashNote
         {
             Key = $"{intake.Command.CashSessionId}:{++intake.NoteSequence}",
@@ -205,8 +206,9 @@ public sealed class ProductCashState
             Emit("note_returned", new { noteKey = note.Key, valuePaise = Value(value), currency }, now);
         }
         if (intake.SingleHundred && intake.CommittedNotes >= 1
-            || intake.CommittedPaise >= 40_000 || intake.Baseline.Paise + intake.CommittedPaise >= 100_000
-            || intake.Baseline.Notes + intake.CommittedNotes >= 10) Close("capacity", now);
+            || intake.CommittedPaise >= 40_000
+            || !ProductCashPolicy.WithinIntakeCapacity(intake.Baseline.Paise + intake.CommittedPaise,
+                intake.Baseline.Notes + intake.CommittedNotes)) Close("capacity", now);
     }
 
     public void Finish(CashInventory after, bool escrowEmpty, long now)

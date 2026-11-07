@@ -40,6 +40,12 @@ unresolved physical commands/escrow and unknown payout no-retry protections
 remain. This explicit Interim mode is distinct from the strict production
 policy; historical records and donation recipients remain unchanged.
 
+2026-11-07 owner capacity override: Interim removes the software machine-wide
+INR1000/10-note limits and the Central cumulative INR1000/10-note demo budget
+gates. Continue recording full inventories and cumulative budget evidence.
+Strict mode retains those limits. Signed consent, INR400 per reception,
+240-second windows, actual device faults and no-blind-retry remain unchanged.
+
 ```
 ### 最初の操作に適用する短いルールとチェック
 

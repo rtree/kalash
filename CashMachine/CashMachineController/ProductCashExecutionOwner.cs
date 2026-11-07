@@ -369,8 +369,9 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
         }
         var readback = await device.ReadAsync(token);
         if (latest?.DeviceState != "DISABLED" || readback.DeviceStateCode != 4 || !readback.Healthy || !readback.EscrowEmpty
-            || readback.Inventory.Paise >= 100_000 || readback.Inventory.Notes >= 10
-            || State.SingleHundred && (!readback.EnabledValues.SequenceEqual([10_000L]) || readback.Inventory.Paise + 10_000 > 100_000)
+            || !ProductCashPolicy.WithinIntakeCapacity(readback.Inventory.Paise, readback.Inventory.Notes)
+            || State.SingleHundred && (!readback.EnabledValues.SequenceEqual([10_000L])
+                || !ProductCashPolicy.WithinIntakeCapacity(readback.Inventory.Paise + 10_000, readback.Inventory.Notes + 1, true))
             || readback.EnabledValues.Length == 0)
             return new(false, latest?.DeviceState ?? "unknown", "device_preconditions_not_safe");
         State.Begin(command, readback.Inventory, readback.EnabledValues);
@@ -762,12 +763,11 @@ public sealed partial class ProductCashExecutionOwner : ICashStartDevice
                 && (idle ? readback.DeviceStateCode == 4
                     : IsActiveAcceptorState(latest?.DeviceState) && readback.DeviceStateCode != 4)
                 && (!State.SingleHundred || readback.EnabledValues.SequenceEqual([10_000L]))
-                && (!State.SingleHundred || !idle || readback.Inventory.Paise + 10_000 <= 100_000)
+                && (!State.SingleHundred || !idle
+                    || ProductCashPolicy.WithinIntakeCapacity(readback.Inventory.Paise + 10_000, readback.Inventory.Notes + 1, true))
                 && !State.RouteVerificationRequired && State.ManualEscrowConfigured
                 && !State.Locked && State.Intake is not { CloseReason: not null, Closed: false }
-                && (idle
-                    ? readback.Inventory.Paise < 100_000 && readback.Inventory.Notes < 10
-                    : readback.Inventory.Paise <= 100_000 && readback.Inventory.Notes <= 10);
+                && ProductCashPolicy.WithinIntakeCapacity(readback.Inventory.Paise, readback.Inventory.Notes, !idle);
             if (!health.UsbConnected || !health.ConnectionOpen || !health.DeviceStarted || !routes)
                 healthReady = false;
             var stateChangedSincePoll = stateMismatch;

@@ -176,8 +176,8 @@ export async function reportControllerCashEvent(
     const storedNotes = (budget?.storedNotes ?? 0) + totals.storedNotes - oldTotals.storedNotes;
     const pendingPaise = BigInt(budget?.pendingPaise ?? '0') + nextPending.paise - oldPending.paise;
     const pendingNotes = (budget?.pendingNotes ?? 0) + nextPending.notes - oldPending.notes;
-    if (storedPaise + pendingPaise > BigInt(CASH_DEMO_LIMIT_PAISE)
-      || storedNotes + pendingNotes > CASH_DEMO_NOTE_LIMIT) flag('demo_limit_exceeded');
+    if (!interimCashEnabled() && (storedPaise + pendingPaise > BigInt(CASH_DEMO_LIMIT_PAISE)
+      || storedNotes + pendingNotes > CASH_DEMO_NOTE_LIMIT)) flag('demo_limit_exceeded');
     const donationId = `0x${digest({ purpose: 'cash-donation-v1', atmId, cashSessionId: visit.cashSessionId })}` as Hex;
     const donationRef = db.collection('donations').doc(donationId);
     const totalRef = db.collection('walletTempleTotals').doc(`${visit.ownerWallet.toLowerCase()}_${visit.templeId}`);
@@ -208,7 +208,7 @@ export async function reportControllerCashEvent(
         ...(shouldConfirm ? { donationId, confirmedAt: now } : {}),
       });
     } else if (totals.storedPaise >= BigInt(CASH_LIMIT_PAISE)
-      || storedPaise >= BigInt(CASH_DEMO_LIMIT_PAISE) || storedNotes >= CASH_DEMO_NOTE_LIMIT) {
+      || !interimCashEnabled() && (storedPaise >= BigInt(CASH_DEMO_LIMIT_PAISE) || storedNotes >= CASH_DEMO_NOTE_LIMIT)) {
       Object.assign(visitUpdate, cashCloseUpdate(visit, 'capacity'));
     } else if (visit.state === 'accepting' && (visit.cashDeadline ?? 0) <= now) {
       Object.assign(visitUpdate, cashCloseUpdate(visit, 'deadline'));

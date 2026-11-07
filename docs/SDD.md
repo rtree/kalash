@@ -217,6 +217,13 @@ readiness when no escrow outcome is pending. Done/deadline waits for REJECTING
 to finish before disabling. Rejection with a pending escrow remains an explicit
 reconciliation error; neither a credit nor a return is fabricated.
 
+Interim's owner-authorized capacity override removes machine-wide and cumulative
+demo INR1000/10-note software gates from startup, ESCROW admission, closure,
+health readiness and Central reception/credit processing. Inventory and budget
+totals remain recorded, without resets. Strict retains its existing limits.
+The independent INR400 session cap, signature, deadline, device faults and
+uncertain-command protections are unchanged.
+
 The owner-approved demo administrator/fee payer for temple-01 is explicitly
 registered in `config/temple-admins.public.json`. Wallet ownership is verified
 through the existing one-use SIWE/Firebase session; this demo role does not

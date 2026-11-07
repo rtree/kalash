@@ -110,6 +110,7 @@ internal static class ProductCashTests
         await Run("active heartbeat uses fresh named status without guessing numeric mappings", UnmappedActiveReadback);
         await Run("rejected note retains readiness and next note is stored without invented credit", RejectedNoteContinues);
         await Run("Done waits for rejection completion without clearing unknown escrow", RejectionCloseAndPendingEscrow);
+        await Run("Interim intake exceeds legacy inventory limits while strict and session limits remain", InterimCapacityOverride);
         await Run("actual health loss closes intake with explicit sanitized components", ActualHealthLoss);
         await Run("transient health report outage waits for freshness timeout", TransientHealthReportFailure);
         await Run("transient permission GET retains only a fresh cached authorization", TransientPermissionFailure);
@@ -1445,6 +1446,59 @@ internal static class ProductCashTests
             Check(fixture.Owner.State.Locked && fixture.Itl.AcceptCount == 0
                 && fixture.Owner.State.LockReasons.Contains("unexpected_device_state_event"),
                 "An unmapped numeric readback overrode an unsafe named device event.");
+        }
+    }
+
+    private static async Task InterimCapacityOverride()
+    {
+        using (var policy = new CashPolicyEnvironment("interim-ledger"))
+        {
+            await using var fixture = await OwnerFixture.Create();
+            fixture.Itl.Stored = 11;
+            await fixture.Start();
+            fixture.AdvanceHealthInterval();
+            await fixture.Tick();
+            Check(fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean(),
+                "Interim capacity falsely reported disconnected hardware.");
+            fixture.Itl.Enqueue("ESCROW");
+            await fixture.Tick();
+            fixture.Itl.Stored = 12;
+            fixture.Itl.State = "IDLE";
+            fixture.Itl.Enqueue("STORED");
+            fixture.Itl.EnqueueState("IDLE");
+            await fixture.Tick();
+            Check(!fixture.Owner.State.Locked && fixture.Owner.State.Intake!.CloseReason is null
+                && fixture.Owner.State.Intake.Notes.Single().Credited && fixture.Itl.AcceptCount == 1,
+                "Interim inventory cap blocked or closed a valid note.");
+            fixture.Central.Done = true;
+            for (var index = 0; index < 6 && !fixture.Owner.State.Intake!.Closed; index++) await fixture.Tick();
+            fixture.AdvanceHealthInterval();
+            await fixture.Tick();
+            Check(!fixture.Owner.State.Locked && fixture.Owner.State.Intake!.Closed
+                && fixture.Central.HealthBodies[^1].GetProperty("routesVerified").GetBoolean(),
+                "Interim full inventory revoked readiness after clean close.");
+        }
+        using (var policy = new CashPolicyEnvironment("strict"))
+        {
+            Check(!ProductCashPolicy.WithinIntakeCapacity(100_000, 9)
+                && !ProductCashPolicy.WithinIntakeCapacity(90_000, 10)
+                && ProductCashPolicy.WithinIntakeCapacity(100_000, 10, true),
+                "Strict inventory capacity boundaries changed.");
+        }
+        using (var policy = new CashPolicyEnvironment("interim-ledger"))
+        {
+            var state = new ProductCashState { StreamId = Guid.NewGuid().ToString() };
+            state.Begin(Command(), Inventory(), [10_000L]);
+            state.Ready(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            for (var index = 0; index < 4; index++)
+            {
+                state.Escrow(10_000, "INR", true, now);
+                state.Intake!.Pending!.DispatchStarted = true;
+                state.Resolve("STORED", 10_000, "INR", true, now);
+            }
+            Check(state.Intake!.CloseReason == "capacity" && state.Intake.Notes.Count == 4,
+                "Interim removed the separate ₹400 per-session limit.");
         }
     }
 

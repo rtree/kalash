@@ -875,6 +875,32 @@ test('shared demo ₹1000/10-note budget persists independently of session and s
   assert.equal((await atm.getAtm(atmId, cookie)).cashReceptionAvailable, false);
   await assert.rejects(atm.createVisit(atmId, cookie, 'cash', randomUUID()), { code: 'CASH_UNAVAILABLE' });
 });
+test('Interim cumulative demo budget remains audited but does not close or block new reception', async () => {
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  store.records.set('cashBudgets/demo', { storedPaise: '100000', storedNotes: 10, pendingPaise: '0', pendingNotes: 0 });
+  await start();
+  await stored();
+  assert.equal(store.read('cashBudgets/demo').storedPaise, '110000');
+  assert.equal(store.read('cashBudgets/demo').storedNotes, 11);
+  assert.equal(store.read(visitPath).state, 'accepting');
+  assert.equal(store.read(visitPath).cashCloseReason ?? null, null);
+  await atm.doneCashVisit(atmId, cookie, visitId);
+  await post(closeEvent());
+  await atm.closeVisit(atmId, cookie, visitId);
+  assert.equal((await atm.getAtm(atmId, cookie)).cashReceptionAvailable, true);
+  const created = await atm.createVisit(atmId, cookie, 'cash', randomUUID());
+  assert.ok(created);
+});
+test('Interim retains the independent ₹400 session limit above cumulative budget', async () => {
+  process.env.KALASH_CASH_POLICY = 'interim-ledger';
+  store.records.set('cashBudgets/demo', { storedPaise: '100000', storedNotes: 10, pendingPaise: '0', pendingNotes: 0 });
+  await start();
+  for (let i = 1; i <= 4; i++) await stored(i, i * 2);
+  assert.equal(store.read(visitPath).cashCloseReason, 'capacity');
+  assert.equal(store.read(visitPath).cashAcceptedPaise, '40000');
+  assert.equal(store.read('cashBudgets/demo').storedPaise, '140000');
+  assert.equal(store.read(visitPath).state, 'closing');
+});
 test('Controller session deadline GET persists a stop, never confirmation, and UI disables acceptance', async () => {
   store.records.set(visitPath, { ...store.read(visitPath), cashDeadline: Date.now() - 1 });
   const session = await cash.getControllerCashSession(atmId, auth);

@@ -482,8 +482,9 @@ export async function getAtm(atmId: string, cookie: string | undefined): Promise
   const view = visit ? dto(visit, atm, donation?.status, undefined, true) : null;
   const status = cashMachineStatus(atm.controllerHealth ?? null, Date.now());
   const budget = (await db.collection('cashBudgets').doc('demo').get()).data();
-  const budgetAvailable = BigInt(budget?.storedPaise ?? '0') + BigInt(budget?.pendingPaise ?? '0') < BigInt(CASH_DEMO_LIMIT_PAISE)
-    && (budget?.storedNotes ?? 0) + (budget?.pendingNotes ?? 0) < CASH_DEMO_NOTE_LIMIT;
+  const budgetAvailable = interimCashEnabled() || (
+    BigInt(budget?.storedPaise ?? '0') + BigInt(budget?.pendingPaise ?? '0') < BigInt(CASH_DEMO_LIMIT_PAISE)
+    && (budget?.storedNotes ?? 0) + (budget?.pendingNotes ?? 0) < CASH_DEMO_NOTE_LIMIT);
   const cashReceptionAvailable = atm.cashEnabled === true && status === 'ready' && !view
     && !cashReconciliationBlocks(atm) && !atm.activePayoutId && budgetAvailable;
   const cashDisabledReason = atm.activePayoutId
@@ -533,8 +534,9 @@ export async function createVisit(atmId: string, cookie: string | undefined, mod
     if (mode === 'cash') {
       const budget = budgetSnapshot.data();
       requireValue(atm.cashEnabled === true
-        && BigInt(budget?.storedPaise ?? '0') + BigInt(budget?.pendingPaise ?? '0') < BigInt(CASH_DEMO_LIMIT_PAISE)
-        && (budget?.storedNotes ?? 0) + (budget?.pendingNotes ?? 0) < CASH_DEMO_NOTE_LIMIT
+        && (interimCashEnabled() || (
+          BigInt(budget?.storedPaise ?? '0') + BigInt(budget?.pendingPaise ?? '0') < BigInt(CASH_DEMO_LIMIT_PAISE)
+          && (budget?.storedNotes ?? 0) + (budget?.pendingNotes ?? 0) < CASH_DEMO_NOTE_LIMIT))
         && cashMachineStatus(atm.controllerHealth ?? null, Date.now()) === 'ready',
       409, 'CASH_UNAVAILABLE', 'Cash is disabled until this registered Controller is freshly ready and Cash is enabled for the ATM.');
     }

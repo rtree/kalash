@@ -17,6 +17,9 @@ public static class ProductCashPolicy
     public static bool InterimEnabled =>
         Environment.GetEnvironmentVariable("KALASH_CASH_POLICY") == "interim-ledger";
 
+    public static bool WithinIntakeCapacity(long paise, long notes, bool inclusive = false) =>
+        InterimEnabled || (inclusive ? paise <= 100_000 && notes <= 10 : paise < 100_000 && notes < 10);
+
     public static bool BlocksOperations(ProductCashState state)
     {
         ArgumentNullException.ThrowIfNull(state);
