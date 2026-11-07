@@ -1,10 +1,6 @@
 # KALASH
 
-Base Sepolia test-token temple donations and nontransferable stamps.
-Fictional demo temples are not affiliated with real temples.
-
-Read [AGENTS.md](AGENTS.md), [SPEC](docs/SPEC.md), [current design](docs/SDD.md)
-and [current verification / next action](docs/TASKS.md) before resuming.
+An donation webApp that connect devotees and temple in confortable way. Devotees can donate cashes to temple by crypto remotely and also by notes using ATMs that are placed in temples.
 
 ### How it's Made
 
