@@ -24,6 +24,17 @@ events to KALASH Central over authenticated HTTPS. This keeps the vendor-specifi
 device protocol behind a local API and gives the application a defined boundary
 for hardware status and operations.
 
+```mermaid
+flowchart LR
+  subgraph PC["Windows PC"]
+    Controller["KALASH .NET Cash Machine Controller"]
+    REST["ITL CashDevice REST API Server"]
+    Controller <-->|"Loopback REST API"| REST
+  end
+  REST <-->|"USB cable / serial device connection"| NV200["ITL NV200 Spectral Bill Validator"]
+  Controller -->|"Authenticated HTTPS"| Central["KALASH Central"]
+```
+
 Cash intake is treated as a stateful, reconciled operation rather than a
 button that simply adds an amount. For a cash-enabled session, the Controller
 reports note events in order; Central matches them to the active ATM session.
