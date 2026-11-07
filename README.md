@@ -41,7 +41,7 @@ After the user finishes or the acceptance window closes, the device is stopped
 and its inventory and counters are reconciled before the cash is confirmed.
 Uncertain device outcomes are not treated as successful donations or blindly
 retried. Cash acceptance is separately gated by Central and Controller
-readiness; the current M5a onsite flow is Crypto-only, as described below.
+readiness.
 See the [Cash Machine Controller guide](CashMachine/CashMachineController/README.md)
 for the local process and safety boundaries.
 
