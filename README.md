@@ -6,6 +6,58 @@ Fictional demo temples are not affiliated with real temples.
 Read [AGENTS.md](AGENTS.md), [SPEC](docs/SPEC.md), [current design](docs/SDD.md)
 and [current verification / next action](docs/TASKS.md) before resuming.
 
+### How it's Made
+
+KALASH bridges a physical bill acceptor and a mobile, wallet-based donation
+experience. The two key pieces are the NV200 Spectral's PC-accessible device
+interface and a mobile flow that brings the KALASH page into MetaMask, where
+the user's own wallet is already available.
+
+#### NV200 bill validator
+
+The NV200 Spectral connects to a Windows PC over USB. Instead of having the web
+app talk to a serial device directly, KALASH uses the manufacturer's ITL
+CashDevice REST API Server as the local hardware interface. KALASH's .NET
+Windows Controller starts and communicates with that server over loopback;
+the server in turn talks to the validator. The Controller reports device
+readiness and cash-session events to KALASH Central over authenticated HTTPS.
+This keeps the vendor-specific device protocol behind a local API and gives
+the application a defined boundary for hardware status and operations.
+
+Cash intake is treated as a stateful, reconciled operation rather than a
+button that simply adds an amount. For a cash-enabled session, the Controller
+reports note events in order; Central matches them to the active ATM session.
+After the user finishes or the acceptance window closes, the device is stopped
+and its inventory and counters are reconciled before the cash is confirmed.
+Uncertain device outcomes are not treated as successful donations or blindly
+retried. Cash acceptance is separately gated by Central and Controller
+readiness; the current M5a onsite flow is Crypto-only, as described below.
+See the [Cash Machine Controller guide](CashMachine/CashMachineController/README.md)
+for the local process and safety boundaries.
+
+#### MetaMask mobile deep link and in-app browser
+
+Mobile wallet flows can be awkward when the dapp and signer live in separate
+apps: a user may have to create or import a second wallet for an app, or switch
+back and forth between a dapp browser and a wallet to approve requests. KALASH
+uses MetaMask's DApp deep link to open its canonical HTTPS temple page in
+MetaMask's built-in browser, alongside the user's existing wallet.
+
+At an ATM, choosing Crypto creates a short-lived reception in Central and
+displays a QR code containing the MetaMask link to that temple page. The phone
+can scan it with its external QR reader; MetaMask opens the KALASH page with an
+opaque reference to the pending reception. The phone and ATM both continue
+through Central, so the phone does not connect directly to the ATM or Windows
+Controller. An external mobile browser can also offer an **Open in MetaMask**
+link.
+
+The QR is an entry point, not permission to transact. Opening it does not
+connect a wallet, join the reception, start cash acceptance, or send a payment.
+The user reviews the temple and request, explicitly joins with a verified
+wallet, and confirms each wallet action. For Crypto donations, any needed
+token approval and the donation itself are distinct requests. MetaMask remains
+the signer throughout; KALASH does not receive or store the user's private key.
+
 ## Local Central and Pilgrim
 
 Use Node **26.13.0**, pnpm **10.34.9** and an authenticated ADC for
