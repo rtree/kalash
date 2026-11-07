@@ -367,6 +367,11 @@ internal static class ProductPayoutTests
         Check(payout.State == "unknown" && fixture.Owner.State.Locked && payout.EndState?.RemainingPaise == "10000"
             && payout.EndState.DispensedPaise == "10000", "partial outcome stays unknown with actual remainder");
         Check(fixture.Owner.State.Outbox.Count == 0, "payout unknown never creates donation events");
+        var previousObservation = payout.EndState!.ObservedAt;
+        fixture.Clock.Advance(ProductTiming.StatusFreshnessMs + 1);
+        await fixture.Owner.TickAsync(CancellationToken.None);
+        Check(payout.EndState!.ObservedAt > previousObservation && fixture.Device.Dispatches == 1,
+            "unchanged partial end state is freshly observed without dispensing again");
         var authorization = new ProductPayoutReconciliationAuthorization(payout.Command.CommandId, payout.Command.PayoutId,
             Guid.NewGuid().ToString("D"), before, fixture.Device.Inventory,
             fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds(), fixture.Clock.GetUtcNow().ToUnixTimeMilliseconds() + 120_000);

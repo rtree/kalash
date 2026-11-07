@@ -400,12 +400,15 @@ test('concurrent settlement clicks and retry after unknown or completed result u
   assert.deepEqual(await payout.openFeeSettlement(atmId, adminWallet.address, body()),
     { payoutId: result.payoutId, state: 'unknown' });
   assert.equal((await payout.getPayoutCommand(atmId, `Bearer ${controllerToken}`)).command, null);
+  record.reconciled = true;
+  assert.deepEqual(await payout.openFeeSettlement(atmId, adminWallet.address, body()),
+    { payoutId: result.payoutId, state: 'unknown', reconciled: true });
   record.state = 'reported';
   const atm = store.records.get(`atms/${atmId}`);
   atm.activePayoutId = null;
   atm.lastPayoutId = result.payoutId;
   assert.deepEqual(await payout.openFeeSettlement(atmId, adminWallet.address, body()),
-    { payoutId: result.payoutId, state: 'reported' });
+    { payoutId: result.payoutId, state: 'reported', reconciled: true });
   assert.equal([...store.records.keys()].filter((key) => key.startsWith('cashPayouts/')).length, 1);
 });
 

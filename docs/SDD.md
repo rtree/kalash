@@ -254,6 +254,23 @@ dispense. New unpaid cash creates a new exact invoice; previously risk-covered
 or paid cash is not charged again.
 Cash remains configured ON independently of fresh device readiness; an active
 payout blocks new Cash/Crypto reception, cash consent and start reports.
+In Interim the Donate/Settlement navigation and action buttons stay enabled.
+The admin view is chosen only by user navigation, not by a payout record's
+presence; Back remains available even during a visit or unknown payout.
+Server/device exclusivity and no-retry still reject unsafe actual operations
+with explicit errors. Wallet/fee-recipient addresses and donation, mint and fee
+transactions use a shared prefix-only Explorer link (`0x1234...`), with the full
+value only in the canonical Base Sepolia URL and safe new-tab attributes.
+
+ITL's public complete-device dispenseState is DispenserTransactionState:
+0=IN_PROGRESS, 1=COMPLETED, 2=ERROR. Healthy readback accepts 0/1, rejecting
+errors and unknown codes; named DISABLED/IDLE, escrow, ordered payout events
+and inventory/counter gates remain separate. Treating COMPLETED as an error
+previously prevented completion/partial-end capture after a real payout.
+An unchanged unknown partial end state is re-observed after freshness expiry,
+never re-dispensed. Explicit owner-attended ADC reconciliation may bind the
+existing exact authorization and let the Controller recheck current hardware;
+it records owner consent, not a fabricated wallet signature.
 
 `CashFeeVault` consumes a signed invoice ID once, binding payer, temple,
 exact amount, deadline, chain and vault. The fee is 3% at INR100/USDC

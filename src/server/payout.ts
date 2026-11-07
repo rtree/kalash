@@ -519,7 +519,8 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       if (approval?.used) {
         const existing = payoutSnap.data() as PayoutRecord | undefined;
         requireValue(existing?.approver === wallet, 409, 'PAYOUT_APPROVAL_USED', 'Approval was already used.');
-        return { payoutId: initial.payoutId, state: existing.state };
+        return { payoutId: initial.payoutId, state: existing.state,
+          ...(existing.reconciled ? { reconciled: true } : {}) };
       }
       requireValue(approval && approval.message === initial.message && approval.expiresAt > Date.now(),
         409, 'PAYOUT_APPROVAL_EXPIRED', 'Approval expired; no command dispatched.');

@@ -75,10 +75,14 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
     const storageKey = `kalash:fee-settlement:${invoice.invoiceId}`;
     let stableId = localStorage.getItem(storageKey);
     if (!stableId) { stableId = crypto.randomUUID(); localStorage.setItem(storageKey, stableId); }
-    await api(`${base}/settlement`, { method: 'POST', body: JSON.stringify({
+    const result = await api<{ state: PayoutState; reconciled?: boolean }>(`${base}/settlement`, { method: 'POST', body: JSON.stringify({
       invoiceId: invoice.invoiceId, requestId: stableId, ...(txHash ? { txHash } : {}),
     }) }, true);
-    setNotice('One full payout requested. Kalash takes the fee settlement risk. Collect the notes and observe the actual machine result; do not resend.');
+    setNotice(result.reconciled || result.state === 'reported'
+      ? 'This payout is already finished and reconciled. No additional fee or dispensing was sent.'
+      : result.state === 'unknown'
+        ? 'The existing payout outcome is unresolved. No additional dispensing was sent; reconcile the actual machine result.'
+        : 'One full payout requested. Kalash takes the fee settlement risk. Collect the notes and observe the actual machine result; do not resend.');
   };
   const pay = async (invoice: CashFeeInvoice) => {
     if (!address || !wallet || getAddress(address) !== getAddress(wallet)
@@ -192,8 +196,8 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
         })}>Create invoice for new unsettled cash</button>
       </>}
       <a className="button button-outline" href={`/atm/${encodeURIComponent(atmId)}`}>Back to Donate Screen</a>
-      {state.payout && <p role="status">Payout {state.payout.command.payoutId}: {state.payout.state}.
-        {state.payout.state === 'unknown' && ' Keep the machine stopped and reconcile; never send the dispense command again.'}</p>}
+      {state.payout && <p role="status">Payout {state.payout.command.payoutId}: {state.payout.reconciled ? 'reconciled' : state.payout.state}.
+        {state.payout.state === 'unknown' && !state.payout.reconciled && ' Keep the machine stopped and reconcile; never send the dispense command again.'}</p>}
       {state.payout?.state === 'unknown' && state.payout.endState && !state.payout.reconciled
         ? <button className="button button-outline" disabled={busy} onClick={() => void act(async () => {
           const result = await api<{ message: string }>(`${base}/reconciliation`, {

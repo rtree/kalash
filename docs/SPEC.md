@@ -57,6 +57,13 @@ Page loads never dispense. Preserve actual fee status, immutable once-only
 payout binding, physical exclusivity/readiness and unknown-command no retry.
 Strict mode retains canonical fee verification and signed payout approval.
 
+2026-11-07 owner UI update: keep Donate and Open Fee Settlement controls and
+Back to Donate Screen enabled in Interim. Screen navigation must not be locked
+by the presence of a payout record. The attended owner avoids concurrent use;
+actual device faults and unknown-command no-retry remain enforced. Wallet
+addresses and transaction hashes in page prose use prefix-only `0x1234...`
+Explorer links opening in a new tab, not full addresses or full hash text.
+
 ```
 ### 最初の操作に適用する短いルールとチェック
 
