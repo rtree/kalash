@@ -6,6 +6,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import { parseAbi, type Address, type Hex } from 'viem';
+import { ExplorerLink } from './ExplorerLink.tsx';
 import { useAccount, useConnect, useDisconnect, usePublicClient, useSwitchChain, useWalletClient, useWriteContract } from 'wagmi';
 import {
   CHAIN_ID, formatUsdc, formatPaise, parseAmount, parseDonationUnits, PHOTO_CONSENT_VERSION,
@@ -901,7 +902,7 @@ export function App({ runtime }: { runtime: Runtime }) {
           {isConnected && address ? (
             <div className="wallet-chip">
               <span className={`connection-dot ${walletReady ? 'is-verified' : ''}`} />
-              <span className="wallet-address">{address.slice(0, 6)}…{address.slice(-4)}</span>
+              <ExplorerLink className="wallet-address" value={address} kind="address" />
               {walletReady
                 ? <button className="text-button" onClick={() => void signOutWallet()}>Sign out</button>
                 : <button className="button button-small button-outline" disabled={connectingAuth} onClick={signInWallet}>{connectingAuth ? 'Verifying…' : 'Verify wallet'}</button>}
@@ -1240,7 +1241,8 @@ function DonationProgress({ donation, pendingOperation, busy, onCheck, onRestore
     <div className={`donation-progress ${minted ? 'is-minted' : ''}`}>
       <div className={`status-pill ${statusTone(donation.status, donation.mintStatus)}`}><span className="status-dot" />{donationStatusLabel(donation.status, donation.mintStatus)}</div>
       <ul className="progress-steps">
-        <li className={donation.status !== 'intent' && donation.status !== 'cancelled' ? 'complete' : 'current'}><span>1</span><div><strong>{donation.paymentMethod === 'cash' ? 'Cash stored' : 'Wallet transaction'}</strong><small>{donation.paymentMethod === 'cash' ? `${formatPaise(donation.cashAmountPaise)} INR · no token payment` : unknown ? 'Result unknown · check before taking another action' : donation.txHash ? `${donation.txHash.slice(0, 10)}…` : donation.status === 'cancelled' ? 'Approval-only attempt abandoned · no donation sent' : 'Not submitted'}</small></div></li>
+        <li className={donation.status !== 'intent' && donation.status !== 'cancelled' ? 'complete' : 'current'}><span>1</span><div><strong>{donation.paymentMethod === 'cash' ? 'Cash stored' : 'Wallet transaction'}</strong><small>{donation.paymentMethod === 'cash' ? `${formatPaise(donation.cashAmountPaise)} INR · no token payment` : unknown ? 'Result unknown · check before taking another action' : donation.txHash ? <ExplorerLink value={donation.txHash} kind="tx" /> : donation.status === 'cancelled' ? 'Approval-only attempt abandoned · no donation sent' : 'Not submitted'}</small></div></li>
+        {donation.mintTxHash && <li><span>✦</span><div><strong>Stamp transaction</strong><small><ExplorerLink value={donation.mintTxHash} kind="tx" /></small></div></li>}
         <li className={donation.status === 'confirmed' || minted ? 'complete' : donation.status === 'submitted' ? 'current' : ''}><span>2</span><div><strong>Central verification</strong><small>{donation.paymentMethod === 'cash' ? 'Device events and closing inventory reconciled' : donation.status === 'confirmed' || minted ? 'Verified on Base Sepolia' : 'Waiting for Central'}</small></div></li>
         <li className={minted ? 'complete' : donation.status === 'confirmed' ? 'current' : ''}><span>3</span><div><strong>Temple stamp</strong><small>{minted ? 'Minted on-chain' : donation.status === 'confirmed' ? 'Mint is pending' : 'Issued after verification'}</small></div></li>
       </ul>

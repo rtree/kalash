@@ -134,6 +134,14 @@ export function AtmPage({ atmId }: { atmId: string }) {
         Interim CashIN: sign the QR to start reception. Historical ledger differences are retained without blocking the next visit.
       </p>}
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
+      {atm && !pairing && <nav className="atm-methods" aria-label="ATM actions">
+        <button className="button button-outline" onClick={() => {
+          setAdminMode(false); setPayoutApproval(null); payoutRequestId.current = null;
+        }}>Back to Donate Screen</button>
+        <a className="button button-primary" href={`/temple-admin/${encodeURIComponent(atmId)}`}
+          target="_blank" rel="noopener noreferrer">Open Fee Settlement</a>
+        <button className="text-button" onClick={() => setAdminMode(true)}>Temple Admin</button>
+      </nav>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
         event.preventDefault();
         void act(async () => {
@@ -148,7 +156,7 @@ export function AtmPage({ atmId }: { atmId: string }) {
         <label>Screen pairing code<input autoComplete="off" type="password" value={code} onChange={(event) => setCode(event.target.value)} maxLength={16} required /></label>
         <button className="button button-primary button-wide" disabled={busy}>Pair screen</button>
       </form> : !atm ? <button className="button button-outline" onClick={() => void refresh()}>Restore screen</button>
-        : !atm.visit && (adminMode || atm.payout) ? <section className="reception-card">
+        : adminMode ? <section className="reception-card">
           <p className="eyebrow">Temple Admin</p>
           <h2>Settle fees and approve full payout</h2>
           <p>{atm.cashPolicy === 'interim-ledger'
@@ -172,18 +180,18 @@ export function AtmPage({ atmId }: { atmId: string }) {
               <p>QR is single-use and expires after two minutes. Check temple, ATM and full cash amount on your phone before signing.</p>
             </>}
           </>}
-          <button className="button button-outline" disabled={busy || Boolean(atm.payout)}
+          <button className="button button-outline"
             onClick={() => { setAdminMode(false); setPayoutApproval(null); payoutRequestId.current = null; }}>Back to Donate Screen</button>
         </section> : !atm.visit ? <section className="reception-card">
           <h2>Choose how to give</h2>
           <p>Cash machine: <strong>{atm.cashMachineStatus}</strong>. {atm.cashDisabledReason}</p>
           <div className="atm-methods">
-            <button className="button button-primary" disabled={busy || !atm.cryptoDonationEnabled} onClick={() => void act(async () => {
+            <button className="button button-primary" disabled={atm.cashPolicy !== 'interim-ledger' && (busy || !atm.cryptoDonationEnabled)} onClick={() => void act(async () => {
               requestId.current ??= crypto.randomUUID();
               setAtm(await screenApi<AtmDto>(`${base}/visits`, { mode: 'crypto', requestId: requestId.current }));
               requestId.current = null;
             })}>Donate with Crypto<br /><small>Continue on your phone</small></button>
-            <button className="button button-outline" disabled={busy || !atm.cashReceptionAvailable} aria-describedby="cash-unavailable" onClick={() => void act(async () => {
+            <button className="button button-outline" disabled={atm.cashPolicy !== 'interim-ledger' && (busy || !atm.cashReceptionAvailable)} aria-describedby="cash-unavailable" onClick={() => void act(async () => {
               requestId.current ??= crypto.randomUUID();
               setAtm(await screenApi<AtmDto>(`${base}/visits`, { mode: 'cash', requestId: requestId.current }));
               requestId.current = null;
@@ -192,7 +200,6 @@ export function AtmPage({ atmId }: { atmId: string }) {
             </button>
           </div>
           <p>No cash operation or device command is sent by this screen.</p>
-          <button className="text-button" disabled={busy} onClick={() => setAdminMode(true)}>Temple Admin</button>
         </section> : <section className="reception-card">
           {waiting ? <>
             <h2>{atm.visit.mode === 'cash' ? 'Authorize this cash reception on your phone' : 'Continue your Crypto donation on your phone'}</h2>

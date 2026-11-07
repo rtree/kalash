@@ -4,6 +4,7 @@ import { useAccount, usePublicClient, useSwitchChain, useWriteContract } from 'w
 import { CHAIN_ID, formatPaise, formatUsdc, type PublicConfig } from '../shared.ts';
 import { cashFeeAbi, payoutTotal, type CashFeeInvoice, type PayoutInventoryReport, type PayoutState } from '../payout.ts';
 import { switchToKalashChain } from './walletNetwork.ts';
+import { ExplorerLink } from './ExplorerLink.tsx';
 
 type Api = <T>(url: string, init?: RequestInit, privateRequest?: boolean) => Promise<T>;
 interface AdminState {
@@ -168,7 +169,8 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
       {invoice && <div>
         <h2>Exact cash fee invoice</h2>
         <p>Cash covered: {formatPaise(invoice.cashPaise)}. Fee: <strong>{formatUsdc(invoice.amount)} USDC (3%)</strong>.</p>
-        <p>Fee payer: {invoice.payer}. Destination: {invoice.recipient}.</p>
+        <p>Fee payer: <ExplorerLink value={invoice.payer} kind="address" />. Destination: <ExplorerLink value={invoice.recipient} kind="address" />.</p>
+        {invoice.txHash && <p>Fee transaction: <ExplorerLink value={invoice.txHash} kind="tx" />.</p>}
         <p>Status: {invoice.status}. Donation recipient and existing history are unchanged.</p>
         {!interim && (invoice.status === 'awaiting_payment'
           ? <button className="button button-primary" disabled={busy} onClick={() => void act(() => pay(invoice))}>Pay this exact fee once</button>
@@ -179,9 +181,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
             }, true);
           })}>Verify existing payment · no resubmission</button>)}
       </div>}
-      {interim ? <button className="button button-primary" disabled={busy || !state.cashFeeVaultAvailable
-        || state.activeReception || !state.controllerReady || Boolean(payoutActive)
-        || !state.inventory || payoutTotal(state.inventory.inventory) === 0n}
+      {interim ? <button className="button button-primary"
         onClick={() => void act(openSettlement)}>Open Fee Settlement</button> : <>
       <button className="button button-outline" disabled={busy || !state.cashFeeVaultAvailable || state.activeReception
         || (state.reconciliationRequired && state.cashPolicy !== 'interim-ledger') || Boolean(payoutActive) || Boolean(invoice && invoice.status !== 'paid')}
@@ -191,6 +191,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
           requestId.current = null;
         })}>Create invoice for new unsettled cash</button>
       </>}
+      <a className="button button-outline" href={`/atm/${encodeURIComponent(atmId)}`}>Back to Donate Screen</a>
       {state.payout && <p role="status">Payout {state.payout.command.payoutId}: {state.payout.state}.
         {state.payout.state === 'unknown' && ' Keep the machine stopped and reconcile; never send the dispense command again.'}</p>}
       {state.payout?.state === 'unknown' && state.payout.endState && !state.payout.reconciled
