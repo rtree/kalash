@@ -195,6 +195,10 @@ Strict retains canonical fee verification and signed approval. Value differences
 are retained, not turned into invented donation credit or ignored device
 faults. Cashbox remains excluded and uncertain physical commands never retry.
 
+The normal ATM donation view omits Back to Donate Screen and Open Fee Settlement.
+Those controls remain enabled in the selected Temple Admin view. The entry
+to that view sits below View community board; payout presence never selects it.
+
 Idle hardware faults retain the device lock but do not append reconciliation
 events or reasons to an already closed cash intake. An active intake retains
 the existing fault/event behavior. Owner-confirmed recovery of the pre-fix

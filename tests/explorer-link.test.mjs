@@ -30,7 +30,7 @@ test('wallet and transaction text show only 0x plus four digits and ellipsis wit
   }
 });
 
-test('payout presence cannot force admin view or disable Donate and settlement navigation in Interim', () => {
+test('ATM keeps administrator controls only in admin view and its entry below the community board', () => {
   const bundled = buildSync({
     entryPoints: ['src/web/Reception.tsx'], bundle: true, write: false,
     platform: 'node', format: 'cjs', packages: 'external',
@@ -47,13 +47,19 @@ test('payout presence cannot force admin view or disable Donate and settlement n
         useRef: (initial) => ({ current: initial }), useEffect: () => {}, useCallback: (fn) => fn }
       : require(name) });
     const html = renderToStaticMarkup(loaded.exports.AtmPage({ atmId: 'atm-01' }));
-    assert.ok(html.includes('Open Fee Settlement'));
-    assert.ok(html.includes('Back to Donate Screen'));
-    assert.equal(/<button[^>]*disabled[^>]*>Back to Donate Screen/.test(html), false);
     if (!adminMode) {
+      assert.equal(html.includes('Open Fee Settlement'), false);
+      assert.equal(html.includes('Back to Donate Screen'), false);
       assert.ok(html.includes('Donate with Crypto'));
       assert.ok(html.includes('Cash donation'));
       assert.equal(/<button[^>]*disabled/.test(html), false);
+      assert.ok(html.indexOf('View community board') < html.indexOf('>Temple Admin</button>'));
+      assert.ok(html.includes('aria-label="ATM administration"'));
+    } else {
+      assert.equal(html.match(/Open Fee Settlement<\/a>/g)?.length, 1);
+      assert.equal(html.match(/Back to Donate Screen<\/button>/g)?.length, 1);
+      assert.equal(/<button[^>]*disabled[^>]*>Back to Donate Screen/.test(html), false);
+      assert.equal(html.includes('aria-label="ATM administration"'), false);
     }
   }
 });

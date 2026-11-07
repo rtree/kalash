@@ -134,14 +134,6 @@ export function AtmPage({ atmId }: { atmId: string }) {
         Interim CashIN: sign the QR to start reception. Historical ledger differences are retained without blocking the next visit.
       </p>}
       {error && <div className="notice notice-danger" role="alert">{error}</div>}
-      {atm && !pairing && <nav className="atm-methods" aria-label="ATM actions">
-        <button className="button button-outline" onClick={() => {
-          setAdminMode(false); setPayoutApproval(null); payoutRequestId.current = null;
-        }}>Back to Donate Screen</button>
-        <a className="button button-primary" href={`/temple-admin/${encodeURIComponent(atmId)}`}
-          target="_blank" rel="noopener noreferrer">Open Fee Settlement</a>
-        <button className="text-button" onClick={() => setAdminMode(true)}>Temple Admin</button>
-      </nav>}
       {pairing ? <form className="reception-card" onSubmit={(event) => {
         event.preventDefault();
         void act(async () => {
@@ -247,6 +239,9 @@ export function AtmPage({ atmId }: { atmId: string }) {
           })}>{atm.visit.state === 'confirmed' ? 'Finish' : 'Close reception'}</button>
         </section>}
       <a className="text-button" href={atm ? `/board/${atm.templeId}` : '/temples'}>View community board</a>
+      {atm && !pairing && !adminMode && <nav aria-label="ATM administration">
+        <button className="text-button" onClick={() => setAdminMode(true)}>Temple Admin</button>
+      </nav>}
     </main>
   </div>;
 }

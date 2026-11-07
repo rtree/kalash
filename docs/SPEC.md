@@ -63,6 +63,9 @@ by the presence of a payout record. The attended owner avoids concurrent use;
 actual device faults and unknown-command no-retry remain enforced. Wallet
 addresses and transaction hashes in page prose use prefix-only `0x1234...`
 Explorer links opening in a new tab, not full addresses or full hash text.
+The owner's subsequent layout update places Back to Donate Screen and Open Fee
+Settlement only in the Temple Admin view, not the normal ATM donation view.
+The normal ATM's Temple Admin entry appears below View community board.
 
 ```
 ### 最初の操作に適用する短いルールとチェック
