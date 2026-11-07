@@ -247,6 +247,37 @@ test('Interim fee is 3% of closed recognized stored ledger cash, keyed by cash s
     { code: 'NO_UNSETTLED_CASH' });
 });
 
+test('zero-credit historical failed starts do not block recognized-cash fees or mutate their evidence', async () => {
+  const zeroSessionId = '2a364965-289e-4bff-abdf-e7af7cab0c3e';
+  const zeroVisitId = 'b'.repeat(64);
+  const zeroPath = `cashSessions/${zeroSessionId}`;
+  const legacy = {
+    atmId, cashSessionId: zeroSessionId, visitId: zeroVisitId,
+    ledger: { baseline: null, notes: [], closed: true,
+      reconciliationReasons: ['ready_not_observed', 'prior_reconciliation_required',
+        'start_command_not_observed', 'missing_baseline', 'controller_fault'] },
+  };
+  store.records.set(zeroPath, structuredClone(legacy));
+  store.records.set(`visits/${zeroVisitId}`, {
+    id: zeroVisitId, atmId, templeId: 'temple-01', cashSessionId: zeroSessionId, state: 'closed',
+  });
+  const state = await payout.getTemplePayout(atmId, adminWallet.address);
+  assert.equal(state.recognizedCashPaise, '10000');
+  const { invoice } = await createAndPayInvoice();
+  assert.equal(invoice.cashPaise, '10000');
+  assert.deepEqual(invoice.sourceKeys, [`cash-session:${cashSessionId}`]);
+  assert.deepEqual(store.records.get(zeroPath), legacy);
+});
+
+test('positive-credit operationally unresolved ledgers still cannot fund Interim fee settlement', async () => {
+  const session = store.records.get(`cashSessions/${cashSessionId}`);
+  session.ledger.reconciliationReasons = ['controller_fault'];
+  const before = structuredClone(session);
+  await assert.rejects(payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() }),
+    { code: 'UNRECONCILED_CASH_SOURCE' });
+  assert.deepEqual(store.records.get(`cashSessions/${cashSessionId}`), before);
+});
+
 test('canonical fee coverage permits one signed full actual payout despite ledger mismatch or prior dispensed excess', async () => {
   await createAndPayInvoice();
   const payoutResult = await approveActualPayout();

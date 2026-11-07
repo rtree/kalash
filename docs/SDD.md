@@ -205,6 +205,9 @@ Legacy device-state and close-timeout reasons are allowed only in the historical
 audit path requiring a fresh bound physical readback, not as accounting-only
 errors. Owner-authorized ADC maintenance may invoke the existing retirement
 transaction; no public endpoint or wallet/screen authorization is added.
+Closed bound ledgers with zero recognized credit are not fee sources, including
+historical failed starts. Their original errors remain unchanged; positive-credit
+ledgers must still meet historical settlement eligibility.
 The administrator view shows recognized cash, actual Payout cash and their
 signed difference before approving the exact actual full payout amount.
 

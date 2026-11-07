@@ -130,12 +130,12 @@ async function interimLedgerSources(templeId: string, atmId?: string): Promise<C
     const visit = (await db.collection('visits').doc(session.visitId).get()).data();
     requireValue(visit?.atmId === atmId && visit.templeId === templeId && visit.cashSessionId === row.id,
       409, 'INVALID_CASH_SOURCE', 'Cash ledger visit does not match its registered temple and ATM.');
-    requireValue(historicalLedgerEligible(ledger, visit, row.id),
-      409, 'UNRECONCILED_CASH_SOURCE', 'Cash ledger mismatch is not eligible for Interim fee settlement.');
     let creditedPaise: bigint;
     try { creditedPaise = cashTotals(ledger).creditedPaise; }
     catch { throw new HttpError(409, 'INVALID_CASH_SOURCE', 'Malformed cash ledger cannot be settled.'); }
     if (creditedPaise <= 0n) continue;
+    requireValue(historicalLedgerEligible(ledger, visit, row.id),
+      409, 'UNRECONCILED_CASH_SOURCE', 'Cash ledger mismatch is not eligible for Interim fee settlement.');
     const amount = creditedPaise.toString();
     const donationRows = donationsBySession.get(row.id) ?? [];
     const donationIds = donationRows.reduce((sum, item) => sum + item.amount, 0n) === creditedPaise
