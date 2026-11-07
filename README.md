@@ -2,7 +2,9 @@
 
 An donation webApp that connect devotees and temple in confortable way. Devotees can donate cashes to temple by crypto remotely and also by notes using ATMs that are placed in temples.
 
-![Uploading Screenshot 2026-11-07 at 6.52.27.png…]()
+<img width="1006" height="762" alt="image" src="https://github.com/user-attachments/assets/4036c54d-9b85-42f7-bf95-14d704be5976" />
+
+<img width="1006" height="762" alt="image" src="https://github.com/user-attachments/assets/7c75ad90-eb23-4a29-83b2-02efe8e25181" />
 
 
 ### How it's Made
