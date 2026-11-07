@@ -9,6 +9,7 @@ type Api = <T>(url: string, init?: RequestInit, privateRequest?: boolean) => Pro
 interface AdminState {
   cashPolicy?: 'strict' | 'interim-ledger';
   recognizedCashPaise?: string;
+  unsettledCashPaise?: string;
   actualPayoutPaise?: string;
   differencePaise?: string;
   atmId: string; templeId: string; cashEnabled: boolean; activeReception: boolean;
@@ -69,6 +70,15 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Operation unresolved. Restore the same invoice or payout; do not retry payment or dispensing.'); }
     finally { working.current = false; setBusy(false); }
   };
+  const startSettlementPayout = async (invoice: CashFeeInvoice, txHash?: Hex) => {
+    const storageKey = `kalash:fee-settlement:${invoice.invoiceId}`;
+    let stableId = localStorage.getItem(storageKey);
+    if (!stableId) { stableId = crypto.randomUUID(); localStorage.setItem(storageKey, stableId); }
+    await api(`${base}/settlement`, { method: 'POST', body: JSON.stringify({
+      invoiceId: invoice.invoiceId, requestId: stableId, ...(txHash ? { txHash } : {}),
+    }) }, true);
+    setNotice('One full payout requested. Kalash takes the fee settlement risk. Collect the notes and observe the actual machine result; do not resend.');
+  };
   const pay = async (invoice: CashFeeInvoice) => {
     if (!address || !wallet || getAddress(address) !== getAddress(wallet)
       || getAddress(invoice.payer) !== getAddress(address)) throw new Error('Verify the registered fee-payment wallet first.');
@@ -101,16 +111,39 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
       args: [invoice.invoiceId, invoice.templeKey, amount, BigInt(invoice.deadline), invoice.signature],
       chainId: CHAIN_ID, account: address });
     localStorage.setItem(`kalash:fee-payment:${invoice.invoiceId}`, hash);
-    await api(`${base}/invoices/${invoice.invoiceId}/verify`, { method: 'POST', body: JSON.stringify({ txHash: hash }) }, true);
-    setNotice('Existing payment submitted for canonical receipt verification. Do not pay it again.');
+    if (state?.cashPolicy === 'interim-ledger') await startSettlementPayout(invoice, hash);
+    else {
+      await api(`${base}/invoices/${invoice.invoiceId}/verify`, { method: 'POST', body: JSON.stringify({ txHash: hash }) }, true);
+      setNotice('Existing payment submitted for canonical receipt verification. Do not pay it again.');
+    }
   };
   const invoice = state?.invoice;
+  const interim = state?.cashPolicy === 'interim-ledger';
+  const openSettlement = async () => {
+    if (!state) throw new Error('Restore administrator state first.');
+    let current = state.invoice;
+    if (!current || ((current.status === 'paid' || current.settlementRiskAcceptedAt)
+      && BigInt(state.unsettledCashPaise ?? '0') > 0n)) {
+      requestId.current ??= crypto.randomUUID();
+      current = await api<CashFeeInvoice>(`${base}/invoice`, {
+        method: 'POST', body: JSON.stringify({ requestId: requestId.current }),
+      }, true);
+      requestId.current = null;
+      setState({ ...state, invoice: current });
+    }
+    if (current.status === 'awaiting_payment') await pay(current);
+    else {
+      const hash = current.txHash ?? localStorage.getItem(`kalash:fee-payment:${current.invoiceId}`);
+      if (hash && !/^0x[0-9a-f]{64}$/i.test(hash)) throw new Error('Existing fee send is unresolved. Inspect the wallet operation; do not resend.');
+      await startSettlementPayout(current, hash ? hash as Hex : undefined);
+    }
+  };
   const payoutActive = state?.payout && !state.payout.reconciled && !['reported', 'precondition_failed'].includes(state.payout.state);
   return <section className="reception-card">
     <p className="eyebrow">Temple Admin · Base Sepolia</p>
     <h1>Cash settlement and full payout</h1>
     {config.cashPolicy === 'interim-ledger' && <p className="notice notice-info" role="status">
-      Interim mode: 3% of recognized ledger cash is settled first, then an administrator may approve all available Payout notes.
+      Interim mode: Open Fee Settlement sends the exact 3% fee and starts full payout when the wallet returns a transaction hash. Kalash takes settlement risk; no payout QR is needed.
     </p>}
     <p>ATM {atmId}. Connect and verify the explicitly registered temple administrator wallet using the header controls.</p>
     {error && <div className="notice notice-danger" role="alert">{error}</div>}
@@ -120,7 +153,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
       {state.cashPolicy === 'interim-ledger' && <div className="notice notice-info" role="status">
         <strong>Interim cash policy</strong>
         <p>Signed QR reception stays available despite historical ledger differences. Actual device errors still require attention.</p>
-        <p>The fee is 3% of recognized ledger cash. After fee confirmation, one administrator approval pays out every available note in the Payout compartment. Cashbox notes cannot be dispensed.</p>
+        <p>The fee is 3% of recognized ledger cash. Open Fee Settlement starts payout immediately after fee submission, without waiting for a successful receipt. If already paid, the same button starts payout without another payment. Cashbox notes cannot be dispensed.</p>
         {state.recognizedCashPaise !== undefined && <p>Recognized cash: {formatPaise(state.recognizedCashPaise)} INR.
           {state.actualPayoutPaise !== undefined && <> Actual Cashout: {formatPaise(state.actualPayoutPaise)} INR.</>}
           {state.differencePaise !== undefined && <> Difference: {formatPaise(state.differencePaise)} INR (retained in the audit history).</>}</p>}
@@ -137,15 +170,19 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
         <p>Cash covered: {formatPaise(invoice.cashPaise)}. Fee: <strong>{formatUsdc(invoice.amount)} USDC (3%)</strong>.</p>
         <p>Fee payer: {invoice.payer}. Destination: {invoice.recipient}.</p>
         <p>Status: {invoice.status}. Donation recipient and existing history are unchanged.</p>
-        {invoice.status === 'awaiting_payment'
+        {!interim && (invoice.status === 'awaiting_payment'
           ? <button className="button button-primary" disabled={busy} onClick={() => void act(() => pay(invoice))}>Pay this exact fee once</button>
           : invoice.status !== 'paid' && <button className="button button-outline" disabled={busy} onClick={() => void act(async () => {
             const txHash = localStorage.getItem(`kalash:fee-payment:${invoice.invoiceId}`);
             await api(`${base}/invoices/${invoice.invoiceId}/verify`, {
               method: 'POST', body: JSON.stringify(txHash ? { txHash } : {}),
             }, true);
-          })}>Verify existing payment · no resubmission</button>}
+          })}>Verify existing payment · no resubmission</button>)}
       </div>}
+      {interim ? <button className="button button-primary" disabled={busy || !state.cashFeeVaultAvailable
+        || state.activeReception || !state.controllerReady || Boolean(payoutActive)
+        || !state.inventory || payoutTotal(state.inventory.inventory) === 0n}
+        onClick={() => void act(openSettlement)}>Open Fee Settlement</button> : <>
       <button className="button button-outline" disabled={busy || !state.cashFeeVaultAvailable || state.activeReception
         || (state.reconciliationRequired && state.cashPolicy !== 'interim-ledger') || Boolean(payoutActive) || Boolean(invoice && invoice.status !== 'paid')}
         onClick={() => void act(async () => {
@@ -153,6 +190,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
           await api(`${base}/invoice`, { method: 'POST', body: JSON.stringify({ requestId: requestId.current }) }, true);
           requestId.current = null;
         })}>Create invoice for new unsettled cash</button>
+      </>}
       {state.payout && <p role="status">Payout {state.payout.command.payoutId}: {state.payout.state}.
         {state.payout.state === 'unknown' && ' Keep the machine stopped and reconcile; never send the dispense command again.'}</p>}
       {state.payout?.state === 'unknown' && state.payout.endState && !state.payout.reconciled
@@ -165,7 +203,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
             body: JSON.stringify({ payoutId: state.payout!.command.payoutId, signature }) }, true);
           setNotice('Reconciliation approved only. The Controller must still verify unchanged physical inventory before the lock is retired.');
         })}>Review and sign partial-end reconciliation · no dispensing</button> : null}
-      {approval && !approved && <div>
+      {!interim && approval && !approved && <div>
         <h2>Confirm one full payout</h2>
         <p>{approval.templeId} / {approval.atmId}: {formatPaise(approval.amountPaise)}. Be present to collect notes from the bezel.</p>
         <pre className="reception-target">{approval.message}</pre>
@@ -176,7 +214,7 @@ export function TempleAdmin({ atmId, approvalId, wallet, config, api, onSign }: 
             setApproved(true); setApproval(null); setNotice('One payout authorized. Observe the actual machine result; do not resubmit.');
           })}>Sign and approve this full payout once</button>
       </div>}
-      {!approvalId && <p>After fee confirmation, use Temple Admin on the paired ATM to display the one-use payout approval QR.</p>}
+      {!interim && !approvalId && <p>After fee confirmation, use Temple Admin on the paired ATM to display the one-use payout approval QR.</p>}
     </>}
   </section>;
 }

@@ -30,6 +30,7 @@ export interface CashFeeInvoice {
   vault: Address; recipient: Address; signature: Hex; startBlock: string;
   sourceKeys?: string[];
   txHash?: Hex; paidBlock?: string;
+  settlementRiskAcceptedAt?: number; settlementPayoutRequestId?: string;
 }
 export interface PayoutCommand {
   commandId: string; type: 'payout_cash'; payoutId: string; atmId: string; templeId: string;

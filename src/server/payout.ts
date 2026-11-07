@@ -163,12 +163,19 @@ export async function getTemplePayout(atmId: string, wallet: Address) {
   if (interimCashEnabled()) {
     const candidates = await sources(atm.templeId, atmId);
     let recognizedCash = 0n;
+    let unsettledCash = 0n;
     for (const source of candidates) {
       const session = (await db.collection('cashSessions').doc(source.cashSessionId).get()).data();
-      if (session?.atmId === atmId) recognizedCash += BigInt(source.cashAmountPaise);
+      if (session?.atmId === atmId) {
+        recognizedCash += BigInt(source.cashAmountPaise);
+        const coverage = await Promise.all(sourceCoverageKeys(source)
+          .map((key) => db.collection('cashFeeCoverage').doc(key).get()));
+        if (!coverage[0]?.exists && !(source.donationIds.length > 0 && coverage.slice(1).every((row) => row.exists)))
+          unsettledCash += BigInt(source.cashAmountPaise);
+      }
     }
     const actualPayout = atm.payoutInventory ? payoutTotal(atm.payoutInventory.inventory) : 0n;
-    return { ...result, recognizedCashPaise: recognizedCash.toString(), actualPayoutPaise: actualPayout.toString(),
+    return { ...result, recognizedCashPaise: recognizedCash.toString(), unsettledCashPaise: unsettledCash.toString(), actualPayoutPaise: actualPayout.toString(),
       differencePaise: (actualPayout - recognizedCash).toString() };
   }
   return result;
@@ -293,7 +300,9 @@ export async function createCashFeeInvoice(atmId: string, wallet: Address, body:
     const account = accountSnap.data() as Account | undefined;
     const currentInvoice = account?.activeInvoiceId
       ? (await tx.get(db.collection('cashFeeInvoices').doc(account.activeInvoiceId))).data() as CashFeeInvoice | undefined : null;
-    requireValue(!currentInvoice || currentInvoice.status === 'paid', 409, 'INVOICE_ALREADY_PENDING', 'Restore the same pending invoice; never submit another payment.');
+    requireValue(!currentInvoice || currentInvoice.status === 'paid'
+      || (interimCashEnabled() && currentInvoice.settlementRiskAcceptedAt),
+    409, 'INVOICE_ALREADY_PENDING', 'Restore the same pending invoice; never submit another payment.');
     requireValue(coverage.every((row) => !row.exists), 409, 'CASH_ALREADY_SETTLED', 'Cash coverage changed; do not submit this fee.');
     tx.create(invoiceRef, invoice);
     tx.set(accountRef, { ...account, activeInvoiceId: invoiceId, dispensedPaise: account?.dispensedPaise ?? '0' });
@@ -352,11 +361,14 @@ export async function verifyCashFee(atmId: string, wallet: Address, invoiceId: s
     const current = snapshot.data() as CashFeeInvoice | undefined;
     requireValue(current && current.txHash === hash, 409, 'FEE_HASH_CONFLICT', 'Invoice changed while verifying receipt.');
     if (current.status === 'paid') return current;
-    requireValue(!event.exists && coverage.every((row) => !row.exists), 409, 'FEE_ALREADY_USED', 'Fee payment cannot cover another invoice.');
+    requireValue(!event.exists && coverage.every((row) => !row.exists
+      || (row.get('invoiceId') === invoiceId && row.get('txHash') === hash
+        && row.get('settlementBasis') === 'submitted_at_kalash_risk')),
+    409, 'FEE_ALREADY_USED', 'Fee payment cannot cover another invoice.');
     const paid = { ...current, status: 'paid' as const, paidBlock: receipt.blockNumber.toString() };
     tx.update(ref, paid);
     tx.create(eventRef, { invoiceId, blockHash: receipt.blockHash });
-    coverageKeys.forEach((key) => tx.create(db.collection('cashFeeCoverage').doc(key), { invoiceId, atmId, txHash: hash }));
+    coverageKeys.forEach((key) => tx.set(db.collection('cashFeeCoverage').doc(key), { invoiceId, atmId, txHash: hash }));
     return paid;
   });
 }
@@ -376,7 +388,7 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
   interface Approval {
     approvalId: string; atmId: string; templeId: string; payoutId: string; expiresAt: number;
     amountPaise: string; baseline: CashInventory; inventoryReportHash: string;
-    invoiceIds: Hex[]; message: string; used: boolean;
+    invoiceIds: Hex[]; message: string; used: boolean; directInvoiceId?: Hex;
   }
   export async function getPayoutApproval(approvalId: string) {
     requireValue(PAYOUT_UUID.test(approvalId), 400, 'INVALID_APPROVAL_ID', 'A valid payout approval reference is required.');
@@ -387,13 +399,16 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       expiresAt: approval.expiresAt, message: approval.message };
   }
   export async function createPayoutApproval(atmId: string, body: Record<string, unknown>, wallet?: Address, cookie?: string) {
+    return preparePayoutApproval(atmId, body, wallet, cookie);
+  }
+  async function preparePayoutApproval(atmId: string, body: Record<string, unknown>, wallet?: Address, cookie?: string, directInvoiceId?: Hex) {
     exactFields(body, ['requestId']);
     requireValue(typeof body.requestId === 'string' && PAYOUT_UUID.test(body.requestId), 400, 'INVALID_REQUEST_ID', 'A stable payout request UUID is required.');
     const atmRef = atmReference(atmId);
     const initial = validAtm((await atmRef.get()).data() as AtmRecord | undefined);
     if (wallet) admin(initial.templeId, wallet);
     else validScreen(initial, screenCredential(cookie));
-    readyIdle(initial);
+    if (!directInvoiceId) readyIdle(initial);
     const candidates = await sources(initial.templeId, atmId);
     const ref = db.collection('cashPayoutApprovals').doc(body.requestId);
     return db.runTransaction(async (tx) => {
@@ -403,14 +418,15 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       const atm = validAtm(atmSnap.data() as AtmRecord | undefined);
       if (wallet) admin(atm.templeId, wallet);
       else validScreen(atm, screenCredential(cookie));
-      readyIdle(atm);
-      const report = reportedInventory(atm);
       if (requestSnap.exists) {
         const previous = requestSnap.data() as Approval;
-        requireValue(previous.atmId === atmId && !previous.used && previous.expiresAt > Date.now(),
+        requireValue(previous.atmId === atmId && previous.directInvoiceId === directInvoiceId
+          && (directInvoiceId || (!previous.used && previous.expiresAt > Date.now())),
           409, 'PAYOUT_REQUEST_CLOSED', 'Restore the existing payout; do not create another command.');
         return { approvalId: previous.approvalId, url: `${origin}/temple-admin/${atmId}?approval=${previous.approvalId}` };
       }
+      readyIdle(atm);
+      const report = reportedInventory(atm);
       const account = accountSnap.data() as Account | undefined;
       let creditedPaise = 0n;
       const invoiceIds = new Set<Hex>();
@@ -439,8 +455,11 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
           const invoice = (await tx.get(db.collection('cashFeeInvoices').doc(coverage.invoiceId))).data() as CashFeeInvoice | undefined;
           const invoiceCoversSource = invoice?.sourceKeys?.includes(source.sourceKey)
             || (source.donationIds.length > 0 && source.donationIds.every((id) => invoice?.donationIds.includes(id)));
-          requireValue(invoice?.status === 'paid' && invoice.atmId === atmId && invoiceCoversSource
-            && invoice.txHash === coverage.txHash && invoice.paidBlock,
+          const settled = invoice?.status === 'paid' && invoice.paidBlock;
+          const riskAccepted = directInvoiceId && interimCashEnabled() && invoice?.status === 'submitted'
+            && invoice.settlementRiskAcceptedAt && coverage.settlementBasis === 'submitted_at_kalash_risk';
+          requireValue(invoice && (settled || riskAccepted) && invoice.atmId === atmId && invoiceCoversSource
+            && invoice.txHash === coverage.txHash,
           409, 'UNSETTLED_CASH', 'Paid fee evidence must cover the recognized cash source.');
           invoiceIds.add(invoice.invoiceId);
         }
@@ -469,7 +488,8 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
         'Authorize one full payout only. No token transfer or fee payment is authorized by this signature.',
       ].join('\n');
       const approval: Approval = { approvalId, atmId, templeId: atm.templeId, payoutId, expiresAt, amountPaise: remaining.toString(),
-        baseline: report.inventory, inventoryReportHash: baselineHash, invoiceIds: [...invoiceIds].sort(), message, used: false };
+        baseline: report.inventory, inventoryReportHash: baselineHash, invoiceIds: [...invoiceIds].sort(), message, used: false,
+        ...(directInvoiceId ? { directInvoiceId } : {}) };
       tx.create(ref, approval);
       return { approvalId, url: `${origin}/temple-admin/${atmId}?approval=${approvalId}` };
     });
@@ -484,6 +504,10 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
     admin(initial.templeId, wallet);
     requireValue(await verifyMessage({ address: wallet, message: initial.message, signature: body.signature as Hex }),
       403, 'PAYOUT_SIGNATURE_INVALID', 'Payout signature does not match the registered temple administrator.');
+    return dispatchPayoutApproval(atmId, wallet, approvalId, initial);
+  }
+  async function dispatchPayoutApproval(atmId: string, wallet: Address, approvalId: string, initial: Approval) {
+    const ref = db.collection('cashPayoutApprovals').doc(approvalId);
     return db.runTransaction(async (tx) => {
       const atmRef = atmReference(atmId);
       const payoutRef = db.collection('cashPayouts').doc(initial.payoutId);
@@ -509,6 +533,56 @@ export async function recordCashFeeSubmission(atmId: string, wallet: Address, in
       tx.update(atmRef, { activePayoutId: command.payoutId });
       return { payoutId: command.payoutId, state: 'pending' };
     });
+  }
+  export async function openFeeSettlement(atmId: string, wallet: Address, body: Record<string, unknown>) {
+    requireValue(interimCashEnabled(), 409, 'DIRECT_SETTLEMENT_DISABLED', 'Strict mode requires a signed payout approval.');
+    exactFields(body, ['invoiceId', 'requestId', 'txHash'], ['invoiceId', 'requestId']);
+    requireValue(typeof body.invoiceId === 'string' && HASH.test(body.invoiceId)
+      && typeof body.requestId === 'string' && PAYOUT_UUID.test(body.requestId)
+      && (body.txHash === undefined || (typeof body.txHash === 'string' && HASH.test(body.txHash))),
+    400, 'INVALID_FEE_REFERENCE', 'An exact invoice, stable request and existing fee transaction hash are required.');
+    const invoiceId = body.invoiceId as Hex;
+    const invoiceRef = db.collection('cashFeeInvoices').doc(invoiceId);
+    const requestId = await db.runTransaction(async (tx) => {
+      const [invoiceSnap, atmSnap] = await Promise.all([tx.get(invoiceRef), tx.get(atmReference(atmId))]);
+      const invoice = invoiceSnap.data() as CashFeeInvoice | undefined;
+      const atm = validAtm(atmSnap.data() as AtmRecord | undefined);
+      admin(atm.templeId, wallet);
+      requireValue(invoice && invoice.atmId === atmId && invoice.templeId === atm.templeId
+        && getAddress(invoice.payer) === getAddress(wallet),
+      403, 'INVOICE_OWNER_MISMATCH', 'Only the registered invoice payer may start settlement payout.');
+      requireValue(!body.txHash || !invoice.txHash || body.txHash === invoice.txHash,
+        409, 'FEE_HASH_CONFLICT', 'Never replace the existing payment transaction.');
+      const hash = (body.txHash ?? invoice.txHash) as Hex | undefined;
+      requireValue(invoice.status === 'paid' || (hash
+        && (invoice.status === 'submitted' || (invoice.status === 'unknown' && invoiceSnap.get('submissionRecordedAt')))),
+      409, 'FEE_SUBMISSION_REQUIRED', 'Send the exact fee once, then restore its transaction hash. Unknown sends must not be retried.');
+      if (invoice.settlementPayoutRequestId) return invoice.settlementPayoutRequestId;
+      readyIdle(atm);
+      reportedInventory(atm);
+      const coverageKeys = [...new Set([...(invoice.sourceKeys ?? []), ...invoice.donationIds])];
+      const riskRef = hash ? db.collection('cashFeeRiskTransactions').doc(`${CHAIN_ID}_${hash}`) : null;
+      const [risk, ...coverage] = await Promise.all([
+        riskRef ? tx.get(riskRef) : Promise.resolve(null),
+        ...coverageKeys.map((key) => tx.get(db.collection('cashFeeCoverage').doc(key))),
+      ]);
+      requireValue(!risk?.exists || risk.get('invoiceId') === invoiceId,
+        409, 'FEE_ALREADY_USED', 'This fee submission already belongs to another invoice.');
+      requireValue(coverage.every((row) => !row.exists
+        || (row.get('invoiceId') === invoiceId && row.get('txHash') === hash)),
+      409, 'FEE_ALREADY_USED', 'Cash coverage belongs to another invoice.');
+      if (invoice.status !== 'paid') {
+        tx.update(invoiceRef, { status: 'submitted', txHash: hash!, settlementRiskAcceptedAt: Date.now(),
+          settlementPayoutRequestId: body.requestId });
+        if (riskRef && !risk?.exists) tx.create(riskRef, { invoiceId, atmId });
+        coverageKeys.forEach((key) => tx.set(db.collection('cashFeeCoverage').doc(key),
+          { invoiceId, atmId, txHash: hash!, settlementBasis: 'submitted_at_kalash_risk' }));
+      } else tx.update(invoiceRef, { settlementPayoutRequestId: body.requestId });
+      return body.requestId as string;
+    });
+    const prepared = await preparePayoutApproval(atmId, { requestId }, wallet, undefined, invoiceId);
+    const approval = (await db.collection('cashPayoutApprovals').doc(prepared.approvalId).get()).data() as Approval;
+    return dispatchPayoutApproval(atmId, wallet, prepared.approvalId, approval);
   }
   export async function getPayoutCommand(atmId: string, authorization: string | undefined) {
     await validateControllerCredential(atmId, authorization);

@@ -151,10 +151,13 @@ export function AtmPage({ atmId }: { atmId: string }) {
         : !atm.visit && (adminMode || atm.payout) ? <section className="reception-card">
           <p className="eyebrow">Temple Admin</p>
           <h2>Settle fees and approve full payout</h2>
-          <p>This screen cannot authorize dispensing. Only the registered temple administrator can sign the one-use approval on their phone.</p>
-          <a className="button button-outline" href={`/temple-admin/${encodeURIComponent(atmId)}`} target="_blank" rel="noreferrer">Open fee settlement</a>
+          <p>{atm.cashPolicy === 'interim-ledger'
+            ? 'Verify the registered administrator wallet in Temple Admin. Open Fee Settlement starts full payout after fee submission, or immediately if already paid. Kalash takes settlement risk.'
+            : 'This screen cannot authorize dispensing. Only the registered temple administrator can sign the one-use approval on their phone.'}</p>
+          <a className={`button ${atm.cashPolicy === 'interim-ledger' ? 'button-primary' : 'button-outline'}`}
+            href={`/temple-admin/${encodeURIComponent(atmId)}`} target="_blank" rel="noreferrer">Open Fee Settlement</a>
           {atm.payout ? <p role="status">Payout {atm.payout.payoutId}: {atm.payout.state}, {formatPaise(atm.payout.amountPaise)}.
-            {atm.payout.state === 'unknown' ? ' Keep the machine stopped and reconcile; do not resubmit.' : ' Be present to collect banknotes when the device presents them.'}</p> : <>
+            {atm.payout.state === 'unknown' ? ' Keep the machine stopped and reconcile; do not resubmit.' : ' Be present to collect banknotes when the device presents them.'}</p> : atm.cashPolicy !== 'interim-ledger' && <>
             <button className="button button-primary" disabled={busy || atm.cashMachineStatus !== 'ready'}
               onClick={() => void act(async () => {
                 payoutRequestId.current ??= crypto.randomUUID();

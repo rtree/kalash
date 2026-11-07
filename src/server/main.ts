@@ -16,7 +16,7 @@ import { claimCashVisit, claimVisit, closeVisit, createCashConsentChallenge, cre
 import { getControllerCashSession, reportControllerCashEvent } from './cash.ts';
 import {
   approvePayout, cashFeeTick, createCashFeeInvoice, createPayoutApproval, getPayoutApproval, getPayoutCommand,
-  getTemplePayout, recordCashFeeSubmission, reportPayoutInventory, verifyCashFee,
+  getTemplePayout, openFeeSettlement, recordCashFeeSubmission, reportPayoutInventory, verifyCashFee,
   reportPayoutCommand, createPayoutReconciliation, getPayoutReconciliationCommand,
 } from './payout.ts';
 import {
@@ -237,12 +237,13 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   }
   const owner = await identity(request.headers.authorization);
   rateLimit(request, owner.toLowerCase(), 100);
-  const templeAdminRoute = path.match(/^\/api\/temple-admin\/([a-z0-9-]+)(?:\/(invoice|approval|invoices|approvals|reconciliation)(?:\/(0x[a-f0-9]{64}|[a-f0-9-]{36})\/(verify|operation|approve))?)?$/i);
+  const templeAdminRoute = path.match(/^\/api\/temple-admin\/([a-z0-9-]+)(?:\/(invoice|approval|invoices|approvals|reconciliation|settlement)(?:\/(0x[a-f0-9]{64}|[a-f0-9-]{36})\/(verify|operation|approve))?)?$/i);
   if (templeAdminRoute) {
     const atmId = templeAdminRoute[1]!;
     if (request.method === 'GET' && !templeAdminRoute[2]) return send(response, await getTemplePayout(atmId, owner));
     if (request.method === 'POST') {
       const body = await jsonBody(request);
+      if (templeAdminRoute[2] === 'settlement' && !templeAdminRoute[3]) return send(response, await openFeeSettlement(atmId, owner, body));
       if (templeAdminRoute[2] === 'invoice' && !templeAdminRoute[3]) return send(response, await createCashFeeInvoice(atmId, owner, body), 201);
       if (templeAdminRoute[2] === 'approval' && !templeAdminRoute[3]) return send(response, await createPayoutApproval(atmId, body, owner), 201);
       if (templeAdminRoute[2] === 'reconciliation' && !templeAdminRoute[3])

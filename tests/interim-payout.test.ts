@@ -324,6 +324,126 @@ test('Interim payout rejects an empty Payout compartment even after fee coverage
   await assert.rejects(approveActualPayout(), { code: 'NO_CASH_TO_PAYOUT' });
 });
 
+test('Open Fee Settlement starts already-paid full payout without QR or a second signature', async () => {
+  const { invoice } = await createAndPayInvoice();
+  const result = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID() });
+  const record = store.records.get(`cashPayouts/${result.payoutId}`);
+  assert.equal(record.command.amountPaise, '20000');
+  assert.equal(record.state, 'pending');
+  assert.equal(record.approver, adminWallet.address);
+  assert.equal(store.records.get(`cashFeeInvoices/${invoice.invoiceId}`).status, 'paid');
+  assert.equal((await payout.getPayoutCommand(atmId, `Bearer ${controllerToken}`)).command?.payoutId, result.payoutId);
+});
+
+test('fee Send txHash starts payout with no receipt while recording risk, not fabricated paid evidence', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  const hash = `0x${'e'.repeat(64)}` as Hex;
+  const result = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID(), txHash: hash });
+  assert.equal(store.records.get(`cashPayouts/${result.payoutId}`).command.amountPaise, '20000');
+  const current = store.records.get(`cashFeeInvoices/${invoice.invoiceId}`);
+  assert.equal(current.status, 'submitted');
+  assert.equal(current.txHash, hash);
+  assert.ok(current.settlementRiskAcceptedAt);
+  assert.equal(current.paidBlock, undefined);
+  assert.equal(store.records.get(`cashFeeCoverage/cash-session:${cashSessionId}`).settlementBasis, 'submitted_at_kalash_risk');
+  assert.equal([...store.records.keys()].some((key) => key.startsWith('cashFeeChainEvents/')), false);
+  await assert.rejects(approveActualPayout(), { code: 'ATM_BUSY_OR_LOCKED' });
+});
+
+test('canonical verification later upgrades risk coverage without sending a second payout', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  const hash = `0x${'e'.repeat(64)}` as Hex;
+  const first = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID(), txHash: hash });
+  feeReceipt = { status: 'success', to: invoice.vault, from: adminWallet.address,
+    blockHash: `0x${'d'.repeat(64)}`, blockNumber: 1n, logs: feeLogs(invoice, hash) };
+  const paid = await payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, {});
+  assert.equal(paid.status, 'paid');
+  assert.equal(paid.paidBlock, '1');
+  assert.deepEqual(store.records.get(`cashFeeCoverage/cash-session:${cashSessionId}`),
+    { invoiceId: invoice.invoiceId, atmId, txHash: hash });
+  const repeat = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID() });
+  assert.deepEqual(repeat, first);
+  assert.equal([...store.records.keys()].filter((key) => key.startsWith('cashPayouts/')).length, 1);
+});
+
+test('a reverted fee receipt stays unresolved but cannot revoke or blindly retry risk-authorized payout', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  const hash = `0x${'e'.repeat(64)}` as Hex;
+  const first = await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID(), txHash: hash });
+  feeReceipt = { status: 'reverted', to: invoice.vault, from: adminWallet.address,
+    blockHash: `0x${'d'.repeat(64)}`, blockNumber: 1n, logs: [] };
+  await assert.rejects(payout.verifyCashFee(atmId, adminWallet.address, invoice.invoiceId, {}), { code: 'FEE_RECEIPT_MISMATCH' });
+  assert.equal(store.records.get(`cashFeeInvoices/${invoice.invoiceId}`).status, 'submitted');
+  assert.deepEqual(await payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID() }), first);
+});
+
+test('concurrent settlement clicks and retry after unknown or completed result use one immutable command', async () => {
+  const { invoice } = await createAndPayInvoice();
+  const body = () => ({ invoiceId: invoice.invoiceId, requestId: randomUUID() });
+  const results = await Promise.all([
+    payout.openFeeSettlement(atmId, adminWallet.address, body()),
+    payout.openFeeSettlement(atmId, adminWallet.address, body()),
+  ]);
+  assert.deepEqual(results[0], results[1]);
+  const result = results[0]!;
+  const record = store.records.get(`cashPayouts/${result.payoutId}`);
+  record.state = 'unknown';
+  assert.deepEqual(await payout.openFeeSettlement(atmId, adminWallet.address, body()),
+    { payoutId: result.payoutId, state: 'unknown' });
+  assert.equal((await payout.getPayoutCommand(atmId, `Bearer ${controllerToken}`)).command, null);
+  record.state = 'reported';
+  const atm = store.records.get(`atms/${atmId}`);
+  atm.activePayoutId = null;
+  atm.lastPayoutId = result.payoutId;
+  assert.deepEqual(await payout.openFeeSettlement(atmId, adminWallet.address, body()),
+    { payoutId: result.payoutId, state: 'reported' });
+  assert.equal([...store.records.keys()].filter((key) => key.startsWith('cashPayouts/')).length, 1);
+});
+
+test('unknown Send without txHash and unsubmitted wallet approval cannot start payout', async () => {
+  const invoice = await payout.createCashFeeInvoice(atmId, adminWallet.address, { requestId: randomUUID() });
+  const request = { invoiceId: invoice.invoiceId, requestId: randomUUID(), txHash: `0x${'e'.repeat(64)}` };
+  await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address, request), { code: 'FEE_SUBMISSION_REQUIRED' });
+  await payout.recordCashFeeSubmission(atmId, adminWallet.address, invoice.invoiceId);
+  await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address,
+    { invoiceId: invoice.invoiceId, requestId: randomUUID() }), { code: 'FEE_SUBMISSION_REQUIRED' });
+  assert.equal([...store.records.keys()].some((key) => key.startsWith('cashPayouts/')), false);
+});
+
+test('direct settlement preserves administrator, invoice hash, active reception and fresh device gates', async () => {
+  const { invoice } = await createAndPayInvoice();
+  const body = { invoiceId: invoice.invoiceId, requestId: randomUUID() };
+  const other = privateKeyToAccount(`0x${randomBytes(32).toString('hex')}` as Hex);
+  await assert.rejects(payout.openFeeSettlement(atmId, other.address, body), { code: 'TEMPLE_ADMIN_REQUIRED' });
+  await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address,
+    { ...body, txHash: `0x${'f'.repeat(64)}` }), { code: 'FEE_HASH_CONFLICT' });
+  const atm = store.records.get(`atms/${atmId}`);
+  atm.activeVisitId = 'a'.repeat(64);
+  await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address, body), { code: 'ATM_BUSY_OR_LOCKED' });
+  atm.activeVisitId = null;
+  atm.payoutInventory.observedAt = Date.now() - 31_000;
+  await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address, body), { code: 'PAYOUT_INVENTORY_UNVERIFIED' });
+  assert.equal(store.records.get(`cashFeeInvoices/${invoice.invoiceId}`).settlementPayoutRequestId, undefined);
+});
+
+test('strict mode cannot use submitted-fee risk settlement or unsigned direct payout', async () => {
+  const { invoice } = await createAndPayInvoice();
+  process.env.KALASH_CASH_POLICY = 'strict';
+  try {
+    await assert.rejects(payout.openFeeSettlement(atmId, adminWallet.address,
+      { invoiceId: invoice.invoiceId, requestId: randomUUID() }), { code: 'DIRECT_SETTLEMENT_DISABLED' });
+  } finally { process.env.KALASH_CASH_POLICY = 'interim-ledger'; }
+});
+
 test('strict policy does not use the Interim closed-ledger fallback', async () => {
   const configured = process.env.KALASH_CASH_POLICY;
   delete process.env.KALASH_CASH_POLICY;
